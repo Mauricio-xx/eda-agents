@@ -150,15 +150,15 @@ class GF180OTATopology(CircuitTopology):
         W5 = max(20.0e-6 * i_ratio, Wmin)
         L5 = max(2.0e-6, Lmin)
 
-        # Output NMOS CS: W scales with current, L = L_load
-        # Reference: W=50um at 100uA
-        W6 = max(50.0e-6 * i_ratio, Wmin)
+        # Output NMOS CS: W scales with sqrt(current) to keep reasonable sizes
+        # Reference: W=20um at 100uA
+        W6 = max(20.0e-6 * (i_ratio ** 0.5), Wmin)
         L6 = max(L_load, Lmin)
         ng6 = max(1, round(W6 / 10e-6))
 
         # PMOS current mirror for second stage
-        # Reference: W=100um at 100uA
-        W7 = max(100.0e-6 * i_ratio, Wmin)
+        # Reference: W=40um at 100uA
+        W7 = max(40.0e-6 * (i_ratio ** 0.5), Wmin)
         L7 = max(2.0e-6, Lmin)
         ng7 = max(1, round(W7 / 10e-6))
 
