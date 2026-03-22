@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from eda_agents.core.pdk import PdkConfig, resolve_pdk
+from eda_agents.core.pdk import PdkConfig, netlist_lib_lines, netlist_osdi_lines, resolve_pdk
 
 # ---------------------------------------------------------------------------
 # EKV normalized functions (inlined from ekv_functions.py)
@@ -792,30 +792,16 @@ class MillerOTADesigner:
         net_file.write_text("\n".join(net_lines) + "\n")
 
         # --- AC analysis control file ---
-        model_lib = f"$PDK_ROOT/{self.pdk.model_lib_rel}"
-
-        lib_lines = []
-        if self.pdk.model_corner:
-            lib_lines.append(f".lib {model_lib} {self.pdk.model_corner}")
-        else:
-            lib_lines.append(f".include {model_lib}")
-
-        osdi_lines = []
-        if self.pdk.has_osdi():
-            osdi_base = f"$PDK_ROOT/{self.pdk.osdi_dir_rel}"
-            for osdi_file in self.pdk.osdi_files:
-                osdi_lines.append(f"  osdi '{osdi_base}/{osdi_file}'")
-
         ac_lines = [
             f"Miller OTA AC analysis - {self.pdk.display_name}",
             f"",
-            *lib_lines,
+            *netlist_lib_lines(self.pdk),
             f".include {par_file.name}",
             f".include {net_file.name}",
             f"",
             f".control",
             f"  set ngbehavior=hsa",
-            *osdi_lines,
+            *netlist_osdi_lines(self.pdk),
             f"  op",
             f"  save v(vout)",
             f"  ac dec 41 10 100MEG",

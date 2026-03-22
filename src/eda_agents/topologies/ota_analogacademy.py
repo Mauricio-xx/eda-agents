@@ -22,7 +22,7 @@ import logging
 import math
 from pathlib import Path
 
-from eda_agents.core.pdk import PdkConfig, resolve_pdk
+from eda_agents.core.pdk import PdkConfig, netlist_lib_lines, netlist_osdi_lines, resolve_pdk
 from eda_agents.core.topology import CircuitTopology
 from eda_agents.core.spice_runner import SpiceResult
 
@@ -499,38 +499,15 @@ class AnalogAcademyOTATopology(CircuitTopology):
         net_file.write_text("\n".join(net_lines) + "\n")
 
         # --- AC analysis control file ---
-        model_lib = f"$PDK_ROOT/{self.pdk.model_lib_rel}"
-
-        # Build library includes
-        lib_lines = []
-        if self.pdk.model_corner:
-            lib_lines.append(f".lib {model_lib} {self.pdk.model_corner}")
-        else:
-            lib_lines.append(f".include {model_lib}")
-        if self.pdk.cap_lib_rel:
-            cap_lib = f"$PDK_ROOT/{self.pdk.cap_lib_rel}"
-            cap_corner = self.pdk.cap_corner or ""
-            if cap_corner:
-                lib_lines.append(f".lib {cap_lib} {cap_corner}")
-            else:
-                lib_lines.append(f".include {cap_lib}")
-
-        # Build OSDI lines
-        osdi_lines = []
-        if self.pdk.has_osdi():
-            osdi_base = f"$PDK_ROOT/{self.pdk.osdi_dir_rel}"
-            for osdi_file in self.pdk.osdi_files:
-                osdi_lines.append(f"  osdi '{osdi_base}/{osdi_file}'")
-
         ac_lines = [
             f"AnalogAcademy OTA AC analysis - {self.pdk.display_name}",
             "",
-            *lib_lines,
+            *netlist_lib_lines(self.pdk),
             f".include {net_file.name}",
             "",
             ".control",
             "  set ngbehavior=hsa",
-            *osdi_lines,
+            *netlist_osdi_lines(self.pdk),
             "  op",
             "  save v(vout)",
             "  ac dec 41 10 100MEG",

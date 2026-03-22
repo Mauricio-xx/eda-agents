@@ -23,7 +23,7 @@ import logging
 import math
 from pathlib import Path
 
-from eda_agents.core.pdk import PdkConfig, resolve_pdk
+from eda_agents.core.pdk import PdkConfig, netlist_lib_lines, netlist_osdi_lines, resolve_pdk
 from eda_agents.core.spice_runner import SpiceResult
 from eda_agents.core.topology import CircuitTopology
 
@@ -328,28 +328,14 @@ class StrongARMComparatorTopology(CircuitTopology):
         m4 = sizing["M4"]
         m6 = sizing["M6"]
 
-        # Build library and OSDI include lines
-        model_lib = f"$PDK_ROOT/{self.pdk.model_lib_rel}"
-        lib_lines = []
-        if self.pdk.model_corner:
-            lib_lines.append(f".lib {model_lib} {self.pdk.model_corner}")
-        else:
-            lib_lines.append(f".include {model_lib}")
-
-        osdi_lines = []
-        if self.pdk.has_osdi():
-            osdi_base = f"$PDK_ROOT/{self.pdk.osdi_dir_rel}"
-            for osdi_file in self.pdk.osdi_files:
-                osdi_lines.append(f"  osdi '{osdi_base}/{osdi_file}'")
-
         lines = [
             f"StrongARM Dynamic Comparator - {self.pdk.display_name} Transient Analysis",
             "",
-            *lib_lines,
+            *netlist_lib_lines(self.pdk),
             "",
             ".control",
             "  set ngbehavior=hsa",
-            *osdi_lines,
+            *netlist_osdi_lines(self.pdk),
             "",
             f"  tran 10p {2 * T_period:.4e}",
             "",

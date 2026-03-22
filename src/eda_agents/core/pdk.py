@@ -40,6 +40,7 @@ class PdkConfig:
     # SPICE model paths (relative to pdk_root)
     model_lib_rel: str                  # "ihp-sg13g2/.../cornerMOSlv.lib"
     model_corner: str                   # "mos_tt"
+    global_include_rel: str | None = None  # global params (e.g. design.ngspice)
     cap_lib_rel: str | None = None      # for cornerCAP.lib
     cap_corner: str | None = None
 
@@ -80,6 +81,12 @@ class PdkConfig:
     def has_osdi(self) -> bool:
         """Whether this PDK requires OSDI shared-library loading."""
         return bool(self.osdi_dir_rel and self.osdi_files)
+
+    def global_include_path(self, pdk_root: str) -> str | None:
+        """Full global include path, or None if not needed."""
+        if self.global_include_rel:
+            return f"{pdk_root}/{self.global_include_rel}"
+        return None
 
     def model_lib_path(self, pdk_root: str) -> str:
         """Full model library path for a given pdk_root."""
@@ -146,40 +153,42 @@ GF180MCU_D = PdkConfig(
     name="gf180mcu",
     display_name="GF180MCU 180nm CMOS",
     technology_nm=180,
-    VDD=1.8,
-    Lmin_m=180e-9,
+    VDD=3.3,
+    Lmin_m=280e-9,
     Wmin_m=220e-9,
-    z1_m=400e-9,
+    z1_m=380e-9,
 
-    model_lib_rel="gf180mcuD/libs.tech/ngspice/design.ngspice",
-    model_corner="",  # GF180 uses .include, not .lib corner
-    cap_lib_rel=None,  # caps included in main model file
-    cap_corner=None,
+    # wafer-space fork: design.ngspice defines global params, then .lib corners
+    global_include_rel="gf180mcuD/libs.tech/ngspice/design.ngspice",
+    model_lib_rel="gf180mcuD/libs.tech/ngspice/sm141064.ngspice",
+    model_corner="typical",
+    cap_lib_rel="gf180mcuD/libs.tech/ngspice/sm141064_mim.ngspice",
+    cap_corner="cap_mim_new",
 
-    nmos_symbol="nfet_01v8",
-    pmos_symbol="pfet_01v8",
-    instance_prefix="X",  # GF180 also uses subcircuit-based models
+    nmos_symbol="nfet_03v3",
+    pmos_symbol="pfet_03v3",
+    instance_prefix="X",  # subcircuit-based models
 
     osdi_dir_rel=None,
     osdi_files=(),
 
-    mim_cap_model="cap_mim_1f5fF",
+    mim_cap_model="cap_mim_1f5_m2m3_noshield",
     mim_cap_density_fF_um2=1.5,
 
     AVT_nmos_Vum=5.0e-3,   # placeholder -- extract from PDK mismatch data
     AVT_pmos_Vum=5.0e-3,
 
     lut_dir_default="",  # set after LUT generation
-    lut_nmos_file="gf180_nfet_01v8.npz",
-    lut_pmos_file="gf180_pfet_01v8.npz",
-    lut_model_key_nmos="nfet_01v8",
-    lut_model_key_pmos="pfet_01v8",
+    lut_nmos_file="gf180_nfet_03v3.npz",
+    lut_pmos_file="gf180_pfet_03v3.npz",
+    lut_model_key_nmos="nfet_03v3",
+    lut_model_key_pmos="pfet_03v3",
 
-    vgs_max=1.8,
-    vds_max=1.8,
-    vbs_max=1.8,
+    vgs_max=3.3,
+    vds_max=3.3,
+    vbs_max=3.3,
 
-    default_pdk_root="",  # no default -- must be set by user
+    default_pdk_root="/home/montanares/git/wafer-space-gf180mcu",
 )
 
 
@@ -231,6 +240,46 @@ def resolve_pdk(pdk: PdkConfig | str | None = None) -> PdkConfig:
     if env_name:
         return get_pdk(env_name)
     return IHP_SG13G2
+
+
+def netlist_lib_lines(pdk: PdkConfig) -> list[str]:
+    """Build SPICE library include lines for a PDK.
+
+    Returns a list of SPICE directives (.include / .lib) that should
+    appear at the top of generated netlists. Uses $PDK_ROOT for
+    portability.
+    """
+    lines: list[str] = []
+
+    # Global include (e.g., GF180 design.ngspice with global params)
+    if pdk.global_include_rel:
+        lines.append(f".include $PDK_ROOT/{pdk.global_include_rel}")
+
+    # Main model library
+    if pdk.model_corner:
+        lines.append(f".lib $PDK_ROOT/{pdk.model_lib_rel} {pdk.model_corner}")
+    else:
+        lines.append(f".include $PDK_ROOT/{pdk.model_lib_rel}")
+
+    # Capacitor library
+    if pdk.cap_lib_rel:
+        if pdk.cap_corner:
+            lines.append(f".lib $PDK_ROOT/{pdk.cap_lib_rel} {pdk.cap_corner}")
+        else:
+            lines.append(f".include $PDK_ROOT/{pdk.cap_lib_rel}")
+
+    return lines
+
+
+def netlist_osdi_lines(pdk: PdkConfig) -> list[str]:
+    """Build OSDI load directives for a PDK.
+
+    Returns lines for the .control block. Empty list for BSIM4 PDKs.
+    """
+    if not pdk.has_osdi():
+        return []
+    osdi_base = f"$PDK_ROOT/{pdk.osdi_dir_rel}"
+    return [f"  osdi '{osdi_base}/{f}'" for f in pdk.osdi_files]
 
 
 def resolve_pdk_root(pdk: PdkConfig, explicit_root: str | None = None) -> str:

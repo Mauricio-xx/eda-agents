@@ -29,10 +29,10 @@ class TestPdkConfig:
     def test_gf180_config_identity(self):
         assert GF180MCU_D.name == "gf180mcu"
         assert GF180MCU_D.technology_nm == 180
-        assert GF180MCU_D.VDD == 1.8
-        assert GF180MCU_D.Lmin_m == 180e-9
-        assert GF180MCU_D.nmos_symbol == "nfet_01v8"
-        assert GF180MCU_D.pmos_symbol == "pfet_01v8"
+        assert GF180MCU_D.VDD == 3.3
+        assert GF180MCU_D.Lmin_m == 280e-9
+        assert GF180MCU_D.nmos_symbol == "nfet_03v3"
+        assert GF180MCU_D.pmos_symbol == "pfet_03v3"
         assert GF180MCU_D.instance_prefix == "X"
 
     def test_ihp_has_osdi(self):
@@ -58,8 +58,10 @@ class TestPdkConfig:
         path = IHP_SG13G2.cap_lib_path("/opt/pdk")
         assert "cornerCAP" in path
 
-    def test_gf180_no_cap_lib(self):
-        assert GF180MCU_D.cap_lib_path("/opt/pdk") is None
+    def test_gf180_has_cap_lib(self):
+        path = GF180MCU_D.cap_lib_path("/opt/pdk")
+        assert path is not None
+        assert "sm141064_mim" in path
 
     def test_frozen(self):
         with pytest.raises(AttributeError):
@@ -140,8 +142,15 @@ class TestResolvePdkRoot:
 
     def test_no_root_raises(self, monkeypatch):
         monkeypatch.delenv("PDK_ROOT", raising=False)
+        # Create a PDK with no default_pdk_root to test the error
+        no_root_pdk = PdkConfig(
+            name="test_no_root", display_name="Test", technology_nm=65,
+            VDD=1.0, Lmin_m=65e-9, Wmin_m=100e-9, z1_m=200e-9,
+            model_lib_rel="test.lib", model_corner="tt",
+            default_pdk_root="",
+        )
         with pytest.raises(ValueError, match="No PDK_ROOT"):
-            resolve_pdk_root(GF180MCU_D)
+            resolve_pdk_root(no_root_pdk)
 
 
 class TestSpiceRunnerPdk:
@@ -158,7 +167,7 @@ class TestSpiceRunnerPdk:
         from eda_agents.core.spice_runner import SpiceRunner
         runner = SpiceRunner(pdk=GF180MCU_D, pdk_root="/tmp/fake_pdk")
         assert runner.pdk is GF180MCU_D
-        assert "design.ngspice" in str(runner.model_lib)
+        assert "sm141064.ngspice" in str(runner.model_lib)
         assert runner.osdi_dir is None
         assert runner.osdi_paths == []
 
@@ -234,9 +243,18 @@ class TestNetlistPdkDeviceNames:
         sizing = topo.params_to_sizing(topo.default_params())
         topo.generate_netlist(sizing, tmp_path)
         content = self._all_content(tmp_path)
-        assert "nfet_01v8" in content
-        assert "pfet_01v8" in content
-        assert "osdi" not in content  # GF180 is BSIM4, no OSDI
+        assert "nfet_03v3" in content
+        assert "pfet_03v3" in content
+        assert "osdi" not in content  # GF180 has no OSDI
+
+    def test_gf180_netlist_includes_design_ngspice(self, tmp_path):
+        """GF180 netlists must include design.ngspice for global params."""
+        from eda_agents.topologies.ota_analogacademy import AnalogAcademyOTATopology
+        topo = AnalogAcademyOTATopology(pdk="gf180mcu")
+        sizing = topo.params_to_sizing(topo.default_params())
+        topo.generate_netlist(sizing, tmp_path)
+        content = self._all_content(tmp_path)
+        assert "design.ngspice" in content
 
     def test_strongarm_gf180_netlist(self, tmp_path):
         from eda_agents.topologies.comparator_strongarm import StrongARMComparatorTopology
@@ -244,8 +262,8 @@ class TestNetlistPdkDeviceNames:
         sizing = topo.params_to_sizing(topo.default_params())
         cir = topo.generate_netlist(sizing, tmp_path)
         content = cir.read_text()
-        assert "nfet_01v8" in content
-        assert "pfet_01v8" in content
+        assert "nfet_03v3" in content
+        assert "pfet_03v3" in content
         assert "sg13" not in content
 
     def test_miller_ota_ihp_netlist(self, tmp_path):

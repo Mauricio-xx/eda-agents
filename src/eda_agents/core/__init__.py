@@ -6,6 +6,8 @@ from eda_agents.core.pdk import (
     PdkConfig,
     get_pdk,
     list_pdks,
+    netlist_lib_lines,
+    netlist_osdi_lines,
     register_pdk,
     resolve_pdk,
     resolve_pdk_root,
