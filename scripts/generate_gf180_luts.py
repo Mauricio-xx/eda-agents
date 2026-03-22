@@ -45,22 +45,24 @@ from mosplot.lookup_table_generator import TransistorSweep
 # Length grid: 280nm to ~10um in 280nm steps (36 values)
 _LENGTH_VALUES = [280e-9 + i * 280e-9 for i in range(36)]
 
-# NMOS sweep: VGS 0-3.3V, VDS 0-3.3V, VBS 0 to -3.3V
+# NMOS sweep: VGS 0-3.0V, VDS 0-3.0V, VBS 0 to -3.0V
+# Use 3.0V max (not 3.3) for cleaner step divisions and faster generation.
+# Devices are characterized well within saturation at VDS up to VDD-Vmargin.
 nmos_sweep = TransistorSweep(
     mos_type="nmos",
     length=_LENGTH_VALUES,
-    vgs=(0, 3.3, 0.02),      # 166 points
-    vds=(0, 3.3, 0.1),       # 34 points
-    vbs=(0, -3.3, -0.3),     # 12 points
+    vgs=(0, 3.0, 0.02),      # 151 points
+    vds=(0, 3.0, 0.1),       # 31 points
+    vbs=(0, -3.0, -0.3),     # 11 points
 )
 
-# PMOS sweep: VGS 0 to -3.3V, VDS 0 to -3.3V, VBS 0 to 3.3V
+# PMOS sweep: VGS 0 to -3.0V, VDS 0 to -3.0V, VBS 0 to 3.0V
 pmos_sweep = TransistorSweep(
     mos_type="pmos",
     length=_LENGTH_VALUES,
-    vgs=(0, -3.3, -0.02),
-    vds=(0, -3.3, -0.1),
-    vbs=(0, 3.3, 0.3),
+    vgs=(0, -3.0, -0.02),
+    vds=(0, -3.0, -0.1),
+    vbs=(0, 3.0, 0.3),
 )
 
 
