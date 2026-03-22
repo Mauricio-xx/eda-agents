@@ -17,7 +17,6 @@ Reference schematic (9 transistors):
 from __future__ import annotations
 
 import logging
-import math
 from pathlib import Path
 
 from eda_agents.core.pdk import GF180MCU_D, PdkConfig, netlist_lib_lines, netlist_osdi_lines
@@ -238,10 +237,10 @@ class GF180OTATopology(CircuitTopology):
             "* Supply and input",
             f"VVDD VDD 0 {VDD}",
             f"Vic ic 0 {VCM}",
-            f"Vid id 0 DC=0 AC=1",
-            f"* Inverted input polarity for PM convention",
-            f"Einp inp ic id 0 -0.5",
-            f"Einn inn ic id 0 0.5",
+            "Vid id 0 DC=0 AC=1",
+            "* Inverted input polarity for PM convention",
+            "Einp inp ic id 0 -0.5",
+            "Einn inn ic id 0 0.5",
         ]
 
         net_file = work_dir / "gf180_ota.net"

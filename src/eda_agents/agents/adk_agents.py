@@ -21,9 +21,6 @@ from eda_agents.core.pdk import PdkConfig, resolve_pdk
 from eda_agents.core.topology import CircuitTopology
 from eda_agents.agents.adk_prompts import (
     explorer_prompt,
-    corner_validator_prompt,
-    drc_fixer_prompt,
-    orchestrator_prompt,
 )
 
 logger = logging.getLogger(__name__)
@@ -95,9 +92,8 @@ def _make_simulate_tool(
         except Exception as e:
             return {"error": str(e), "eval_number": eval_count["n"]}
 
-    # Build the function spec from topology
+    # Set docstring from topology spec
     spec = topology.tool_spec()
-    func_params = spec["function"]["parameters"]
     simulate_circuit.__doc__ = spec["function"]["description"]
 
     return FunctionTool(simulate_circuit)

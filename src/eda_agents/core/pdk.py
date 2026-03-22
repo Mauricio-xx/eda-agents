@@ -15,7 +15,7 @@ the active PDK via the EDA_AGENTS_PDK environment variable.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -178,7 +178,7 @@ GF180MCU_D = PdkConfig(
     AVT_nmos_Vum=5.0e-3,   # placeholder -- extract from PDK mismatch data
     AVT_pmos_Vum=5.0e-3,
 
-    lut_dir_default="",  # set after LUT generation
+    lut_dir_default="",  # auto-detected from package data/gmid_luts/
     lut_nmos_file="gf180_nfet_03v3.npz",
     lut_pmos_file="gf180_pfet_03v3.npz",
     lut_model_key_nmos="nfet_03v3",

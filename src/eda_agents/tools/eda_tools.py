@@ -11,7 +11,6 @@ key rather than raising exceptions.
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 from pathlib import Path
@@ -78,7 +77,6 @@ quit
         return {"error": f"Magic DRC timed out ({timeout_s}s)"}
 
     stdout = proc.stdout or ""
-    stderr = proc.stderr or ""
 
     # Parse DRC count
     total = 0
