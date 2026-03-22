@@ -1,17 +1,14 @@
-"""SAR ADC mixed-signal netlist generator for IHP SG13G2.
+"""SAR ADC mixed-signal netlist generator.
 
 Generates a standalone ngspice netlist for an 8-bit SAR ADC using:
-  - StrongARM dynamic comparator (analog, PSP103 models)
-  - Charge redistribution C-DAC (analog, CMIM capacitors)
+  - StrongARM dynamic comparator (analog models)
+  - Charge redistribution C-DAC (MIM capacitors)
   - SAR logic (digital, Verilator d_cosim via vlnggen)
   - Bootstrap switch approximated as ideal switch
   - NAND gate for clock generation (analog transistors)
   - ADC/DAC bridges for mixed-signal interface
 
-The netlist follows the IHP-AnalogAcademy structure but is fully
-parametric: comparator sizing, C-DAC unit capacitance, and bias
-voltage are all configurable.
-
+Supports any PDK via PdkConfig (defaults to IHP SG13G2).
 Reference: IHP-AnalogAcademy Module 3 - 8-bit SAR ADC
 """
 
@@ -20,30 +17,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-
-# ---------------------------------------------------------------------------
-# Physical constants
-# ---------------------------------------------------------------------------
-
-_VDD = 1.2
-_LMIN = 130e-9     # nm min length (SG13G2)
-_Z1 = 340e-9       # junction depth for AS/PS calculation
-
-# CMIM capacitor parameters for IHP SG13G2
-# cap_cmim: C ≈ W * L * 1.5 fF/um^2 (typical, from PDK)
-_CMIM_CAP_PER_AREA = 1.5e-15 / 1e-12  # F/m^2 (1.5 fF/um^2)
-
-
-def _junc(W: float) -> str:
-    """Junction area/perimeter string for a transistor."""
-    AS = W * _Z1
-    PS = 2 * (W + _Z1)
-    return f"AS={AS:.3e} PS={PS:.3e} AD={AS:.3e} PD={PS:.3e}"
-
-
-def _dev_params(W: float, L: float, ng: int = 1) -> str:
-    """Format device parameters for SPICE."""
-    return f"w={W:.4e} l={L:.4e} ng={ng} m=1 {_junc(W)}"
+from eda_agents.core.pdk import PdkConfig, resolve_pdk
 
 
 def _ng(W: float, max_finger_w: float = 10e-6) -> int:
@@ -51,13 +25,14 @@ def _ng(W: float, max_finger_w: float = 10e-6) -> int:
     return max(1, round(W / max_finger_w))
 
 
-def cmim_dimensions(C_fF: float) -> float:
+def cmim_dimensions(C_fF: float, density_fF_um2: float = 1.5) -> float:
     """Compute CMIM cap W=L dimension for target capacitance.
 
     Returns W (= L) in meters. CMIM is square.
     """
     C_F = C_fF * 1e-15
-    area_m2 = C_F / _CMIM_CAP_PER_AREA
+    cap_per_area = density_fF_um2 * 1e-15 / 1e-12  # F/m^2
+    area_m2 = C_F / cap_per_area
     if area_m2 <= 0:
         return 1e-6  # minimum 1um
     return math.sqrt(area_m2)
@@ -76,6 +51,7 @@ def generate_sar_adc_netlist(
     vin_dc_neg: float = 0.4,
     vin_sine_amp: float = 0.3,
     vin_sine_freq_hz: float = 12700.0,
+    pdk: PdkConfig | str | None = None,
 ) -> Path:
     """Generate a complete 8-bit SAR ADC mixed-signal SPICE netlist.
 
@@ -111,6 +87,22 @@ def generate_sar_adc_netlist(
     Path
         Path to the generated .cir file.
     """
+    _pdk = resolve_pdk(pdk)
+    VDD = _pdk.VDD
+    z1 = _pdk.z1_m
+    pmos = _pdk.pmos_symbol
+    nmos = _pdk.nmos_symbol
+    px = _pdk.instance_prefix
+    cap_model = _pdk.mim_cap_model or "cap_cmim"
+
+    def _junc(W: float) -> str:
+        AS = W * z1
+        PS = 2 * (W + z1)
+        return f"AS={AS:.3e} PS={PS:.3e} AD={AS:.3e} PD={PS:.3e}"
+
+    def _dev_params(W: float, L: float, ng: int = 1) -> str:
+        return f"w={W:.4e} l={L:.4e} ng={ng} m=1 {_junc(W)}"
+
     work_dir = Path(work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -121,7 +113,7 @@ def generate_sar_adc_netlist(
     L_tail = comp_params["L_tail_um"] * 1e-6
     W_lp = comp_params["W_latch_p_um"] * 1e-6
     W_ln = comp_params["W_latch_n_um"] * 1e-6
-    L_latch = 200e-9
+    L_latch = max(200e-9, _pdk.Lmin_m)
 
     ng_input = _ng(W_input)
     ng_tail = _ng(W_tail)
@@ -138,10 +130,10 @@ def generate_sar_adc_netlist(
     total_sim_time = n_samples * T
 
     # --- C-DAC dimensions ---
-    cap_wl = cmim_dimensions(cdac_C_unit_fF)
+    cap_wl = cmim_dimensions(cdac_C_unit_fF, _pdk.mim_cap_density_fF_um2)
 
     # --- Input sources ---
-    vcm = _VDD / 2
+    vcm = VDD / 2
     if input_mode == "sine":
         vin_pos = f'"dc 0 ac 0 SIN({vcm} {vin_sine_amp} {vin_sine_freq_hz} 0 0 0)"'
         vin_neg = f'"dc 0 ac 0 SIN({vcm} {vin_sine_amp} {vin_sine_freq_hz} 0 0 180)"'
@@ -149,18 +141,36 @@ def generate_sar_adc_netlist(
         vin_pos = f"{vin_dc_pos}"
         vin_neg = f"{vin_dc_neg}"
 
+    # Build library and OSDI include lines
+    model_lib = f"$PDK_ROOT/{_pdk.model_lib_rel}"
+    lib_lines = []
+    if _pdk.model_corner:
+        lib_lines.append(f".lib {model_lib} {_pdk.model_corner}")
+    else:
+        lib_lines.append(f".include {model_lib}")
+    if _pdk.cap_lib_rel:
+        cap_lib = f"$PDK_ROOT/{_pdk.cap_lib_rel}"
+        cap_corner = _pdk.cap_corner or ""
+        if cap_corner:
+            lib_lines.append(f".lib {cap_lib} {cap_corner}")
+        else:
+            lib_lines.append(f".include {cap_lib}")
+
+    osdi_lines = []
+    if _pdk.has_osdi():
+        osdi_base = f"$PDK_ROOT/{_pdk.osdi_dir_rel}"
+        for osdi_file in _pdk.osdi_files:
+            osdi_lines.append(f"  osdi '{osdi_base}/{osdi_file}'")
+
     lines = [
-        "* 8-bit SAR ADC - IHP SG13G2 Mixed-Signal Simulation",
+        f"* 8-bit SAR ADC - {_pdk.display_name} Mixed-Signal Simulation",
         "* Generated by eda-agents SAR ADC infrastructure",
         "",
-        f".lib $PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_tt",
-        f".lib $PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/models/cornerCAP.lib cap_typ",
+        *lib_lines,
         "",
         ".control",
         "  set ngbehavior=hsa",
-        "  osdi '$PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/osdi/psp103_nqs.osdi'",
-        "  osdi '$PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/osdi/r3_cmc.osdi'",
-        "  osdi '$PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/osdi/mosvar.osdi'",
+        *osdi_lines,
         "",
         f"  tran {T:.4e} {total_sim_time:.4e}",
         "",
@@ -181,22 +191,22 @@ def generate_sar_adc_netlist(
         "* ============================================================",
         "* POWER SUPPLY",
         "* ============================================================",
-        f"VVDD vdd 0 {_VDD}",
+        f"VVDD vdd 0 {VDD}",
         "",
         "* ============================================================",
         "* CLOCK GENERATION",
         "* ============================================================",
         "",
         f"* Sampling clock: T={T*1e6:.2f}us",
-        f"Vclk_samp clk_samp 0 PULSE(0 {_VDD} 0 10p 10p {T_half:.4e} {T:.4e})",
+        f"Vclk_samp clk_samp 0 PULSE(0 {VDD} 0 10p 10p {T_half:.4e} {T:.4e})",
         "",
         f"* Comparator clock: HIGH=reset, LOW=evaluate",
         f"* Starts HIGH (reset during sampling), first evaluate 50ns after sampling ends",
         f"* to let C-DAC bottom plates settle before comparator draws charge",
-        f"Vclk_comp clk_comp 0 PULSE({_VDD} 0 {T_half + 50e-9:.4e} 10p 10p {T_algo_PW:.4e} {T_algo:.4e})",
+        f"Vclk_comp clk_comp 0 PULSE({VDD} 0 {T_half + 50e-9:.4e} 10p 10p {T_algo_PW:.4e} {T_algo:.4e})",
         "",
         f"* DAC reconstruction clock (for post-processing)",
-        f"Vdac_clk dac_clk 0 PULSE(0 {_VDD} {DAC_delay:.4e} 10p 10p {DAC_PW:.4e} {T:.4e})",
+        f"Vdac_clk dac_clk 0 PULSE(0 {VDD} {DAC_delay:.4e} 10p 10p {DAC_PW:.4e} {T:.4e})",
         "",
         "* ============================================================",
         "* INPUT SOURCES",
@@ -214,39 +224,39 @@ def generate_sar_adc_netlist(
         "* ============================================================",
         "",
         "* Bias current source PMOS (M3)",
-        f"XM3  comp_net2 vbias vdd  vdd sg13_lv_pmos {_dev_params(W_tail, L_tail, ng_tail)}",
+        f"{px}M3  comp_net2 vbias vdd  vdd {pmos} {_dev_params(W_tail, L_tail, ng_tail)}",
         "",
         "* Clock tail switch PMOS (M13) -- clk_comp controls evaluation",
-        f"XM13 comp_net1 clk_comp comp_net2 vdd sg13_lv_pmos {_dev_params(W_tail, L_tail, ng_tail)}",
+        f"{px}M13 comp_net1 clk_comp comp_net2 vdd {pmos} {_dev_params(W_tail, L_tail, ng_tail)}",
         "",
         "* Input pair PMOS (connected to C-DAC top plates)",
-        f"XM2  comp_net4 cdac_top_p comp_net1 vdd sg13_lv_pmos {_dev_params(W_input, L_input, ng_input)}",
-        f"XM1  comp_net3 cdac_top_n comp_net1 vdd sg13_lv_pmos {_dev_params(W_input, L_input, ng_input)}",
+        f"{px}M2  comp_net4 cdac_top_p comp_net1 vdd {pmos} {_dev_params(W_input, L_input, ng_input)}",
+        f"{px}M1  comp_net3 cdac_top_n comp_net1 vdd {pmos} {_dev_params(W_input, L_input, ng_input)}",
         "",
         "* PMOS output latch inverters",
-        f"XM4  comp_outn comp_net3 vdd vdd sg13_lv_pmos {_dev_params(W_lp, L_latch)}",
-        f"XM5  comp_outp comp_net4 vdd vdd sg13_lv_pmos {_dev_params(W_lp, L_latch)}",
+        f"{px}M4  comp_outn comp_net3 vdd vdd {pmos} {_dev_params(W_lp, L_latch)}",
+        f"{px}M5  comp_outp comp_net4 vdd vdd {pmos} {_dev_params(W_lp, L_latch)}",
         "",
         "* NMOS output latch inverters",
-        f"XM11 0 comp_net4 comp_outp 0 sg13_lv_nmos {_dev_params(W_ln, L_latch)}",
-        f"XM12 0 comp_net3 comp_outn 0 sg13_lv_nmos {_dev_params(W_ln, L_latch)}",
+        f"{px}M11 0 comp_net4 comp_outp 0 {nmos} {_dev_params(W_ln, L_latch)}",
+        f"{px}M12 0 comp_net3 comp_outn 0 {nmos} {_dev_params(W_ln, L_latch)}",
         "",
         "* NMOS cross-coupled (first-stage regeneration)",
-        f"XM6  0 comp_net3 comp_net4 0 sg13_lv_nmos {_dev_params(W_ln, L_latch)}",
-        f"XM8  0 comp_net4 comp_net3 0 sg13_lv_nmos {_dev_params(W_ln, L_latch)}",
+        f"{px}M6  0 comp_net3 comp_net4 0 {nmos} {_dev_params(W_ln, L_latch)}",
+        f"{px}M8  0 comp_net4 comp_net3 0 {nmos} {_dev_params(W_ln, L_latch)}",
         "",
         "* NMOS reset switches",
-        f"XM7  0 clk_comp comp_net3 0 sg13_lv_nmos {_dev_params(W_ln, L_latch)}",
-        f"XM10 0 clk_comp comp_net4 0 sg13_lv_nmos {_dev_params(W_ln, L_latch)}",
+        f"{px}M7  0 clk_comp comp_net3 0 {nmos} {_dev_params(W_ln, L_latch)}",
+        f"{px}M10 0 clk_comp comp_net4 0 {nmos} {_dev_params(W_ln, L_latch)}",
         "",
         "* ============================================================",
         "* NAND GATE (generates SAR clock from comparator outputs)",
         "* ============================================================",
         "* Simple CMOS NAND: when both comp outputs valid, generate clock edge",
-        f"XMn_nand1 nand_mid comp_outp 0     0   sg13_lv_nmos {_dev_params(0.25e-6, _LMIN)}",
-        f"XMn_nand2 clk_algo comp_outn nand_mid 0   sg13_lv_nmos {_dev_params(0.25e-6, _LMIN)}",
-        f"XMp_nand1 clk_algo comp_outp vdd   vdd sg13_lv_pmos {_dev_params(0.5e-6, _LMIN)}",
-        f"XMp_nand2 clk_algo comp_outn vdd   vdd sg13_lv_pmos {_dev_params(0.5e-6, _LMIN)}",
+        f"{px}Mn_nand1 nand_mid comp_outp 0     0   {nmos} {_dev_params(0.25e-6, _pdk.Lmin_m)}",
+        f"{px}Mn_nand2 clk_algo comp_outn nand_mid 0   {nmos} {_dev_params(0.25e-6, _pdk.Lmin_m)}",
+        f"{px}Mp_nand1 clk_algo comp_outp vdd   vdd {pmos} {_dev_params(0.5e-6, _pdk.Lmin_m)}",
+        f"{px}Mp_nand2 clk_algo comp_outn vdd   vdd {pmos} {_dev_params(0.5e-6, _pdk.Lmin_m)}",
         "",
         "* ============================================================",
         "* BOOTSTRAP SWITCH (ideal approximation)",
@@ -255,7 +265,7 @@ def generate_sar_adc_netlist(
         "* Ideal switches: closed when clk_samp=high (sampling phase)",
         f"S_samp_p vin_pos cdac_top_p clk_samp 0 sw_ideal ON",
         f"S_samp_n vin_neg cdac_top_n clk_samp 0 sw_ideal ON",
-        f".model sw_ideal SW(VT={_VDD/2} VH=0.1 RON=100 ROFF=1e12)",
+        f".model sw_ideal SW(VT={VDD/2} VH=0.1 RON=100 ROFF=1e12)",
         "",
         "* ============================================================",
         "* ADC BRIDGES (analog -> digital domain)",
@@ -319,7 +329,7 @@ def generate_sar_adc_netlist(
         "Adac_BN5 [BN5_d] [BN5] dac_bridge_model",
         "Adac_BN6 [BN6_d] [BN6] dac_bridge_model",
         "",
-        f".model dac_bridge_model dac_bridge(out_low=0.0 out_high={_VDD})",
+        f".model dac_bridge_model dac_bridge(out_low=0.0 out_high={VDD})",
         "",
         "* ============================================================",
         "* C-DAC: 8-bit charge redistribution (binary-weighted CMIM)",
@@ -331,7 +341,7 @@ def generate_sar_adc_netlist(
         "* - Conversion: B/BN control VDD/GND switches, undecided bits float at Vcm",
         "",
         f"* Common mode voltage for bottom plates during sampling",
-        f"Vvcm vcm 0 {_VDD / 2}",
+        f"Vvcm vcm 0 {VDD / 2}",
         "",
         "* Positive C-DAC array (top plate = cdac_top_p)",
         "* Positive side: BN=1 -> VDD (increase V_top_p), B=1 -> GND (decrease V_top_p)",
@@ -357,7 +367,7 @@ def generate_sar_adc_netlist(
         lines.append(f"R_pull_p_{i} {bot} vcm 100k")
         # Capacitor
         lines.append(
-            f"XC_cdac_p_{i} cdac_top_p {bot} cap_cmim "
+            f"XC_cdac_p_{i} cdac_top_p {bot} {cap_model} "
             f"w={cap_wl:.4e} l={cap_wl:.4e} m={w}"
         )
         lines.append("")
@@ -378,14 +388,14 @@ def generate_sar_adc_netlist(
         lines.append(f"S_gnd_n_{i} {bot} 0 {bgnd} 0 sw_cdac ON")
         lines.append(f"R_pull_n_{i} {bot} vcm 100k")
         lines.append(
-            f"XC_cdac_n_{i} cdac_top_n {bot} cap_cmim "
+            f"XC_cdac_n_{i} cdac_top_n {bot} {cap_model} "
             f"w={cap_wl:.4e} l={cap_wl:.4e} m={w}"
         )
         lines.append("")
 
     lines.extend([
         f"* Sampling switch: low RON to set Vcm during sampling, high ROFF during conversion",
-        f".model sw_samp SW(VT={_VDD/2} VH=0.1 RON=100 ROFF=1e12)",
+        f".model sw_samp SW(VT={VDD/2} VH=0.1 RON=100 ROFF=1e12)",
         f"",
         f"* Weak pull to Vcm on all bottom plates: anchors floating nodes against",
         f"* comparator kickback coupling. Without this, kickback shifts bottom plate",
@@ -393,7 +403,7 @@ def generate_sar_adc_netlist(
         f"* 100k is weak enough to not affect DAC switching (<1% error for 50 ohm DAC switches)",
         f"* but strong enough to pull back ~0.3V kickback in ~10ns (100k * 200fF = 20ns).",
         f"* DAC switches: connect to VDD or GND based on B/BN decisions",
-        f".model sw_cdac SW(VT={_VDD/2} VH=0.1 RON=50 ROFF=1e12)",
+        f".model sw_cdac SW(VT={VDD/2} VH=0.1 RON=50 ROFF=1e12)",
         "",
         ".end",
     ])

@@ -1,4 +1,4 @@
-"""StrongARM dynamic comparator topology for IHP SG13G2.
+"""StrongARM dynamic comparator topology.
 
 Wraps the IHP-AnalogAcademy dynamic comparator (module_3, part_1) as a
 CircuitTopology.  This is a double-tail strongARM latch with PMOS input
@@ -13,9 +13,8 @@ Reference schematic (12 transistors):
     M7/M10: NMOS reset switches     (W=4u,  L=200n)
     M11/M12:NMOS output latch       (W=4u,  L=200n)
 
+Supports any PDK via PdkConfig (defaults to IHP SG13G2).
 Source: IHP-AnalogAcademy/modules/module_3_8_bit_SAR_ADC/part_1_comparator/
-Ref paper: Lin et al., "A 10-bit 50-MS/s SAR ADC With a Monotonic
-Capacitor Switching Procedure", JSSC 2010.
 """
 
 from __future__ import annotations
@@ -24,27 +23,17 @@ import logging
 import math
 from pathlib import Path
 
+from eda_agents.core.pdk import PdkConfig, resolve_pdk
 from eda_agents.core.spice_runner import SpiceResult
 from eda_agents.core.topology import CircuitTopology
 
 logger = logging.getLogger(__name__)
 
-# Supply and bias
-_VDD = 1.2        # V
-_VBIAS = 0.6      # V (comparator bias = Vcm)
-_VCM = 0.6        # V (input common mode)
+# Default testbench parameters (PDK-independent)
 _VIN_DIFF = 10e-3  # V (10 mV differential for characterization)
 _FCLK = 100e6     # Hz (100 MHz clock)
-
-# C-DAC load on inputs (from AnalogAcademy testbench)
-_CIN_LOAD = 6.4e-12   # F
-# Output load (downstream gate capacitance)
-_COUT_LOAD = 50e-15    # F
-
-# Pelgrom mismatch coefficients from IHP SG13G2 PDK
-# Source: libs.tech/ngspice/models/sg13g2_moslv_mismatch.lib
-_AVT_PMOS = 2.2e-3  # V*um -- sigma_VT = A_VT / sqrt(W_um * L_um)
-_AVT_NMOS = 3.9e-3  # V*um
+_CIN_LOAD = 6.4e-12   # F (C-DAC load on inputs)
+_COUT_LOAD = 50e-15    # F (output load)
 
 # Spec targets for validity
 _SPEC_TD_NS = 2.0       # ns max decision delay (ref is 1.84ns, barely passes)
@@ -70,7 +59,7 @@ _REF_SIZING = {
 
 
 class StrongARMComparatorTopology(CircuitTopology):
-    """IHP AnalogAcademy StrongARM dynamic comparator.
+    """StrongARM dynamic comparator.
 
     Design space parameterized by 6 variables controlling the four
     transistor groups: input pair, tail/bias, PMOS latch, NMOS latch.
@@ -78,7 +67,15 @@ class StrongARMComparatorTopology(CircuitTopology):
 
     Evaluation uses transient simulation: apply 10mV differential input,
     clock the comparator, measure decision delay, output swing, and power.
+
+    Parameters
+    ----------
+    pdk : PdkConfig or str, optional
+        PDK configuration. Defaults to resolve_pdk().
     """
+
+    def __init__(self, pdk: PdkConfig | str | None = None):
+        self.pdk = resolve_pdk(pdk)
 
     def topology_name(self) -> str:
         return "strongarm_comp"
@@ -110,11 +107,10 @@ class StrongARMComparatorTopology(CircuitTopology):
 
     def prompt_description(self) -> str:
         return (
-            "StrongARM dynamic comparator on IHP SG13G2 130nm BiCMOS. "
+            f"StrongARM dynamic comparator on {self.pdk.display_name}. "
             "Double-tail latch with PMOS input pair, NMOS cross-coupled "
             "regeneration, and CMOS output inverter latch. "
-            "12 transistors total. Used as the core comparator in an "
-            "8-bit SAR ADC from IHP-AnalogAcademy."
+            "12 transistors total."
         )
 
     def design_vars_description(self) -> str:
@@ -233,14 +229,15 @@ class StrongARMComparatorTopology(CircuitTopology):
           - NMOS reset (M7/M10): W=W_latch_n, L=L_min
           - NMOS output latch (M11/M12): W=W_latch_n, L=L_min
         """
-        W_input = max(params["W_input_um"] * 1e-6, 0.15e-6)
-        L_input = max(params["L_input_um"] * 1e-6, 0.13e-6)
-        W_tail = max(params["W_tail_um"] * 1e-6, 0.15e-6)
-        L_tail = max(params["L_tail_um"] * 1e-6, 0.13e-6)
-        W_lp = max(params["W_latch_p_um"] * 1e-6, 0.15e-6)
-        W_ln = max(params["W_latch_n_um"] * 1e-6, 0.15e-6)
+        W_input = max(params["W_input_um"] * 1e-6, self.pdk.Wmin_m)
+        L_input = max(params["L_input_um"] * 1e-6, self.pdk.Lmin_m)
+        W_tail = max(params["W_tail_um"] * 1e-6, self.pdk.Wmin_m)
+        L_tail = max(params["L_tail_um"] * 1e-6, self.pdk.Lmin_m)
+        W_lp = max(params["W_latch_p_um"] * 1e-6, self.pdk.Wmin_m)
+        W_ln = max(params["W_latch_n_um"] * 1e-6, self.pdk.Wmin_m)
 
-        L_latch = 200e-9  # fixed at L_min for speed
+        # Latch at ~1.5x Lmin for speed (200n for 130nm, 270n for 180nm)
+        L_latch = max(200e-9, self.pdk.Lmin_m)
 
         # Derive ng: split into fingers if W > 10um
         ng_input = max(1, round(W_input / 10e-6))
@@ -266,9 +263,9 @@ class StrongARMComparatorTopology(CircuitTopology):
             "M11": {"W": W_ln,    "L": L_latch, "ng": 1, "type": "nmos"},
             "M12": {"W": W_ln,    "L": L_latch, "ng": 1, "type": "nmos"},
             # Environment
-            "_VDD": _VDD,
-            "_VBIAS": _VBIAS,
-            "_VCM": _VCM,
+            "_VDD": self.pdk.VDD,
+            "_VBIAS": self.pdk.VDD / 2,
+            "_VCM": self.pdk.VDD / 2,
             "_VIN_DIFF": _VIN_DIFF,
             "_FCLK": _FCLK,
             "_CIN_LOAD": _CIN_LOAD,
@@ -309,8 +306,8 @@ class StrongARMComparatorTopology(CircuitTopology):
         vinp_v = VCM + VIN_DIFF / 2.0
         vinn_v = VCM - VIN_DIFF / 2.0
 
-        # Junction area/perimeter helper (z1 = 340nm for SG13G2)
-        z1 = 340e-9
+        # Junction area/perimeter helper
+        z1 = self.pdk.z1_m
 
         def _junc(W: float) -> str:
             AS = W * z1
@@ -321,21 +318,38 @@ class StrongARMComparatorTopology(CircuitTopology):
             d = sizing[name]
             return f"w={d['W']:.4e} l={d['L']:.4e} ng={d['ng']} m=1 {_junc(d['W'])}"
 
+        # Device symbols from PDK
+        pmos = self.pdk.pmos_symbol
+        nmos = self.pdk.nmos_symbol
+        px = self.pdk.instance_prefix
+
         m1 = sizing["M1"]
         m3 = sizing["M3"]
         m4 = sizing["M4"]
         m6 = sizing["M6"]
 
+        # Build library and OSDI include lines
+        model_lib = f"$PDK_ROOT/{self.pdk.model_lib_rel}"
+        lib_lines = []
+        if self.pdk.model_corner:
+            lib_lines.append(f".lib {model_lib} {self.pdk.model_corner}")
+        else:
+            lib_lines.append(f".include {model_lib}")
+
+        osdi_lines = []
+        if self.pdk.has_osdi():
+            osdi_base = f"$PDK_ROOT/{self.pdk.osdi_dir_rel}"
+            for osdi_file in self.pdk.osdi_files:
+                osdi_lines.append(f"  osdi '{osdi_base}/{osdi_file}'")
+
         lines = [
-            "StrongARM Dynamic Comparator - IHP SG13G2 Transient Analysis",
+            f"StrongARM Dynamic Comparator - {self.pdk.display_name} Transient Analysis",
             "",
-            f".lib $PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_tt",
+            *lib_lines,
             "",
             ".control",
             "  set ngbehavior=hsa",
-            "  osdi '$PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/osdi/psp103_nqs.osdi'",
-            "  osdi '$PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/osdi/r3_cmc.osdi'",
-            "  osdi '$PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/osdi/mosvar.osdi'",
+            *osdi_lines,
             "",
             f"  tran 10p {2 * T_period:.4e}",
             "",
@@ -377,30 +391,30 @@ class StrongARMComparatorTopology(CircuitTopology):
             "* === Comparator Circuit ===",
             "",
             "* Bias current source PMOS (M3): gate=vbias",
-            f"XM3  net2 vbias vdd  vdd sg13_lv_pmos {_dev('M3')}",
+            f"{px}M3  net2 vbias vdd  vdd {pmos} {_dev('M3')}",
             "",
             "* Clock tail switch PMOS (M13): gate=clk",
-            f"XM13 net1 clk   net2 vdd sg13_lv_pmos {_dev('M13')}",
+            f"{px}M13 net1 clk   net2 vdd {pmos} {_dev('M13')}",
             "",
             "* Input pair PMOS",
-            f"XM2  net4 vinp  net1 vdd sg13_lv_pmos {_dev('M2')}",
-            f"XM1  net3 vinn  net1 vdd sg13_lv_pmos {_dev('M1')}",
+            f"{px}M2  net4 vinp  net1 vdd {pmos} {_dev('M2')}",
+            f"{px}M1  net3 vinn  net1 vdd {pmos} {_dev('M1')}",
             "",
             "* PMOS output latch inverters",
-            f"XM4  outn net3  vdd  vdd sg13_lv_pmos {_dev('M4')}",
-            f"XM5  outp net4  vdd  vdd sg13_lv_pmos {_dev('M5')}",
+            f"{px}M4  outn net3  vdd  vdd {pmos} {_dev('M4')}",
+            f"{px}M5  outp net4  vdd  vdd {pmos} {_dev('M5')}",
             "",
             "* NMOS output latch inverters",
-            f"XM11 0    net4  outp 0   sg13_lv_nmos {_dev('M11')}",
-            f"XM12 0    net3  outn 0   sg13_lv_nmos {_dev('M12')}",
+            f"{px}M11 0    net4  outp 0   {nmos} {_dev('M11')}",
+            f"{px}M12 0    net3  outn 0   {nmos} {_dev('M12')}",
             "",
             "* NMOS cross-coupled (first-stage regeneration)",
-            f"XM6  0    net3  net4 0   sg13_lv_nmos {_dev('M6')}",
-            f"XM8  0    net4  net3 0   sg13_lv_nmos {_dev('M8')}",
+            f"{px}M6  0    net3  net4 0   {nmos} {_dev('M6')}",
+            f"{px}M8  0    net4  net3 0   {nmos} {_dev('M8')}",
             "",
             "* NMOS reset (pull net3/net4 to GND during reset)",
-            f"XM7  0    clk   net3 0   sg13_lv_nmos {_dev('M7')}",
-            f"XM10 0    clk   net4 0   sg13_lv_nmos {_dev('M10')}",
+            f"{px}M7  0    clk   net3 0   {nmos} {_dev('M7')}",
+            f"{px}M10 0    clk   net4 0   {nmos} {_dev('M10')}",
             "",
             ".end",
         ]
@@ -413,8 +427,7 @@ class StrongARMComparatorTopology(CircuitTopology):
     # Offset estimation and FoM
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _sigma_vos(sizing: dict[str, dict]) -> float:
+    def _sigma_vos(self, sizing: dict[str, dict]) -> float:
         """Estimate input-referred offset (1-sigma) via Pelgrom model.
 
         sigma_Vos = A_VT / sqrt(W_um * L_um) for the PMOS input pair.
@@ -426,7 +439,7 @@ class StrongARMComparatorTopology(CircuitTopology):
         wl = W_um * L_um * m1.get("ng", 1)
         if wl <= 0:
             return 1.0  # worst case
-        return _AVT_PMOS / math.sqrt(wl)
+        return self.pdk.AVT_pmos_Vum / math.sqrt(wl)
 
     def compute_fom(
         self, spice_result: SpiceResult, sizing: dict[str, dict]

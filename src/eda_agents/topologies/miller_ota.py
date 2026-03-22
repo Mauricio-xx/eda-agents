@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from eda_agents.core.pdk import PdkConfig, resolve_pdk
+
 # ---------------------------------------------------------------------------
 # EKV normalized functions (inlined from ekv_functions.py)
 # ---------------------------------------------------------------------------
@@ -384,9 +386,11 @@ class MillerOTADesigner:
         self,
         specs: MillerOTASpecs | None = None,
         process: ProcessParams | None = None,
+        pdk: PdkConfig | str | None = None,
     ):
         self.specs = specs or MillerOTASpecs()
         self.proc = process or ProcessParams()
+        self.pdk = resolve_pdk(pdk)
 
     def analytical_design(
         self,
@@ -751,21 +755,25 @@ class MillerOTADesigner:
         # Stage 2: M2 (pMOS CS) + M5b (nMOS current source)
         # Bias: M3a/M3b (nMOS mirror)
         # Node names: n1=stage1 output, out=stage2 output, nb=bias, ns=DP source
+        nmos = self.pdk.nmos_symbol
+        pmos = self.pdk.pmos_symbol
+        px = self.pdk.instance_prefix
+
         net_lines = [
-            "* Miller OTA - IHP SG13G2 130nm",
+            f"* Miller OTA - {self.pdk.display_name}",
             "* Stage 1: nMOS diff pair + pMOS mirror load",
-            "X1a n1  inp ns ns  sg13_lv_nmos W={W1} L={L1} AS={AS1} PS={PS1} AD={AD1} PD={PD1}",
-            "X1b out inn ns ns  sg13_lv_nmos W={W1} L={L1} AS={AS1} PS={PS1} AD={AD1} PD={PD1}",
-            "X4a n1  n1  VDD VDD sg13_lv_pmos W={W4} L={L4} AS={AS4} PS={PS4} AD={AD4} PD={PD4}",
-            "X4b out n1  VDD VDD sg13_lv_pmos W={W4} L={L4} AS={AS4} PS={PS4} AD={AD4} PD={PD4}",
+            f"{px}1a n1  inp ns ns  {nmos} W={{W1}} L={{L1}} AS={{AS1}} PS={{PS1}} AD={{AD1}} PD={{PD1}}",
+            f"{px}1b out inn ns ns  {nmos} W={{W1}} L={{L1}} AS={{AS1}} PS={{PS1}} AD={{AD1}} PD={{PD1}}",
+            f"{px}4a n1  n1  VDD VDD {pmos} W={{W4}} L={{L4}} AS={{AS4}} PS={{PS4}} AD={{AD4}} PD={{PD4}}",
+            f"{px}4b out n1  VDD VDD {pmos} W={{W4}} L={{L4}} AS={{AS4}} PS={{PS4}} AD={{AD4}} PD={{PD4}}",
             "* Stage 2: pMOS CS + nMOS current source",
-            "X2  vout out VDD VDD sg13_lv_pmos W={W2} L={L2} AS={AS2} PS={PS2} AD={AD2} PD={PD2}",
-            "X5b vout nb2 0   0   sg13_lv_nmos W={W5} L={L5} AS={AS5} PS={PS5} AD={AD5} PD={PD5}",
+            f"{px}2  vout out VDD VDD {pmos} W={{W2}} L={{L2}} AS={{AS2}} PS={{PS2}} AD={{AD2}} PD={{PD2}}",
+            f"{px}5b vout nb2 0   0   {nmos} W={{W5}} L={{L5}} AS={{AS5}} PS={{PS5}} AD={{AD5}} PD={{PD5}}",
             "* Bias mirror",
-            "X3a nb  nb  0 0 sg13_lv_nmos W={W3} L={L3} AS={AS3} PS={PS3} AD={AD3} PD={PD3}",
-            "X3b ns  nb  0 0 sg13_lv_nmos W={W3} L={L3} AS={AS3} PS={PS3} AD={AD3} PD={PD3}",
+            f"{px}3a nb  nb  0 0 {nmos} W={{W3}} L={{L3}} AS={{AS3}} PS={{PS3}} AD={{AD3}} PD={{PD3}}",
+            f"{px}3b ns  nb  0 0 {nmos} W={{W3}} L={{L3}} AS={{AS3}} PS={{PS3}} AD={{AD3}} PD={{PD3}}",
             "* Second stage mirror diode for M5",
-            "X5a nb2 nb2 0 0 sg13_lv_nmos W={W5} L={L5} AS={AS5} PS={PS5} AD={AD5} PD={PD5}",
+            f"{px}5a nb2 nb2 0 0 {nmos} W={{W5}} L={{L5}} AS={{AS5}} PS={{PS5}} AD={{AD5}} PD={{PD5}}",
             "Ibias2 VDD nb2 {Ib2}",
             f".param Ib2={result.Ib2}",
             "* Compensation and load",
@@ -784,21 +792,30 @@ class MillerOTADesigner:
         net_file.write_text("\n".join(net_lines) + "\n")
 
         # --- AC analysis control file ---
-        # Try standard PDK model path, fallback to env variable
-        model_lib = "$PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib"
-        osdi_base = "$PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/osdi"
+        model_lib = f"$PDK_ROOT/{self.pdk.model_lib_rel}"
+
+        lib_lines = []
+        if self.pdk.model_corner:
+            lib_lines.append(f".lib {model_lib} {self.pdk.model_corner}")
+        else:
+            lib_lines.append(f".include {model_lib}")
+
+        osdi_lines = []
+        if self.pdk.has_osdi():
+            osdi_base = f"$PDK_ROOT/{self.pdk.osdi_dir_rel}"
+            for osdi_file in self.pdk.osdi_files:
+                osdi_lines.append(f"  osdi '{osdi_base}/{osdi_file}'")
+
         ac_lines = [
-            f"Miller OTA AC analysis - IHP SG13G2",
+            f"Miller OTA AC analysis - {self.pdk.display_name}",
             f"",
-            f".lib {model_lib} mos_tt",
+            *lib_lines,
             f".include {par_file.name}",
             f".include {net_file.name}",
             f"",
             f".control",
             f"  set ngbehavior=hsa",
-            f"  osdi '{osdi_base}/psp103_nqs.osdi'",
-            f"  osdi '{osdi_base}/r3_cmc.osdi'",
-            f"  osdi '{osdi_base}/mosvar.osdi'",
+            *osdi_lines,
             f"  op",
             f"  save v(vout)",
             f"  ac dec 41 10 100MEG",

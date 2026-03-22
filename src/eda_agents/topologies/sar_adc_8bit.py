@@ -1,4 +1,4 @@
-"""8-bit SAR ADC SystemTopology for IHP SG13G2.
+"""8-bit SAR ADC SystemTopology.
 
 Wraps the AnalogAcademy-derived SAR ADC as a SystemTopology with:
   - StrongARM comparator (6D parametric)
@@ -7,10 +7,10 @@ Wraps the AnalogAcademy-derived SAR ADC as a SystemTopology with:
   = 8D total system design space
 
 Uses ngspice mixed-signal simulation: analog blocks (comparator, C-DAC)
-via PSP103 SPICE models + Verilator-compiled SAR logic via d_cosim.
+via SPICE models + Verilator-compiled SAR logic via d_cosim.
 
+Supports any PDK via PdkConfig (defaults to IHP SG13G2).
 System FoM: Walden FoM = 2^ENOB * f_s / P_total
-where ENOB is computed from FFT of reconstructed output.
 
 Reference: IHP-AnalogAcademy Module 3 - 8-bit SAR ADC
 """
@@ -23,6 +23,7 @@ from pathlib import Path
 
 import numpy as np
 
+from eda_agents.core.pdk import PdkConfig, resolve_pdk
 from eda_agents.topologies.comparator_strongarm import StrongARMComparatorTopology
 from eda_agents.topologies.sar_adc_netlist import generate_sar_adc_netlist
 from eda_agents.core.spice_runner import SpiceResult
@@ -52,7 +53,7 @@ _SINE_AMP = 0.25           # V (per side)
 
 
 class SARADCTopology(SystemTopology):
-    """IHP AnalogAcademy 8-bit SAR ADC.
+    """8-bit SAR ADC.
 
     System design space (8D):
       - comp_W_input_um, comp_L_input_um: comparator input pair (2D)
@@ -62,17 +63,24 @@ class SARADCTopology(SystemTopology):
       - bias_V: comparator bias voltage (1D)
 
     Timing (T_period) is fixed at 1us (1MHz sampling rate).
+
+    Parameters
+    ----------
+    pdk : PdkConfig or str, optional
+        PDK configuration. Defaults to resolve_pdk().
     """
 
     def __init__(
         self,
         verilog_src: Path | None = None,
         so_cache_dir: Path | None = None,
+        pdk: PdkConfig | str | None = None,
     ):
+        self.pdk = resolve_pdk(pdk)
         self._verilog_src = Path(verilog_src) if verilog_src else _DEFAULT_VERILOG
         self._so_cache_dir = Path(so_cache_dir) if so_cache_dir else None
         self._so_path: Path | None = None
-        self._comp_topo = StrongARMComparatorTopology()
+        self._comp_topo = StrongARMComparatorTopology(pdk=self.pdk)
 
     def _ensure_so(self, work_dir: Path) -> Path:
         """Compile SAR logic if not already cached."""
@@ -189,6 +197,7 @@ class SARADCTopology(SystemTopology):
             input_mode="sine",
             vin_sine_amp=_SINE_AMP,
             vin_sine_freq_hz=f_in,
+            pdk=self.pdk,
         )
 
     def compute_system_fom(
@@ -352,7 +361,7 @@ class SARADCTopology(SystemTopology):
 
     def prompt_description(self) -> str:
         return (
-            "8-bit SAR ADC on IHP SG13G2 130nm BiCMOS. "
+            f"8-bit SAR ADC on {self.pdk.display_name}. "
             "StrongARM dynamic comparator (PMOS input pair, 12 transistors) "
             "driving a charge redistribution C-DAC (binary-weighted CMIM caps) "
             "with Verilator-compiled SAR logic via d_cosim mixed-signal bridge. "

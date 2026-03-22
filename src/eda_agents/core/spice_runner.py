@@ -1,7 +1,8 @@
-"""Reusable ngspice execution layer for IHP SG13G2 circuit simulation.
+"""Reusable ngspice execution layer for circuit simulation.
 
 Provides SpiceRunner for synchronous and async ngspice invocations,
 with standardized measurement parsing and PDK path validation.
+Supports any PDK via PdkConfig (defaults to IHP SG13G2).
 """
 
 from __future__ import annotations
@@ -14,14 +15,10 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from eda_agents.core.pdk import PdkConfig, resolve_pdk, resolve_pdk_root
+
 # Regex for parsing .meas output lines: "name = 1.234e+05"
 _MEAS_RE = re.compile(r"=\s*([-+]?\d+\.?\d*(?:e[-+]?\d+)?)", re.IGNORECASE)
-
-# Standard OSDI models required by IHP SG13G2 LV devices
-_OSDI_FILES = ("psp103_nqs.osdi", "r3_cmc.osdi", "mosvar.osdi")
-
-# Default PDK location
-_DEFAULT_PDK_ROOT = "/home/montanares/git/IHP-Open-PDK"
 
 
 @dataclass
@@ -49,51 +46,56 @@ class SpiceResult:
 class SpiceRunner:
     """Execute ngspice simulations with PDK-aware environment setup.
 
-    Validates PDK_ROOT and OSDI files on construction. Provides both
+    Validates PDK_ROOT and model files on construction. Provides both
     synchronous (run) and async (run_async) execution methods.
 
     Parameters
     ----------
+    pdk : PdkConfig or str, optional
+        PDK configuration. String names are resolved via the registry.
+        Defaults to resolve_pdk() (EDA_AGENTS_PDK env or IHP SG13G2).
     pdk_root : str or Path, optional
-        Path to IHP-Open-PDK root. Defaults to PDK_ROOT env var or
-        the standard local installation.
-    corner : str
-        Model corner name (e.g., "mos_tt", "mos_ff"). Default "mos_tt".
+        Path to PDK installation root. Defaults to PDK_ROOT env var
+        or the PDK's default_pdk_root.
+    corner : str, optional
+        Model corner override. If None, uses pdk.model_corner.
     timeout_s : int
         Maximum simulation time in seconds. Default 120.
     """
 
     def __init__(
         self,
+        pdk: PdkConfig | str | None = None,
         pdk_root: str | Path | None = None,
-        corner: str = "mos_tt",
+        corner: str | None = None,
         timeout_s: int = 120,
     ):
-        resolved = pdk_root or os.environ.get("PDK_ROOT", _DEFAULT_PDK_ROOT)
-        self.pdk_root = Path(resolved)
-        self.corner = corner
+        self.pdk = resolve_pdk(pdk)
+        root_str = resolve_pdk_root(
+            self.pdk, str(pdk_root) if pdk_root else None
+        )
+        self.pdk_root = Path(root_str)
+        self.corner = corner if corner is not None else self.pdk.model_corner
         self.timeout_s = timeout_s
 
-        # Validate paths
-        self._model_lib = (
-            self.pdk_root
-            / "ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib"
-        )
-        self._osdi_dir = (
-            self.pdk_root / "ihp-sg13g2/libs.tech/ngspice/osdi"
-        )
+        # Derive paths from PDK config
+        self._model_lib = Path(self.pdk.model_lib_path(root_str))
+        osdi_path = self.pdk.osdi_dir_path(root_str)
+        self._osdi_dir = Path(osdi_path) if osdi_path else None
 
     @property
     def model_lib(self) -> Path:
         return self._model_lib
 
     @property
-    def osdi_dir(self) -> Path:
+    def osdi_dir(self) -> Path | None:
         return self._osdi_dir
 
     @property
     def osdi_paths(self) -> list[Path]:
-        return [self._osdi_dir / f for f in _OSDI_FILES]
+        if self._osdi_dir is None:
+            return []
+        return [self._osdi_dir / f for f in self.pdk.osdi_files]
 
     def validate_pdk(self) -> list[str]:
         """Check that PDK files exist. Returns list of missing paths."""

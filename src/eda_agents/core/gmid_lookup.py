@@ -1,7 +1,7 @@
-"""gm/ID lookup table interface for IHP SG13G2 MOSFET characterization.
+"""gm/ID lookup table interface for MOSFET characterization.
 
 Provides fast lookup of transistor performance metrics from pre-generated
-ngspice PSP103 sweep data. Agents use this for informed design decisions
+ngspice sweep data. Agents use this for informed design decisions
 BEFORE running expensive SPICE simulations.
 
 Key metrics available:
@@ -11,7 +11,8 @@ Key metrics available:
     - Vth (threshold voltage) at given L
     - Vdsat at given operating point
 
-LUT data source: ihp-gmid-kit (.npz files from ngspice PSP103 DC sweeps)
+Supports any PDK via PdkConfig (defaults to IHP SG13G2).
+LUT data source: .npz files from ngspice DC sweeps (e.g., ihp-gmid-kit).
 """
 
 from __future__ import annotations
@@ -22,30 +23,41 @@ from pathlib import Path
 
 import numpy as np
 
+from eda_agents.core.pdk import PdkConfig, resolve_pdk
+
 logger = logging.getLogger(__name__)
-
-# Default LUT location
-_DEFAULT_LUT_DIR = Path("/home/montanares/personal_exp/ihp-gmid-kit/data")
-
-# LUT file names
-_NMOS_FILE = "sg13_lv_nmos.npz"
-_PMOS_FILE = "sg13_lv_pmos.npz"
 
 
 class GmIdLookup:
-    """gm/ID lookup table for IHP SG13G2 MOSFETs.
+    """gm/ID lookup table for MOSFETs.
 
     Loads .npz LUT data and provides interpolated lookups for
     transistor performance at arbitrary operating points.
+    PDK-specific file names and model keys are derived from PdkConfig.
 
     Parameters
     ----------
+    pdk : PdkConfig or str, optional
+        PDK configuration. Defaults to resolve_pdk().
     lut_dir : Path, optional
-        Directory containing .npz LUT files.
+        Directory containing .npz LUT files. Overrides pdk.lut_dir_default.
     """
 
-    def __init__(self, lut_dir: Path | None = None):
-        self.lut_dir = Path(lut_dir) if lut_dir else _DEFAULT_LUT_DIR
+    def __init__(
+        self,
+        pdk: PdkConfig | str | None = None,
+        lut_dir: Path | None = None,
+    ):
+        self.pdk = resolve_pdk(pdk)
+        if lut_dir:
+            self.lut_dir = Path(lut_dir)
+        elif self.pdk.lut_dir_default:
+            self.lut_dir = Path(self.pdk.lut_dir_default)
+        else:
+            raise ValueError(
+                f"No LUT directory for PDK '{self.pdk.name}'. "
+                "Pass lut_dir explicitly or set pdk.lut_dir_default."
+            )
         self._nmos: dict | None = None
         self._pmos: dict | None = None
 
@@ -54,13 +66,13 @@ class GmIdLookup:
         if mos_type == "nmos":
             if self._nmos is not None:
                 return self._nmos
-            fname = _NMOS_FILE
-            model_key = "sg13_lv_nmos"
+            fname = self.pdk.lut_nmos_file
+            model_key = self.pdk.lut_model_key_nmos
         else:
             if self._pmos is not None:
                 return self._pmos
-            fname = _PMOS_FILE
-            model_key = "sg13_lv_pmos"
+            fname = self.pdk.lut_pmos_file
+            model_key = self.pdk.lut_model_key_pmos
 
         path = self.lut_dir / fname
         if not path.exists():
@@ -389,7 +401,7 @@ class GmIdLookup:
         inversion levels (weak, moderate, strong).
         """
         lines = [
-            f"IHP SG13G2 {mos_type.upper()} at L={L_um}um, Vds={Vds}V, Vbs={Vbs}V",
+            f"{self.pdk.display_name} {mos_type.upper()} at L={L_um}um, Vds={Vds}V, Vbs={Vbs}V",
             f"{'gm/ID':>8} {'gm/gds':>8} {'gain_dB':>8} {'ID/W':>12} {'fT':>10} {'Region':>12}",
             "-" * 70,
         ]

@@ -1,6 +1,6 @@
 """Miller OTA topology wrapper for SPICE-in-the-loop experiments.
 
-Adapts the existing MillerOTADesigner as an CircuitTopology, delegating
+Adapts the existing MillerOTADesigner as a CircuitTopology, delegating
 analytical design and netlist generation to the proven implementation
 while conforming to the common topology interface.
 """
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from eda_agents.core.pdk import PdkConfig, resolve_pdk
 from eda_agents.topologies.miller_ota import DesignResult, MillerOTADesigner
 from eda_agents.core.topology import CircuitTopology
 from eda_agents.core.spice_runner import SpiceResult
@@ -25,10 +26,16 @@ class MillerOTATopology(CircuitTopology):
     Delegates to MillerOTADesigner for analytical sizing and netlist
     generation. Design space matches the experiment harness conventions
     (units: S/A, um, pF, uA).
+
+    Parameters
+    ----------
+    pdk : PdkConfig or str, optional
+        PDK configuration. Defaults to resolve_pdk().
     """
 
-    def __init__(self):
-        self.designer = MillerOTADesigner()
+    def __init__(self, pdk: PdkConfig | str | None = None):
+        self.pdk = resolve_pdk(pdk)
+        self.designer = MillerOTADesigner(pdk=self.pdk)
         # Cache the last DesignResult for netlist generation
         self._last_result: DesignResult | None = None
 
@@ -62,7 +69,7 @@ class MillerOTATopology(CircuitTopology):
 
     def prompt_description(self) -> str:
         return (
-            "Miller OTA on IHP SG13G2 130nm BiCMOS. "
+            f"Miller OTA on {self.pdk.display_name}. "
             "NMOS-input diff pair with PMOS current mirror load "
             "and PMOS common-source second stage with Miller compensation."
         )

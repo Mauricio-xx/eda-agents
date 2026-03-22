@@ -1,6 +1,6 @@
-"""AnalogAcademy PMOS-input two-stage OTA topology for IHP SG13G2.
+"""AnalogAcademy PMOS-input two-stage OTA topology.
 
-Wraps the IHP-AnalogAcademy OTA design (part_1_OTA) as an CircuitTopology.
+Wraps the IHP-AnalogAcademy OTA design (part_1_OTA) as a CircuitTopology.
 This is a PMOS-input pair topology with NMOS mirror load, unlike the
 Miller OTA which uses NMOS input.
 
@@ -12,6 +12,7 @@ Reference CDL (9 transistors):
     M7/M9: PMOS current source (L=2.08u, W=75u,   ng=8)
     C2:    MIM Miller comp cap (~750fF)
 
+Supports any PDK via PdkConfig (defaults to IHP SG13G2).
 Source: /home/montanares/git/eda_sandbox/IHP-AnalogAcademy/
 """
 
@@ -21,6 +22,7 @@ import logging
 import math
 from pathlib import Path
 
+from eda_agents.core.pdk import PdkConfig, resolve_pdk
 from eda_agents.core.topology import CircuitTopology
 from eda_agents.core.spice_runner import SpiceResult
 
@@ -93,9 +95,17 @@ class AnalogAcademyOTATopology(CircuitTopology):
         - L_load_um:  load/output stage channel length [1.0, 15.0] um
         - Cc_pF:      Miller compensation cap [0.3, 3.0] pF
         - W_dp_um:    diff pair width [0.5, 10.0] um
+
+    Parameters
+    ----------
+    pdk : PdkConfig or str, optional
+        PDK configuration. Defaults to resolve_pdk().
     """
 
-    _lut = None  # class-level GmIdLookup cache
+    _lut_cache: dict[str, object] = {}  # class-level per-PDK GmIdLookup cache
+
+    def __init__(self, pdk: PdkConfig | str | None = None):
+        self.pdk = resolve_pdk(pdk)
 
     def topology_name(self) -> str:
         return "aa_ota"
@@ -125,7 +135,7 @@ class AnalogAcademyOTATopology(CircuitTopology):
 
     def prompt_description(self) -> str:
         return (
-            "Two-stage OTA on IHP SG13G2 130nm BiCMOS. "
+            f"Two-stage OTA on {self.pdk.display_name}. "
             "PMOS-input diff pair with NMOS mirror load "
             "and NMOS common-source second stage with Miller compensation."
         )
@@ -226,25 +236,25 @@ class AnalogAcademyOTATopology(CircuitTopology):
         i_ratio = Ibias / _IBIAS
 
         # Diff pair: direct from params
-        W1 = max(W_dp, 0.15e-6)
-        L1 = max(L_dp, 0.13e-6)
+        W1 = max(W_dp, self.pdk.Wmin_m)
+        L1 = max(L_dp, self.pdk.Lmin_m)
 
         # NMOS mirror load: L from L_load, W scales with current
-        W3 = max(_REF_SIZING["M3"]["W"] * i_ratio, 0.15e-6)
-        L3 = max(L_load, 0.13e-6)
+        W3 = max(_REF_SIZING["M3"]["W"] * i_ratio, self.pdk.Wmin_m)
+        L3 = max(L_load, self.pdk.Lmin_m)
 
         # Tail current source: W scales with current, L from ref
-        W5 = max(_REF_SIZING["M5"]["W"] * i_ratio, 0.15e-6)
-        L5 = max(_REF_SIZING["M5"]["L"], 0.13e-6)
+        W5 = max(_REF_SIZING["M5"]["W"] * i_ratio, self.pdk.Wmin_m)
+        L5 = max(_REF_SIZING["M5"]["L"], self.pdk.Lmin_m)
 
         # Output NMOS CS: W scales with current, L = L_load
-        W6 = max(_REF_SIZING["M6"]["W"] * i_ratio, 0.15e-6)
-        L6 = max(L_load, 0.13e-6)
+        W6 = max(_REF_SIZING["M6"]["W"] * i_ratio, self.pdk.Wmin_m)
+        L6 = max(L_load, self.pdk.Lmin_m)
         ng6 = max(1, round(W6 / 10e-6))  # split into fingers if W > 10um
 
         # PMOS current mirror for second stage
-        W7 = max(_REF_SIZING["M7"]["W"] * i_ratio, 0.15e-6)
-        L7 = max(_REF_SIZING["M7"]["L"], 0.13e-6)
+        W7 = max(_REF_SIZING["M7"]["W"] * i_ratio, self.pdk.Wmin_m)
+        L7 = max(_REF_SIZING["M7"]["L"], self.pdk.Lmin_m)
         ng7 = max(1, round(W7 / 10e-6))
 
         sizing = {
@@ -259,8 +269,8 @@ class AnalogAcademyOTATopology(CircuitTopology):
             "_Cc": Cc,
             "_Ibias": Ibias,
             "_CL": _CL,
-            "_VDD": _VDD,
-            "_VCM": _VCM,
+            "_VDD": self.pdk.VDD,
+            "_VCM": self.pdk.VDD / 2,
         }
 
         # Compute analytical estimates for pre-filtering
@@ -283,9 +293,10 @@ class AnalogAcademyOTATopology(CircuitTopology):
         try:
             from eda_agents.core.gmid_lookup import GmIdLookup
 
-            if AnalogAcademyOTATopology._lut is None:
-                AnalogAcademyOTATopology._lut = GmIdLookup()
-            lut = AnalogAcademyOTATopology._lut
+            pdk_name = self.pdk.name
+            if pdk_name not in AnalogAcademyOTATopology._lut_cache:
+                AnalogAcademyOTATopology._lut_cache[pdk_name] = GmIdLookup(pdk=self.pdk)
+            lut = AnalogAcademyOTATopology._lut_cache[pdk_name]
 
             Ibias = sizing["_Ibias"]
             Cc = sizing["_Cc"]
@@ -425,13 +436,18 @@ class AnalogAcademyOTATopology(CircuitTopology):
         VDD = sizing["_VDD"]
         VCM = sizing["_VCM"]
 
-        # Junction area/perimeter (z1 = 340nm for SG13G2)
-        z1 = 340e-9
+        # Junction area/perimeter
+        z1 = self.pdk.z1_m
 
         def _junc(W: float) -> str:
             AS = W * z1
             PS = 2 * (W + z1)
             return f"AS={AS:.3e} PS={PS:.3e} AD={AS:.3e} PD={PS:.3e}"
+
+        # Device symbols from PDK config
+        pmos = self.pdk.pmos_symbol
+        nmos = self.pdk.nmos_symbol
+        px = self.pdk.instance_prefix  # "X" for subcircuit-based PDKs
 
         # --- Netlist ---
         # AnalogAcademy topology: PMOS input, NMOS mirror
@@ -442,27 +458,25 @@ class AnalogAcademyOTATopology(CircuitTopology):
         m6 = sizing["M6"]
         m7 = sizing["M7"]
 
-        # Note: IHP SG13G2 OSDI models define devices as subcircuits,
-        # so instances must use 'X' prefix (not 'M').
         net_lines = [
-            "* AnalogAcademy Two-Stage OTA - IHP SG13G2",
+            f"* AnalogAcademy Two-Stage OTA - {self.pdk.display_name}",
             "* PMOS input pair, NMOS mirror load, Miller comp",
             "",
             f"* Stage 1: PMOS diff pair + NMOS mirror",
-            f"X1 net1 inn net2 VDD sg13_lv_pmos W={m1['W']:.4e} L={m1['L']:.4e} ng={m1['ng']} m=1 {_junc(m1['W'])}",
-            f"X2 net3 inp net2 VDD sg13_lv_pmos W={m1['W']:.4e} L={m1['L']:.4e} ng={m1['ng']} m=1 {_junc(m1['W'])}",
-            f"X3 net1 net1 0 0 sg13_lv_nmos W={m3['W']:.4e} L={m3['L']:.4e} ng={m3['ng']} m=1 {_junc(m3['W'])}",
-            f"X4 net3 net1 0 0 sg13_lv_nmos W={m3['W']:.4e} L={m3['L']:.4e} ng={m3['ng']} m=1 {_junc(m3['W'])}",
+            f"{px}1 net1 inn net2 VDD {pmos} W={m1['W']:.4e} L={m1['L']:.4e} ng={m1['ng']} m=1 {_junc(m1['W'])}",
+            f"{px}2 net3 inp net2 VDD {pmos} W={m1['W']:.4e} L={m1['L']:.4e} ng={m1['ng']} m=1 {_junc(m1['W'])}",
+            f"{px}3 net1 net1 0 0 {nmos} W={m3['W']:.4e} L={m3['L']:.4e} ng={m3['ng']} m=1 {_junc(m3['W'])}",
+            f"{px}4 net3 net1 0 0 {nmos} W={m3['W']:.4e} L={m3['L']:.4e} ng={m3['ng']} m=1 {_junc(m3['W'])}",
             "",
             f"* Tail current source",
-            f"X5 net2 nb VDD VDD sg13_lv_pmos W={m5['W']:.4e} L={m5['L']:.4e} ng={m5['ng']} m=1 {_junc(m5['W'])}",
+            f"{px}5 net2 nb VDD VDD {pmos} W={m5['W']:.4e} L={m5['L']:.4e} ng={m5['ng']} m=1 {_junc(m5['W'])}",
             "",
             f"* Stage 2: NMOS CS + PMOS current source",
-            f"X6 vout net3 0 0 sg13_lv_nmos W={m6['W']:.4e} L={m6['L']:.4e} ng={m6['ng']} m=1 {_junc(m6['W'])}",
-            f"X7 vout nb VDD VDD sg13_lv_pmos W={m7['W']:.4e} L={m7['L']:.4e} ng={m7['ng']} m=1 {_junc(m7['W'])}",
+            f"{px}6 vout net3 0 0 {nmos} W={m6['W']:.4e} L={m6['L']:.4e} ng={m6['ng']} m=1 {_junc(m6['W'])}",
+            f"{px}7 vout nb VDD VDD {pmos} W={m7['W']:.4e} L={m7['L']:.4e} ng={m7['ng']} m=1 {_junc(m7['W'])}",
             "",
             f"* Bias mirror diode",
-            f"X9 nb nb VDD VDD sg13_lv_pmos W={m7['W']:.4e} L={m7['L']:.4e} ng={m7['ng']} m=1 {_junc(m7['W'])}",
+            f"{px}9 nb nb VDD VDD {pmos} W={m7['W']:.4e} L={m7['L']:.4e} ng={m7['ng']} m=1 {_junc(m7['W'])}",
             "",
             f"* Compensation and load",
             f"Cc net3 vout {Cc:.4e}",
@@ -485,22 +499,38 @@ class AnalogAcademyOTATopology(CircuitTopology):
         net_file.write_text("\n".join(net_lines) + "\n")
 
         # --- AC analysis control file ---
-        model_lib = "$PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib"
-        cap_lib = "$PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/models/cornerCAP.lib"
-        osdi_base = "$PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/osdi"
+        model_lib = f"$PDK_ROOT/{self.pdk.model_lib_rel}"
+
+        # Build library includes
+        lib_lines = []
+        if self.pdk.model_corner:
+            lib_lines.append(f".lib {model_lib} {self.pdk.model_corner}")
+        else:
+            lib_lines.append(f".include {model_lib}")
+        if self.pdk.cap_lib_rel:
+            cap_lib = f"$PDK_ROOT/{self.pdk.cap_lib_rel}"
+            cap_corner = self.pdk.cap_corner or ""
+            if cap_corner:
+                lib_lines.append(f".lib {cap_lib} {cap_corner}")
+            else:
+                lib_lines.append(f".include {cap_lib}")
+
+        # Build OSDI lines
+        osdi_lines = []
+        if self.pdk.has_osdi():
+            osdi_base = f"$PDK_ROOT/{self.pdk.osdi_dir_rel}"
+            for osdi_file in self.pdk.osdi_files:
+                osdi_lines.append(f"  osdi '{osdi_base}/{osdi_file}'")
 
         ac_lines = [
-            "AnalogAcademy OTA AC analysis - IHP SG13G2",
+            f"AnalogAcademy OTA AC analysis - {self.pdk.display_name}",
             "",
-            f".lib {model_lib} mos_tt",
-            f".lib {cap_lib} cap_typ",
+            *lib_lines,
             f".include {net_file.name}",
             "",
             ".control",
             "  set ngbehavior=hsa",
-            f"  osdi '{osdi_base}/psp103_nqs.osdi'",
-            f"  osdi '{osdi_base}/r3_cmc.osdi'",
-            f"  osdi '{osdi_base}/mosvar.osdi'",
+            *osdi_lines,
             "  op",
             "  save v(vout)",
             "  ac dec 41 10 100MEG",

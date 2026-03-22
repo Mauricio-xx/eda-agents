@@ -150,7 +150,7 @@ class CircuitTopology(ABC):
         """Description of auxiliary (non-SPICE) tools available.
 
         Override to tell agents about free lookup tools specific to
-        this topology's PDK. Default assumes gmid_lookup for IHP SG13G2.
+        this topology's PDK. Default assumes gmid_lookup is available.
         Return empty string if no auxiliary tools available.
         """
         return (
@@ -219,7 +219,7 @@ class CircuitTopology(ABC):
             "function": {
                 "name": "simulate_circuit",
                 "description": (
-                    f"Run SPICE simulation for {self.topology_name()} on IHP SG13G2. "
+                    f"Run SPICE simulation for {self.topology_name()}. "
                     f"{self.specs_description()}. "
                     f"{self.fom_description()}"
                 ),
