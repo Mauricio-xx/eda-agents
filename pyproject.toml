@@ -57,6 +57,8 @@ pythonpath = ["src"]
 anyio_mode = "auto"
 markers = [
     "spice: requires ngspice + IHP SG13G2 PDK (deselect with -m 'not spice')",
+    "klayout: requires klayout + GF180MCU PDK (deselect with -m 'not klayout')",
+    "glayout: requires .venv-glayout with gLayout installed (deselect with -m 'not glayout')",
 ]
 
 [tool.ruff]

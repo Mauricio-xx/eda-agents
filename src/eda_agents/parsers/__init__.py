@@ -9,6 +9,7 @@ def _register_defaults():
     from eda_agents.parsers.librelane import LibreLaneConfigParser
     from eda_agents.parsers.metrics import LibreLaneMetricsParser
     from eda_agents.parsers.drc import MagicDrcParser
+    from eda_agents.parsers.klayout_drc import KLayoutDrcParser
     from eda_agents.parsers.lvs import NetgenLvsParser
     from eda_agents.parsers.orfs import OrfsConfigParser
     from eda_agents.parsers.liberty import LibertyParser
@@ -17,6 +18,7 @@ def _register_defaults():
         LibreLaneConfigParser,
         LibreLaneMetricsParser,
         MagicDrcParser,
+        KLayoutDrcParser,
         NetgenLvsParser,
         OrfsConfigParser,
         LibertyParser,
