@@ -130,10 +130,21 @@ class TestResolvePdkRoot:
         root = resolve_pdk_root(IHP_SG13G2, "/custom/path")
         assert root == "/custom/path"
 
-    def test_env_var(self, monkeypatch):
-        monkeypatch.setenv("PDK_ROOT", "/env/pdk")
+    def test_env_var(self, monkeypatch, tmp_path):
+        # PDK_ROOT is only used if it actually contains the PDK's model file
+        fake_root = tmp_path / "env_pdk"
+        model_dir = fake_root / "ihp-sg13g2/libs.tech/ngspice/models"
+        model_dir.mkdir(parents=True)
+        (model_dir / "cornerMOSlv.lib").write_text("* fake\n")
+        monkeypatch.setenv("PDK_ROOT", str(fake_root))
         root = resolve_pdk_root(IHP_SG13G2)
-        assert root == "/env/pdk"
+        assert root == str(fake_root)
+
+    def test_env_var_wrong_pdk_falls_through(self, monkeypatch):
+        # PDK_ROOT pointing to IHP should NOT be used for GF180
+        monkeypatch.setenv("PDK_ROOT", "/env/pdk")
+        root = resolve_pdk_root(GF180MCU_D)
+        assert root == GF180MCU_D.default_pdk_root
 
     def test_default_fallback(self, monkeypatch):
         monkeypatch.delenv("PDK_ROOT", raising=False)

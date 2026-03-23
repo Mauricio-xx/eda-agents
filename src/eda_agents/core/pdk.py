@@ -287,7 +287,7 @@ def resolve_pdk_root(pdk: PdkConfig, explicit_root: str | None = None) -> str:
 
     Resolution order:
         1. Explicit argument
-        2. PDK_ROOT env var
+        2. PDK_ROOT env var (only if it contains this PDK's model files)
         3. pdk.default_pdk_root
         4. Raise ValueError
     """
@@ -295,7 +295,9 @@ def resolve_pdk_root(pdk: PdkConfig, explicit_root: str | None = None) -> str:
         return explicit_root
     env_root = os.environ.get("PDK_ROOT")
     if env_root:
-        return env_root
+        model_path = os.path.join(env_root, pdk.model_lib_rel)
+        if os.path.isfile(model_path):
+            return env_root
     if pdk.default_pdk_root:
         return pdk.default_pdk_root
     raise ValueError(
