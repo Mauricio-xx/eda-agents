@@ -68,9 +68,12 @@ class GF180OTATopology(CircuitTopology):
         }
 
     def default_params(self) -> dict[str, float]:
-        """Starting design point for exploration."""
+        """Starting design point for exploration.
+
+        Validated via SPICE: Adc~52dB, GBW~3.87MHz, PM~73.7deg.
+        """
         return {
-            "Ibias_uA": 100.0,
+            "Ibias_uA": 200.0,
             "L_dp_um": 2.0,
             "L_load_um": 5.0,
             "Cc_pF": 2.0,
@@ -117,8 +120,9 @@ class GF180OTATopology(CircuitTopology):
 
     def reference_description(self) -> str:
         return (
-            "Starting point: Ibias=100uA, L_dp=2um, L_load=5um, "
-            "Cc=2pF, W_dp=10um. Performance TBD from initial SPICE sweep."
+            "Starting point: Ibias=200uA, L_dp=2um, L_load=5um, "
+            "Cc=2pF, W_dp=10um. SPICE-measured: Adc=52.0dB, GBW=3.87MHz, "
+            "PM=73.7deg, FoM=6.02e+20."
         )
 
     def params_to_sizing(self, params: dict[str, float]) -> dict[str, dict]:

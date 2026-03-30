@@ -253,6 +253,14 @@ COMP_GDS = GF180_PDK_ROOT / (
     "gf180mcuD/libs.tech/klayout/tech/drc/testing/"
     "testcases/unit/comp.gds"
 )
+ANTENNA_GDS = GF180_PDK_ROOT / (
+    "gf180mcuD/libs.tech/klayout/tech/drc/testing/"
+    "testcases/unit/antenna-1.gds"
+)
+DENSITY_PASS_GDS = GF180_PDK_ROOT / (
+    "gf180mcuD/libs.tech/klayout/tech/drc/testing/"
+    "testcases/unit/density/M1.4/pass/density-M1_4_pass.gds"
+)
 
 
 @pytest.mark.klayout
@@ -299,3 +307,90 @@ class TestKLayoutDrcIntegration:
         runner = KLayoutDrcRunner(pdk_root=str(GF180_PDK_ROOT))
         problems = runner.validate_setup()
         assert problems == [], f"Setup problems: {problems}"
+
+    def test_drc_antenna_gds(self, tmp_path):
+        """Run DRC on PDK antenna test case, verify violations found."""
+        if not ANTENNA_GDS.is_file():
+            pytest.skip(f"Antenna test GDS not found: {ANTENNA_GDS}")
+
+        runner = KLayoutDrcRunner(
+            pdk_root=str(GF180_PDK_ROOT),
+            variant="C",
+            timeout_s=300,
+        )
+        result = runner.run(
+            gds_path=ANTENNA_GDS,
+            run_dir=tmp_path / "drc_antenna",
+            table="antenna",
+        )
+        assert result.success, f"DRC run failed: {result.error}"
+        assert result.total_violations > 0, "antenna-1.gds should have violations"
+        assert len(result.violated_rules) > 0
+
+    def test_drc_density_pass(self, tmp_path):
+        """Run DRC on density pass case, verify clean result."""
+        if not DENSITY_PASS_GDS.is_file():
+            pytest.skip(f"Density pass GDS not found: {DENSITY_PASS_GDS}")
+
+        runner = KLayoutDrcRunner(
+            pdk_root=str(GF180_PDK_ROOT),
+            variant="C",
+            timeout_s=300,
+        )
+        result = runner.run(
+            gds_path=DENSITY_PASS_GDS,
+            run_dir=tmp_path / "drc_density_pass",
+        )
+        assert result.success, f"DRC run failed: {result.error}"
+        # This is a pass case, should be clean (or very few violations)
+        assert result.total_violations == 0, (
+            f"density pass GDS should be clean, got: {result.violated_rules}"
+        )
+
+
+@pytest.mark.klayout
+class TestEdaToolsDrcWrapper:
+    """Integration tests for the higher-level run_klayout_drc wrapper."""
+
+    @pytest.fixture(autouse=True)
+    def check_prereqs(self):
+        import shutil
+
+        if not shutil.which("klayout"):
+            pytest.skip("klayout not in PATH")
+        if not GF180_PDK_ROOT.is_dir():
+            pytest.skip("GF180MCU PDK not found")
+
+    def test_wrapper_with_antenna_gds(self):
+        """Test eda_tools.run_klayout_drc on antenna test case."""
+        if not ANTENNA_GDS.is_file():
+            pytest.skip(f"Antenna GDS not found: {ANTENNA_GDS}")
+
+        from eda_agents.tools.eda_tools import run_klayout_drc
+
+        result = run_klayout_drc(
+            gds_path=str(ANTENNA_GDS),
+            variant="C",
+            table="antenna",
+            pdk_root=str(GF180_PDK_ROOT),
+        )
+        assert "error" not in result, f"Wrapper error: {result.get('error')}"
+        assert result["success"]
+        assert result["total_errors"] > 0
+        assert isinstance(result["violated_rules"], dict)
+
+    def test_wrapper_with_comp_gds(self):
+        """Test eda_tools.run_klayout_drc on comp test case."""
+        if not COMP_GDS.is_file():
+            pytest.skip(f"Comp GDS not found: {COMP_GDS}")
+
+        from eda_agents.tools.eda_tools import run_klayout_drc
+
+        result = run_klayout_drc(
+            gds_path=str(COMP_GDS),
+            variant="C",
+            table="comp",
+            pdk_root=str(GF180_PDK_ROOT),
+        )
+        assert "error" not in result, f"Wrapper error: {result.get('error')}"
+        assert result["success"]

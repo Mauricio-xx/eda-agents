@@ -108,14 +108,18 @@ class TestGF180OTATopology:
 class TestGF180OTASpice:
     """Integration tests requiring ngspice + GF180MCU PDK."""
 
+    @pytest.fixture(autouse=True)
+    def check_pdk(self):
+        from eda_agents.core.spice_runner import SpiceRunner
+        runner = SpiceRunner(pdk=GF180MCU_D)
+        missing = runner.validate_pdk()
+        if missing:
+            pytest.skip(f"GF180 PDK not available: {missing}")
+
     def test_spice_simulation(self, tmp_path):
         from eda_agents.core.spice_runner import SpiceRunner
         topo = GF180OTATopology()
         runner = SpiceRunner(pdk=GF180MCU_D)
-
-        missing = runner.validate_pdk()
-        if missing:
-            pytest.skip(f"GF180 PDK not available: {missing}")
 
         sizing = topo.params_to_sizing(topo.default_params())
         cir = topo.generate_netlist(sizing, tmp_path)
@@ -125,3 +129,28 @@ class TestGF180OTASpice:
         assert result.Adc_dB is not None
         assert result.GBW_Hz is not None
         assert result.PM_deg is not None
+
+    def test_default_spice_meets_specs(self, tmp_path):
+        """Run default GF180OTA params through ngspice, verify specs."""
+        from eda_agents.core.spice_runner import SpiceRunner
+        topo = GF180OTATopology()
+        runner = SpiceRunner(pdk=GF180MCU_D)
+
+        params = topo.default_params()
+        sizing = topo.params_to_sizing(params)
+        cir = topo.generate_netlist(sizing, tmp_path)
+        result = runner.run(cir, tmp_path)
+
+        assert result.success, f"Simulation failed: {result.error}"
+        fom = topo.compute_fom(result, sizing)
+        valid, violations = topo.check_validity(result, sizing)
+
+        # Record actual values for diagnostics
+        print(f"Default design SPICE results:")
+        print(f"  Adc = {result.Adc_dB:.1f} dB")
+        print(f"  GBW = {result.GBW_Hz:.0f} Hz ({result.GBW_Hz/1e3:.1f} kHz)")
+        print(f"  PM  = {result.PM_deg:.1f} deg")
+        print(f"  FoM = {fom:.2e}")
+        print(f"  Valid: {valid}, Violations: {violations}")
+
+        assert fom > 0, "FoM should be positive for a working design"

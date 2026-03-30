@@ -16,3 +16,5 @@ venv/
 .pytest_cache/
 .mypy_cache/
 SESSION_LOG.md
+data/gf180-template/
+trackd_results/
