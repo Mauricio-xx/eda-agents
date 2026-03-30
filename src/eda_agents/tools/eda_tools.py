@@ -431,6 +431,237 @@ def generate_layout(
 
 
 # ---------------------------------------------------------------------------
+# OTA layout generation (gLayout opamp_twostage)
+# ---------------------------------------------------------------------------
+
+
+def generate_ota_layout(
+    params: dict[str, float] | None = None,
+    output_dir: str = "",
+    pdk: str = "gf180mcu",
+) -> dict:
+    """Generate a full OTA layout from design parameters.
+
+    Uses GF180OTATopology to convert design parameters to gLayout's
+    opamp_twostage() format. Produces both GDS and SPICE netlist.
+
+    Parameters
+    ----------
+    params : dict or None
+        Design space parameters (Ibias_uA, L_dp_um, etc.).
+        Uses default_params() if None.
+    output_dir : str
+        Output directory. Uses temp dir if empty.
+    pdk : str
+        Target PDK. Default "gf180mcu".
+
+    Returns
+    -------
+    dict
+        Keys: success, gds_path, netlist_path, summary, run_time_s, or error.
+    """
+    from eda_agents.core.glayout_runner import GLayoutRunner
+    from eda_agents.topologies.ota_gf180 import GF180OTATopology
+
+    if not output_dir:
+        import tempfile
+        output_dir = tempfile.mkdtemp(prefix="ota_layout_")
+
+    topo = GF180OTATopology()
+    if params is None:
+        params = topo.default_params()
+
+    sizing = topo.params_to_sizing(params)
+    runner = GLayoutRunner(pdk=pdk)
+    result = runner.generate_ota(sizing, output_dir)
+
+    if result.error:
+        return {"error": result.error}
+
+    return {
+        "success": result.success,
+        "gds_path": result.gds_path,
+        "netlist_path": result.netlist_path,
+        "summary": result.summary,
+        "run_time_s": result.run_time_s,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Magic PEX (parasitic extraction)
+# ---------------------------------------------------------------------------
+
+
+def run_magic_pex(
+    gds_path: str,
+    design_name: str = "",
+    pdk_root: str = "",
+    corner: str = "ngspice()",
+    timeout_s: int = 300,
+) -> dict:
+    """Run Magic parasitic extraction on a GDS file.
+
+    Parameters
+    ----------
+    gds_path : str
+        Path to the GDS file.
+    design_name : str
+        Top cell name. Defaults to GDS filename stem.
+    pdk_root : str
+        Path to PDK root. Uses env/default if empty.
+    corner : str
+        Extraction corner/style. Default "ngspice()".
+    timeout_s : int
+        Maximum runtime in seconds.
+
+    Returns
+    -------
+    dict
+        Keys: success, extracted_netlist_path, corner, summary, run_time_s, or error.
+    """
+    from eda_agents.core.magic_pex import MagicPexRunner
+
+    gds = Path(gds_path)
+    if not gds.is_file():
+        return {"error": f"GDS file not found: {gds_path}"}
+
+    if not design_name:
+        design_name = gds.stem
+
+    work_dir = gds.parent / f"_pex_{design_name}"
+
+    runner = MagicPexRunner(
+        pdk_root=pdk_root or None,
+        corner=corner,
+        timeout_s=timeout_s,
+    )
+
+    result = runner.run(gds_path=gds_path, design_name=design_name, work_dir=work_dir)
+
+    if result.error:
+        return {"error": result.error}
+
+    return {
+        "success": result.success,
+        "extracted_netlist_path": result.extracted_netlist_path,
+        "corner": result.corner,
+        "summary": result.summary,
+        "run_time_s": result.run_time_s,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Full post-layout validation pipeline
+# ---------------------------------------------------------------------------
+
+
+def run_postlayout_validation(
+    params: dict[str, float] | None = None,
+    pre_layout_fom: float = 0.0,
+    output_dir: str = "",
+    pdk_root: str = "",
+    skip_drc: bool = False,
+    skip_lvs: bool = False,
+) -> dict:
+    """Run the full post-layout validation pipeline.
+
+    Orchestrates: layout -> DRC -> LVS -> PEX -> post-layout SPICE.
+
+    Parameters
+    ----------
+    params : dict or None
+        Design parameters. Uses defaults if None.
+    pre_layout_fom : float
+        Pre-layout FoM for delta computation.
+    output_dir : str
+        Output directory. Uses temp dir if empty.
+    pdk_root : str
+        Path to PDK root.
+    skip_drc : bool
+        Skip DRC step.
+    skip_lvs : bool
+        Skip LVS step.
+
+    Returns
+    -------
+    dict
+        Keys: success, summary, gds_path, drc_clean, lvs_match,
+        extracted_netlist_path, post_Adc_dB, post_GBW_Hz, post_PM_deg,
+        post_fom, fom_delta_pct, total_time_s, or error.
+    """
+    from eda_agents.agents.postlayout_validator import PostLayoutValidator
+    from eda_agents.core.glayout_runner import GLayoutRunner
+    from eda_agents.core.magic_pex import MagicPexRunner
+    from eda_agents.core.spice_runner import SpiceRunner
+    from eda_agents.topologies.ota_gf180 import GF180OTATopology
+
+    if not output_dir:
+        import tempfile
+        output_dir = tempfile.mkdtemp(prefix="postlayout_")
+
+    topo = GF180OTATopology()
+    if params is None:
+        params = topo.default_params()
+
+    glayout = GLayoutRunner()
+    pex_runner = MagicPexRunner(pdk_root=pdk_root or None)
+    spice = SpiceRunner(pdk="gf180mcu")
+
+    drc_runner = None
+    lvs_runner = None
+
+    if not skip_drc:
+        try:
+            from eda_agents.core.klayout_drc import KLayoutDrcRunner
+            drc_runner = KLayoutDrcRunner(pdk_root=pdk_root or None)
+        except Exception:
+            pass
+
+    if not skip_lvs:
+        try:
+            from eda_agents.core.klayout_lvs import KLayoutLvsRunner
+            lvs_runner = KLayoutLvsRunner(pdk_root=pdk_root or None)
+        except Exception:
+            pass
+
+    validator = PostLayoutValidator(
+        topology=topo,
+        glayout_runner=glayout,
+        magic_pex_runner=pex_runner,
+        spice_runner=spice,
+        drc_runner=drc_runner,
+        lvs_runner=lvs_runner,
+    )
+
+    result = validator.validate(
+        params=params,
+        pre_layout_fom=pre_layout_fom,
+        work_dir=output_dir,
+    )
+
+    if result.error:
+        return {"error": result.error, "total_time_s": result.total_time_s}
+
+    return {
+        "success": True,
+        "summary": result.summary,
+        "gds_path": result.gds_path,
+        "drc_clean": result.drc_clean,
+        "drc_violations": result.drc_violations,
+        "lvs_match": result.lvs_match,
+        "extracted_netlist_path": result.extracted_netlist_path,
+        "pex_corner": result.pex_corner,
+        "post_Adc_dB": result.post_Adc_dB,
+        "post_GBW_Hz": result.post_GBW_Hz,
+        "post_PM_deg": result.post_PM_deg,
+        "post_fom": result.post_fom,
+        "post_valid": result.post_valid,
+        "fom_delta_pct": result.fom_delta_pct,
+        "total_time_s": result.total_time_s,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Precheck (deferred -- individual checks covered by DRC flags)
 # ---------------------------------------------------------------------------
 

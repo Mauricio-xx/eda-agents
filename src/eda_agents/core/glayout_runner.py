@@ -36,6 +36,8 @@ class GLayoutResult:
 
     success: bool
     gds_path: str | None = None
+    netlist_path: str | None = None
+    top_cell: str = ""
     component: str = ""
     params: dict | None = None
     run_time_s: float = 0.0
@@ -45,7 +47,10 @@ class GLayoutResult:
     def summary(self) -> str:
         if self.error:
             return f"gLayout error: {self.error}"
-        return f"gLayout: generated {self.component} -> {self.gds_path}"
+        parts = [f"gLayout: generated {self.component} -> {self.gds_path}"]
+        if self.netlist_path:
+            parts.append(f"netlist: {self.netlist_path}")
+        return ", ".join(parts)
 
 
 class GLayoutRunner:
@@ -68,7 +73,7 @@ class GLayoutRunner:
     def __init__(
         self,
         glayout_venv: str = _DEFAULT_GLAYOUT_VENV,
-        timeout_s: int = 120,
+        timeout_s: int = 300,
         driver_script: str | Path | None = None,
         pdk: str = "gf180mcu",
     ):
@@ -232,7 +237,42 @@ class GLayoutRunner:
         return GLayoutResult(
             success=True,
             gds_path=result.get("gds_path"),
+            netlist_path=result.get("netlist_path"),
+            top_cell=result.get("top_cell", component),
             component=component,
             params=params,
             run_time_s=elapsed,
+        )
+
+    def generate_ota(
+        self,
+        sizing: dict,
+        output_dir: str | Path,
+    ) -> GLayoutResult:
+        """Generate a full OTA layout from topology sizing.
+
+        Converts sizing dict (from GF180OTATopology.params_to_sizing()) into
+        gLayout opamp_twostage() parameters and invokes the driver.
+
+        Parameters
+        ----------
+        sizing : dict
+            Transistor sizing from GF180OTATopology.params_to_sizing().
+        output_dir : path
+            Directory for GDS and SPICE netlist output.
+
+        Returns
+        -------
+        GLayoutResult
+            Includes both gds_path and netlist_path on success.
+        """
+        from eda_agents.topologies.ota_gf180 import GF180OTATopology
+
+        topo = GF180OTATopology()
+        glayout_params = topo.sizing_to_glayout_params(sizing)
+
+        return self.generate_component(
+            component="opamp_twostage",
+            params=glayout_params,
+            output_dir=output_dir,
         )

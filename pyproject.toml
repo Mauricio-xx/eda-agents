@@ -60,6 +60,7 @@ markers = [
     "klayout: requires klayout + GF180MCU PDK (deselect with -m 'not klayout')",
     "glayout: requires .venv-glayout with gLayout installed (deselect with -m 'not glayout')",
     "librelane: requires librelane + gf180mcu-project-template (deselect with -m 'not librelane')",
+    "magic: requires magic + GF180MCU PDK (deselect with -m 'not magic')",
 ]
 
 [tool.ruff]

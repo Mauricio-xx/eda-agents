@@ -73,12 +73,40 @@ print(f"Adc={result.Adc_dB:.1f}dB, GBW={result.GBW_MHz:.3f}MHz, PM={result.PM_de
 
 ```
 eda_agents/
-  core/           # CircuitTopology ABC, SystemTopology ABC, SpiceRunner, gm/ID LUT
-  topologies/     # Miller OTA, AnalogAcademy OTA, StrongARM comparator, SAR ADC
-  agents/         # SpiceEvaluationHandler, reactive LLM harness, ADK harness
+  core/           # CircuitTopology ABC, SystemTopology ABC, SpiceRunner, gm/ID LUT,
+                  # GLayoutRunner, MagicPexRunner, KLayoutDrcRunner, KLayoutLvsRunner
+  topologies/     # Miller OTA, AnalogAcademy OTA, GF180 OTA, StrongARM comparator, SAR ADC
+  agents/         # SpiceEvaluationHandler, reactive LLM harness, ADK harness,
+                  # PostLayoutValidator (full layout -> DRC -> LVS -> PEX -> sim pipeline)
+  tools/          # Agent-callable wrappers (DRC, LVS, PEX, layout, post-layout validation)
   parsers/        # DRC, LVS, Liberty, LibreLane, ORFS parsers
   utils/          # Verilog compilation (vlnggen), EDA project detection
 ```
+
+### Full analog design closure (GF180MCU)
+
+The post-layout validation pipeline closes the full design loop from sizing
+through physical verification:
+
+```
+specs -> sizing (autoresearch) -> layout (gLayout opamp_twostage)
+   -> DRC (KLayout) -> LVS (KLayout) -> PEX (Magic)
+   -> post-layout SPICE (ngspice) -> pre/post comparison
+```
+
+```bash
+# Check all prerequisites
+python examples/08_postlayout_validation.py --dry-run
+
+# Validate default OTA design through the full pipeline
+python examples/08_postlayout_validation.py
+
+# Validate top-N from autoresearch results
+python examples/08_postlayout_validation.py \
+    --from-autoresearch /tmp/autoresearch_results/ --top-n 3
+```
+
+**Requirements**: gLayout (.venv-glayout), Magic, KLayout, ngspice, GF180MCU PDK.
 
 ### Adding a new topology
 

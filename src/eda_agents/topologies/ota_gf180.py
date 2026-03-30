@@ -125,6 +125,97 @@ class GF180OTATopology(CircuitTopology):
             "PM=73.7deg, FoM=6.02e+20."
         )
 
+    # ------------------------------------------------------------------
+    # gLayout integration
+    # ------------------------------------------------------------------
+
+    # MIM cap density for GF180MCU mimcap_1p0fF: ~1.0 fF/um^2
+    _MIM_CAP_DENSITY = 1.0  # fF/um^2
+    _MIM_CAP_COLS = 2  # opamp_twostage always uses 2 columns
+
+    def sizing_to_glayout_params(self, sizing: dict) -> dict:
+        """Convert params_to_sizing() output to gLayout opamp_twostage() args.
+
+        Maps transistor W/L/ng (SI units) to gLayout's tuple format
+        (width_um, length_um, fingers[, mults]). Computes MIM cap array
+        geometry from the Cc value.
+
+        Returns
+        -------
+        dict
+            Ready to pass to ``opamp_twostage(pdk, **result)``.
+        """
+        m1 = sizing["M1"]  # PMOS diff pair half
+        m5 = sizing["M5"]  # PMOS tail bias
+        m6 = sizing["M6"]  # NMOS output CS
+        m3 = sizing["M3"]  # NMOS mirror (used for CS bias)
+        m7 = sizing["M7"]  # PMOS current mirror / pload
+        Cc = sizing["_Cc"]
+
+        def _to_um(val_m: float) -> float:
+            return val_m * 1e6
+
+        # half_diffpair_params: (W, L, fingers) -- PMOS diff pair
+        half_diffpair_params = (
+            _to_um(m1["W"]),
+            _to_um(m1["L"]),
+            max(1, m1.get("ng", 1)),
+        )
+
+        # diffpair_bias: (W, L, fingers) -- NMOS mirror ref at diff pair
+        diffpair_bias = (
+            _to_um(m5["W"]),
+            _to_um(m5["L"]),
+            max(1, m5.get("ng", 1)),
+        )
+
+        # half_common_source_params: (W, L, fingers, mults) -- PMOS top of 2nd stage
+        # In gLayout this is the PMOS amp transistor
+        half_common_source_params = (
+            _to_um(m7["W"]),
+            _to_um(m7["L"]),
+            max(1, m7.get("ng", 1)),
+            max(2, m7.get("ng", 1)),  # mults >= 2 required by gLayout
+        )
+
+        # half_common_source_bias: (W, L, fingers, mults) -- NMOS bottom of 2nd stage
+        # mults must be >= 2
+        half_common_source_bias = (
+            _to_um(m6["W"]),
+            _to_um(m6["L"]),
+            max(1, m6.get("ng", 1)),
+            max(2, m6.get("ng", 1)),
+        )
+
+        # half_pload: (W, L, fingers) -- PMOS load of 1st stage
+        half_pload = (
+            _to_um(m3["W"]),
+            _to_um(m3["L"]),
+            max(1, m3.get("ng", 1)),
+        )
+
+        # MIM cap: compute array size from total Cc
+        # Total cap = mim_cap_size[0] * mim_cap_size[1] * density * mim_cap_rows * cols
+        Cc_fF = Cc * 1e15
+        # Target: square-ish individual caps, then scale rows
+        # Start with a reasonable per-unit area, then pick rows
+        cap_per_unit_fF = max(Cc_fF / (self._MIM_CAP_COLS * 3), 1.0)  # start with 3 rows
+        side_um = max(5.0, (cap_per_unit_fF / self._MIM_CAP_DENSITY) ** 0.5)
+        cap_per_unit_actual = side_um * side_um * self._MIM_CAP_DENSITY
+        total_units = max(1, round(Cc_fF / cap_per_unit_actual))
+        mim_cap_rows = max(1, (total_units + self._MIM_CAP_COLS - 1) // self._MIM_CAP_COLS)
+        mim_cap_size = (round(side_um, 1), round(side_um, 1))
+
+        return {
+            "half_diffpair_params": half_diffpair_params,
+            "diffpair_bias": diffpair_bias,
+            "half_common_source_params": half_common_source_params,
+            "half_common_source_bias": half_common_source_bias,
+            "half_pload": half_pload,
+            "mim_cap_size": mim_cap_size,
+            "mim_cap_rows": mim_cap_rows,
+        }
+
     def params_to_sizing(self, params: dict[str, float]) -> dict[str, dict]:
         """Convert design parameters to transistor sizing."""
         Ibias = params["Ibias_uA"] * 1e-6
@@ -182,6 +273,111 @@ class GF180OTATopology(CircuitTopology):
         }
 
         return sizing
+
+    # gLayout opamp_twostage port ordering: VDD, GND, DIFFPAIR_BIAS, VP, VN, CS_BIAS, VOUT
+    _GLAYOUT_PORTS = ("VDD", "GND", "DIFFPAIR_BIAS", "VP", "VN", "CS_BIAS", "VOUT")
+
+    def generate_postlayout_testbench(
+        self,
+        extracted_netlist_path: Path,
+        sizing: dict[str, dict],
+        work_dir: Path,
+    ) -> Path:
+        """Generate AC testbench wrapping an extracted (post-layout) netlist.
+
+        The extracted netlist from Magic PEX contains a subcircuit with
+        parasitic R/C. This testbench includes it and runs the same AC
+        analysis as the pre-layout flow, allowing direct comparison.
+
+        Parameters
+        ----------
+        extracted_netlist_path : Path
+            Path to the .rcx.spice file from Magic PEX.
+        sizing : dict
+            Output from params_to_sizing() (for bias values).
+        work_dir : Path
+            Directory for output files.
+
+        Returns
+        -------
+        Path
+            Path to the .cir control file for SpiceRunner.
+        """
+        work_dir.mkdir(parents=True, exist_ok=True)
+        extracted_netlist_path = Path(extracted_netlist_path).resolve()
+
+        Ibias = sizing["_Ibias"]
+        VDD = sizing["_VDD"]
+        VCM = sizing["_VCM"]
+
+        # The extracted subcircuit name is typically the design_name used during PEX.
+        # Parse it from the .rcx.spice file to be safe.
+        subckt_name = self._find_subckt_name(extracted_netlist_path)
+
+        tb_lines = [
+            f"Post-Layout AC Analysis - {self.pdk.display_name}",
+            "",
+            *netlist_lib_lines(self.pdk),
+            f".include {extracted_netlist_path}",
+            "",
+            "* Instantiate extracted subcircuit",
+            f"* Port order: {', '.join(self._GLAYOUT_PORTS)}",
+            f"X1 VDD 0 nb inp inn nb2 vout {subckt_name}",
+            "",
+            "* Bias: DIFFPAIR_BIAS and CS_BIAS may need separate sources",
+            "* In the pre-layout schematic, a single Ibias through M9 (diode)",
+            "* mirrors to M5 (tail) and M7 (output stage PMOS).",
+            "* Post-layout: nb is the bias node, nb2 is CS_BIAS.",
+            "* Connect both to the same bias node for equivalent operation.",
+            f"Ibias nb 0 {Ibias:.4e}",
+            f"Ibias2 nb2 0 {Ibias:.4e}",
+            "",
+            "* Supply and input",
+            f"VVDD VDD 0 {VDD}",
+            f"Vic ic 0 {VCM}",
+            "Vid id 0 DC=0 AC=1",
+            "* Inverted input polarity for PM convention",
+            "Einp inp ic id 0 -0.5",
+            "Einn inn ic id 0 0.5",
+            "",
+            "* Load capacitance (external, not in extracted netlist)",
+            f"CL vout 0 {sizing['_CL']:.4e}",
+            "",
+            ".control",
+            "  set ngbehavior=hsa",
+            *netlist_osdi_lines(self.pdk),
+            "  op",
+            "  save v(vout)",
+            "  ac dec 41 10 100MEG",
+            "  let AmagdB=vdb(vout)",
+            "  let Aphdeg=180/PI*vp(vout)",
+            "  meas ac Adc find AmagdB at=10",
+            "  meas ac Adc_peak max AmagdB",
+            "  meas ac GBW when AmagdB=0",
+            "  meas ac PGBW find Aphdeg at=GBW",
+            "  set wr_singlescale",
+            "  set wr_vecnames",
+            "  wrdata gf180_ota_postlayout.ac.dat AmagdB Aphdeg",
+            ".endc",
+            ".end",
+        ]
+
+        cir_path = work_dir / "gf180_ota_postlayout.ac.cir"
+        cir_path.write_text("\n".join(tb_lines) + "\n")
+        return cir_path
+
+    @staticmethod
+    def _find_subckt_name(netlist_path: Path) -> str:
+        """Extract the top-level .subckt name from a SPICE netlist."""
+        text = netlist_path.read_text()
+        for line in text.splitlines():
+            stripped = line.strip().lower()
+            if stripped.startswith(".subckt"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    return parts[1]
+        # Fallback to filename stem
+        return netlist_path.stem.replace(".rcx", "")
 
     def generate_netlist(
         self, sizing: dict[str, dict], work_dir: Path

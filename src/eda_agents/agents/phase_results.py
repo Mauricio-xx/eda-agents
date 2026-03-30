@@ -119,6 +119,67 @@ class AutoresearchResult:
 
 
 @dataclass
+class PostLayoutResult:
+    """Result from the full post-layout validation pipeline.
+
+    Tracks pre-layout vs post-layout performance deltas to quantify
+    the impact of parasitics on circuit performance.
+    """
+
+    params: dict[str, float] = field(default_factory=dict)
+    pre_layout_fom: float = 0.0
+
+    # Layout
+    gds_path: str | None = None
+    netlist_path: str | None = None
+
+    # DRC
+    drc_clean: bool = False
+    drc_violations: int = 0
+
+    # LVS
+    lvs_match: bool = False
+
+    # PEX
+    extracted_netlist_path: str | None = None
+    pex_corner: str = "ngspice()"
+
+    # Post-layout SPICE results
+    post_Adc_dB: float | None = None
+    post_GBW_Hz: float | None = None
+    post_PM_deg: float | None = None
+    post_fom: float = 0.0
+    post_valid: bool = False
+
+    # Deltas (post - pre)
+    gain_delta_dB: float = 0.0
+    gbw_delta_pct: float = 0.0
+    pm_delta_deg: float = 0.0
+    fom_delta_pct: float = 0.0
+
+    # Timing
+    total_time_s: float = 0.0
+    error: str | None = None
+
+    @property
+    def summary(self) -> str:
+        if self.error:
+            return f"Post-layout error: {self.error}"
+        parts = []
+        if self.gds_path:
+            parts.append(f"DRC={'clean' if self.drc_clean else f'{self.drc_violations} viols'}")
+            parts.append(f"LVS={'match' if self.lvs_match else 'MISMATCH'}")
+        if self.post_Adc_dB is not None:
+            parts.append(f"Adc={self.post_Adc_dB:.1f}dB(d={self.gain_delta_dB:+.1f})")
+        if self.post_GBW_Hz is not None:
+            parts.append(f"GBW={self.post_GBW_Hz/1e6:.2f}MHz(d={self.gbw_delta_pct:+.1f}%)")
+        if self.post_PM_deg is not None:
+            parts.append(f"PM={self.post_PM_deg:.1f}deg(d={self.pm_delta_deg:+.1f})")
+        parts.append(f"FoM d={self.fom_delta_pct:+.1f}%")
+        return f"Post-layout: {', '.join(parts)}"
+
+
+@dataclass
 class LVSResult:
     """Result from layout-vs-schematic comparison."""
 

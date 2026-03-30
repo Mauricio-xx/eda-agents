@@ -124,3 +124,16 @@ class TestGLayoutIntegration:
         runner = GLayoutRunner()
         problems = runner.validate_setup()
         assert problems == [], f"Setup problems: {problems}"
+
+    def test_generate_ota(self, tmp_path):
+        from eda_agents.topologies.ota_gf180 import GF180OTATopology
+
+        topo = GF180OTATopology()
+        sizing = topo.params_to_sizing(topo.default_params())
+        runner = GLayoutRunner()
+        result = runner.generate_ota(sizing, tmp_path)
+        assert result.success, f"OTA layout failed: {result.error}"
+        assert result.gds_path
+        assert Path(result.gds_path).is_file()
+        assert result.netlist_path
+        assert Path(result.netlist_path).is_file()
