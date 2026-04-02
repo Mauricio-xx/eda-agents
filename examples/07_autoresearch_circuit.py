@@ -1,9 +1,19 @@
 """Autonomous circuit design exploration using autoresearch loop.
 
+Adapted from Karpathy's autoresearch (https://github.com/karpathy/autoresearch)
+to analog IC design. The topology is pluggable: pass --topology to select
+the circuit type, or implement a new CircuitTopology subclass for your own
+circuit (comparator, LDO, bandgap, etc.).
+
 Demonstrates three exploration modes:
   - standalone: Pure autoresearch (tight LLM -> SPICE loop, no ADK)
   - hybrid: Autoresearch explores, then ADK validates + runs flow
   - adk: ADK-only (existing behavior)
+
+Available topologies:
+  - gf180_ota:  PMOS-input two-stage OTA on GF180MCU 180nm
+  - miller_ota: NMOS-input Miller OTA on IHP SG13G2 130nm
+  - aa_ota:     PMOS-input OTA from IHP AnalogAcademy 130nm
 
 Usage:
     # Standalone autoresearch (no ADK, no project needed)

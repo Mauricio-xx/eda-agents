@@ -1,17 +1,34 @@
-"""Autonomous greedy design exploration loop.
+"""Autonomous greedy design exploration loop for analog circuits.
 
-Inspired by Karpathy's autoresearch. The central artifact is program.md:
-a persistent file that defines the optimization goal, current strategy,
-and accumulated knowledge. The LLM reads program.md before each proposal
-and updates it after each improvement.
+Adapted from Karpathy's autoresearch [1] to the analog IC design domain.
+The original autoresearch optimizes LLM training loss (val_bpb) by
+autonomously modifying train.py. This adaptation replaces the training
+loop with a SPICE simulation loop: the LLM proposes circuit sizing
+parameters, SPICE evaluates them, and the loop keeps improvements.
 
-The loop runs autonomously until budget is exhausted. Crashes are handled
-gracefully: fixable issues are retried, fundamentally broken ideas are
-logged as "crash" and skipped. The loop never stops to ask for permission.
+The core mechanism is identical:
+- program.md as persistent brain (goal, strategy, accumulated knowledge)
+- Greedy keep/discard loop (new FoM > best FoM? keep : discard)
+- Fully autonomous execution (never stops to ask, crashes are logged and skipped)
+- Resume support (program.md + results.tsv persist across sessions)
 
-Can be used standalone or as the exploration engine inside TrackDOrchestrator
-(hybrid mode), where autoresearch handles sizing exploration and ADK handles
-corner validation, flow execution, and DRC/LVS verification.
+The runner is topology-agnostic: it takes any CircuitTopology subclass
+(see ``eda_agents.core.topology.CircuitTopology``). Adding a new circuit
+type (comparator, LDO, bandgap, PLL building blocks, etc.) requires
+only a new CircuitTopology implementation -- zero changes to the runner
+or prompt generation code.
+
+Existing topologies:
+- GF180OTATopology:        PMOS-input two-stage OTA on GF180MCU 180nm
+- MillerOTATopology:       NMOS-input Miller OTA on IHP SG13G2 130nm
+- AnalogAcademyOTATopology: PMOS-input OTA from IHP AnalogAcademy
+
+Can be used standalone or as the exploration engine inside
+TrackDOrchestrator (hybrid mode), where autoresearch handles sizing
+exploration and ADK handles corner validation, flow execution, and
+DRC/LVS verification.
+
+[1] https://github.com/karpathy/autoresearch
 
 Usage (standalone):
     runner = AutoresearchRunner(
@@ -25,6 +42,23 @@ Usage (resume a previous run):
     # If work_dir contains program.md and results.tsv, the loop
     # resumes from where it left off.
     result = await runner.run(work_dir=Path("results"))
+
+Usage (new topology -- e.g., a comparator):
+    class MyComparatorTopology(CircuitTopology):
+        def topology_name(self): return "strong_arm_comp"
+        def design_space(self): return {"Ibias_uA": (5, 100), ...}
+        def params_to_sizing(self, params): ...
+        def generate_netlist(self, sizing, work_dir): ...
+        def compute_fom(self, spice_result, sizing): ...
+        def check_validity(self, spice_result, sizing): ...
+        # + prompt metadata methods
+
+    runner = AutoresearchRunner(
+        topology=MyComparatorTopology(),
+        model="your-model",
+        budget=30,
+    )
+    result = await runner.run(work_dir=Path("comparator_results"))
 """
 
 from __future__ import annotations
@@ -95,15 +129,24 @@ Reference: {reference}
 class AutoresearchRunner:
     """Autonomous greedy circuit design exploration.
 
-    Central artifact: program.md in the work_dir. This file persists
+    Topology-agnostic: works with any ``CircuitTopology`` subclass.
+    The runner knows nothing about the circuit being optimized -- all
+    circuit-specific logic (design space, sizing, netlist format, FoM,
+    specs) lives in the topology. To explore a new circuit type, implement
+    a new CircuitTopology and pass it here.
+
+    Central artifact: ``program.md`` in the work_dir. This file persists
     across sessions and contains the goal, metrics, strategy, and
     accumulated knowledge. The LLM reads it before each proposal and
-    the runner updates it after each kept improvement.
+    the runner updates it after each kept improvement. The program is
+    auto-generated from the topology's prompt metadata, so it adapts
+    to any circuit type without manual editing.
 
     Parameters
     ----------
     topology : CircuitTopology
-        Circuit to optimize.
+        Circuit to optimize. Defines the design space, SPICE netlist
+        format, FoM formula, and validity specs.
     model : str
         LiteLLM model identifier for the proposal LLM.
     budget : int

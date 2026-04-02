@@ -5,10 +5,14 @@ definition, parameter-to-sizing conversion, netlist generation,
 FoM computation, and validity checking. Concrete implementations
 wrap specific circuits (e.g., MillerOTA, AnalogAcademyOTA, comparators).
 
+This is the extension point for supporting new circuit types in the
+autoresearch exploration loop (``AutoresearchRunner``) and the ADK
+agent pipeline. Implementing a new CircuitTopology subclass is all
+that's needed -- zero changes to runner, harness, or prompt code.
+
 Also provides prompt metadata methods so agent harnesses can build
 topology-agnostic prompts and tool specs without hardcoding circuit
-details. Adding a new circuit type only requires implementing a new
-CircuitTopology subclass -- zero changes to harness or prompt code.
+details.
 """
 
 from __future__ import annotations
