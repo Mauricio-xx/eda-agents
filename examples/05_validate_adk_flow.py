@@ -35,7 +35,7 @@ from pathlib import Path
 
 # Default free model via OpenRouter/LiteLLM
 # Free models have aggressive rate limits; retry logic is built in.
-DEFAULT_MODEL = "openrouter/stepfun/step-3.5-flash:free"
+DEFAULT_MODEL = "zai/GLM-4.7-Flash"
 FALLBACK_MODELS = [
     "openrouter/meta-llama/llama-3.3-70b-instruct:free",
     "openrouter/qwen/qwen3-coder:free",
