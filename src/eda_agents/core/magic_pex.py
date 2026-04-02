@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import time
 from dataclasses import dataclass
@@ -92,6 +93,156 @@ quit -noprompt
 """
 
 
+@dataclass
+class ParasiticCap:
+    """A single parasitic capacitance between two nets."""
+
+    net1: str
+    net2: str
+    value_fF: float
+
+
+class ExtFileParser:
+    """Parse Magic .ext files for parasitic capacitance data.
+
+    Magic's extraction produces .ext files with node capacitances and
+    inter-node coupling caps. These are valid even when the SPICE netlist
+    has broken net identities (e.g., from missing GDS labels).
+
+    Parameters
+    ----------
+    ext_path : Path
+        Path to the .ext file from Magic extraction.
+    """
+
+    def __init__(self, ext_path: Path):
+        self.ext_path = ext_path
+
+    def parse_caps(self) -> list[ParasiticCap]:
+        """Extract all inter-node capacitance entries.
+
+        Parses ``cap "net1" "net2" <value_aF>`` lines.
+        Values are converted from attofarads to femtofarads.
+        """
+        caps: list[ParasiticCap] = []
+        if not self.ext_path.is_file():
+            return caps
+
+        # cap "net1" "net2" <value_aF>
+        cap_re = re.compile(r'^cap\s+"([^"]+)"\s+"([^"]+)"\s+([\d.eE+-]+)')
+
+        for line in self.ext_path.read_text().splitlines():
+            m = cap_re.match(line.strip())
+            if m:
+                val_aF = float(m.group(3))
+                if val_aF > 0:
+                    caps.append(ParasiticCap(
+                        net1=m.group(1),
+                        net2=m.group(2),
+                        value_fF=val_aF / 1000.0,
+                    ))
+        return caps
+
+    def parse_port_caps(self, port_names: list[str]) -> list[ParasiticCap]:
+        """Extract only caps involving at least one labeled port.
+
+        Parameters
+        ----------
+        port_names : list[str]
+            Names of known circuit ports (case-insensitive match).
+        """
+        port_set = {p.upper() for p in port_names}
+        return [
+            c for c in self.parse_caps()
+            if c.net1.upper() in port_set or c.net2.upper() in port_set
+        ]
+
+    def labeled_node_total_cap(self, port_names: list[str]) -> dict[str, float]:
+        """Sum total parasitic capacitance per labeled node (fF).
+
+        Parses ``node "name" <cap_aF> ...`` lines and returns totals
+        for nodes matching the given port names.
+        """
+        port_set = {p.upper() for p in port_names}
+        totals: dict[str, float] = {}
+
+        if not self.ext_path.is_file():
+            return totals
+
+        # node "name" <cap_aF> <x> <y> <type> ...
+        node_re = re.compile(r'^node\s+"([^"]+)"\s+([\d.eE+-]+)')
+
+        for line in self.ext_path.read_text().splitlines():
+            m = node_re.match(line.strip())
+            if m:
+                name = m.group(1)
+                if name.upper() in port_set:
+                    totals[name] = float(m.group(2)) / 1000.0  # aF -> fF
+        return totals
+
+
+def _detect_degenerate_netlist(netlist_path: Path, threshold: float = 0.6) -> bool:
+    """Detect degenerate PEX netlist where most transistors share one net.
+
+    A broken extraction (e.g., missing GDS labels) merges most transistors
+    onto a single net. This function counts terminal-net occurrences across
+    all transistor (M or X) lines and flags the netlist as degenerate if
+    any single net accounts for more than ``threshold`` of all terminals.
+
+    Parameters
+    ----------
+    netlist_path : Path
+        Path to the extracted SPICE netlist.
+    threshold : float
+        Fraction of terminals on one net above which the netlist is degenerate.
+        Default 0.6 (60%).
+
+    Returns
+    -------
+    bool
+        True if the netlist is degenerate.
+    """
+    if not netlist_path.is_file():
+        return False
+
+    text = netlist_path.read_text()
+    net_counts: dict[str, int] = {}
+    total_terminals = 0
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        # Transistor lines start with M or X followed by instance name
+        if not stripped or stripped.startswith((".", "*", "+")):
+            continue
+        parts = stripped.split()
+        if len(parts) < 5:
+            continue
+        first_char = parts[0][0].upper()
+        if first_char not in ("M", "X"):
+            continue
+        # Terminals are parts[1:5] (drain, gate, source, bulk)
+        terminals = parts[1:5]
+        for net in terminals:
+            net_counts[net] = net_counts.get(net, 0) + 1
+            total_terminals += 1
+
+    if total_terminals == 0:
+        return False
+
+    max_count = max(net_counts.values())
+    ratio = max_count / total_terminals
+    if ratio > threshold:
+        dominant_net = max(net_counts, key=net_counts.get)
+        logger.warning(
+            "Degenerate netlist detected: net '%s' has %.0f%% of %d terminals",
+            dominant_net,
+            ratio * 100,
+            total_terminals,
+        )
+        return True
+    return False
+
+
 def _inject_ports(netlist_path: Path, port_names: list[str] | None) -> None:
     """Post-process extracted netlist to add port declarations.
 
@@ -133,15 +284,18 @@ class MagicPexResult:
 
     success: bool
     extracted_netlist_path: str | None = None
+    ext_file_path: str | None = None
     corner: str = _DEFAULT_CORNER
     run_time_s: float = 0.0
+    degenerate: bool = False
     error: str | None = None
 
     @property
     def summary(self) -> str:
         if self.error:
             return f"Magic PEX error: {self.error}"
-        return f"Magic PEX: extracted -> {self.extracted_netlist_path} ({self.corner})"
+        deg = " [DEGENERATE]" if self.degenerate else ""
+        return f"Magic PEX: extracted -> {self.extracted_netlist_path} ({self.corner}){deg}"
 
 
 class MagicPexRunner:
@@ -343,9 +497,18 @@ class MagicPexRunner:
         # Post-process: inject port declarations if missing
         _inject_ports(output_path, port_names)
 
+        # Find the .ext file (Magic leaves it in work_dir)
+        ext_path = work_dir / f"{design_name}.ext"
+        ext_file = str(ext_path) if ext_path.is_file() else None
+
+        # Detect degenerate extraction (most transistors on one net)
+        degenerate = _detect_degenerate_netlist(output_path)
+
         return MagicPexResult(
             success=True,
             extracted_netlist_path=str(output_path),
+            ext_file_path=ext_file,
             corner=self.corner,
             run_time_s=elapsed,
+            degenerate=degenerate,
         )
