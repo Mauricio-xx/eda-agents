@@ -18,3 +18,4 @@ venv/
 SESSION_LOG.md
 data/gf180-template/
 trackd_results/
+.venv-glayout/

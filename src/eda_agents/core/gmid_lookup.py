@@ -128,15 +128,8 @@ class GmIdLookup:
         return list(data["length"])
 
     def _find_nearest_idx(self, arr: np.ndarray, value: float) -> int:
-        """Find index of nearest value in sorted array."""
-        idx = np.searchsorted(arr, value)
-        if idx == 0:
-            return 0
-        if idx >= len(arr):
-            return len(arr) - 1
-        if abs(arr[idx] - value) < abs(arr[idx - 1] - value):
-            return int(idx)
-        return int(idx - 1)
+        """Find index of nearest value in array (ascending or descending)."""
+        return int(np.argmin(np.abs(arr - value)))
 
     def _interp_length(
         self, arr: np.ndarray, lengths: np.ndarray, L: float

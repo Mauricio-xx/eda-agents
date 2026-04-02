@@ -43,6 +43,7 @@ class PdkConfig:
     global_include_rel: str | None = None  # global params (e.g. design.ngspice)
     cap_lib_rel: str | None = None      # for cornerCAP.lib
     cap_corner: str | None = None
+    mimcap_corner: str | None = None    # e.g. "mimcap_typical" in main model lib
 
     # Device names (subcircuit or model names used in netlists)
     nmos_symbol: str = ""               # "sg13_lv_nmos", "nfet_01v8"
@@ -162,6 +163,7 @@ GF180MCU_D = PdkConfig(
     global_include_rel="gf180mcuD/libs.tech/ngspice/design.ngspice",
     model_lib_rel="gf180mcuD/libs.tech/ngspice/sm141064.ngspice",
     model_corner="typical",
+    mimcap_corner="mimcap_typical",
     cap_lib_rel="gf180mcuD/libs.tech/ngspice/sm141064_mim.ngspice",
     cap_corner="cap_mim_new",
 
@@ -261,8 +263,12 @@ def netlist_lib_lines(pdk: PdkConfig) -> list[str]:
     else:
         lines.append(f".include $PDK_ROOT/{pdk.model_lib_rel}")
 
-    # Capacitor library
-    if pdk.cap_lib_rel:
+    # MIM capacitor corner parameters (separate section in main model lib)
+    # When mimcap_corner is set, it internally loads the cap model lib,
+    # so we skip the separate cap_lib_rel include to avoid double-loading.
+    if pdk.mimcap_corner:
+        lines.append(f".lib $PDK_ROOT/{pdk.model_lib_rel} {pdk.mimcap_corner}")
+    elif pdk.cap_lib_rel:
         if pdk.cap_corner:
             lines.append(f".lib $PDK_ROOT/{pdk.cap_lib_rel} {pdk.cap_corner}")
         else:
