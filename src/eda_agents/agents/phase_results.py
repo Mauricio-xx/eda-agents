@@ -151,6 +151,13 @@ class PostLayoutResult:
     post_fom: float = 0.0
     post_valid: bool = False
 
+    # Baseline (gLayout schematic, no parasitics) -- overlay path only
+    baseline_Adc_dB: float | None = None
+    baseline_GBW_Hz: float | None = None
+    baseline_PM_deg: float | None = None
+    baseline_fom: float = 0.0
+    baseline_valid: bool = False
+
     # Deltas (post - pre)
     gain_delta_dB: float = 0.0
     gbw_delta_pct: float = 0.0
@@ -169,7 +176,12 @@ class PostLayoutResult:
         if self.gds_path:
             parts.append(f"DRC={'clean' if self.drc_clean else f'{self.drc_violations} viols'}")
             parts.append(f"LVS={'match' if self.lvs_match else 'MISMATCH'}")
-        if self.post_Adc_dB is not None:
+        if self.baseline_Adc_dB is not None and self.post_Adc_dB is not None:
+            delta = self.post_Adc_dB - self.baseline_Adc_dB
+            parts.append(
+                f"Adc={self.post_Adc_dB:.1f}dB(base={self.baseline_Adc_dB:.1f},d={delta:+.1f})"
+            )
+        elif self.post_Adc_dB is not None:
             parts.append(f"Adc={self.post_Adc_dB:.1f}dB(d={self.gain_delta_dB:+.1f})")
         if self.post_GBW_Hz is not None:
             parts.append(f"GBW={self.post_GBW_Hz/1e6:.2f}MHz(d={self.gbw_delta_pct:+.1f}%)")

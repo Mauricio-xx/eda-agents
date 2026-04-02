@@ -133,8 +133,34 @@ class GF180OTATopology(CircuitTopology):
     _MIM_CAP_DENSITY = 1.0  # fF/um^2
     _MIM_CAP_COLS = 2  # opamp_twostage always uses 2 columns
 
+    @staticmethod
+    def glayout_default_params() -> dict:
+        """gLayout opamp_twostage defaults -- known to produce valid layout.
+
+        These are the default parameter values from gLayout's
+        opamp_twostage() function signature.  Using these directly
+        bypasses the topology mismatch in sizing_to_glayout_params().
+        """
+        return {
+            "half_diffpair_params": (6, 1, 4),
+            "diffpair_bias": (6, 2, 4),
+            "half_common_source_params": (7, 1, 10, 3),
+            "half_common_source_bias": (6, 2, 8, 2),
+            "half_pload": (6, 1, 6),
+            "mim_cap_size": (12, 12),
+            "mim_cap_rows": 3,
+        }
+
     def sizing_to_glayout_params(self, sizing: dict) -> dict:
         """Convert params_to_sizing() output to gLayout opamp_twostage() args.
+
+        .. deprecated::
+            This mapping is incorrect: it maps our PMOS-input OTA transistors
+            (M1=PMOS diff pair, M3=NMOS load, M5=PMOS tail) to gLayout's
+            NMOS-input topology (half_diffpair=NMOS, half_pload=PMOS,
+            diffpair_bias=NMOS tail).  This is a type mismatch that produces
+            an unbalanced circuit.  Use ``glayout_default_params()`` for
+            validated defaults, or build a proper NMOS-aware mapping.
 
         Maps transistor W/L/ng (SI units) to gLayout's tuple format
         (width_um, length_um, fingers[, mults]). Computes MIM cap array
@@ -366,16 +392,479 @@ class GF180OTATopology(CircuitTopology):
         cir_path.write_text("\n".join(tb_lines) + "\n")
         return cir_path
 
+    # ------------------------------------------------------------------
+    # gLayout netlist preprocessing helpers
+    # ------------------------------------------------------------------
+
+    def _preprocess_glayout_netlist(
+        self,
+        glayout_netlist_path: Path,
+        work_dir: Path,
+        glayout_params: dict | None = None,
+    ) -> Path:
+        """Preprocess gLayout netlist for ngspice compatibility.
+
+        Applies four fixes:
+        1. MIM cap model name: mimcap_1p0fF -> cap_mim_1f0_m2m3_noshield
+        2. MIM cap param names: l,w -> c_length,c_width
+        3. CS_BIAS bug: patch GAIN_STAGE CMIRROR with half_common_source_bias
+        4. Transistor l/w: um -> meters (GF180 PDK models expect SI units)
+
+        Parameters
+        ----------
+        glayout_netlist_path : Path
+            Original gLayout netlist (um units, gLayout model names).
+        work_dir : Path
+            Directory for the fixed netlist.
+        glayout_params : dict or None
+            gLayout parameter dict (must contain ``half_common_source_bias``
+            for the CS_BIAS fix).  If None, the CS_BIAS fix is skipped.
+
+        Returns
+        -------
+        Path
+            Path to the preprocessed netlist.
+        """
+        import re as _re
+
+        work_dir.mkdir(parents=True, exist_ok=True)
+        text = glayout_netlist_path.read_text()
+
+        # Fix 1: MIM cap model name
+        text = text.replace("mimcap_1p0fF", "cap_mim_1f0_m2m3_noshield")
+
+        # Fix 2: MIM cap parameter names (l,w -> c_length,c_width)
+        text = text.replace(
+            ".subckt MIMCap V1 V2 l=1 w=1",
+            ".subckt MIMCap V1 V2 c_length=1 c_width=1",
+        )
+        text = text.replace(
+            "cap_mim_1f0_m2m3_noshield l={l} w={w}",
+            "cap_mim_1f0_m2m3_noshield c_length={c_length} c_width={c_width}",
+        )
+        text = _re.sub(
+            r"MIMCap\s+l=([\d.]+)\s+w=([\d.]+)",
+            r"MIMCap c_length=\1 c_width=\2",
+            text,
+        )
+
+        # Fix 3: CS_BIAS bug (must precede um->m conversion)
+        if glayout_params and "half_common_source_bias" in glayout_params:
+            text = self._fix_cs_bias_netlist(text, glayout_params)
+
+        # Fix 4: Convert transistor l= and w= from um to meters.
+        # Matches space-preceded l= or w= with numeric values, skips
+        # {l}/{w} template references and c_length/c_width.
+        def _um_to_m(m: _re.Match) -> str:
+            param = m.group(1)
+            value = float(m.group(2))
+            return f" {param}={value * 1e-6:.6e}"
+
+        text = _re.sub(r"\s([lw])=([\d.]+(?:e[+-]?\d+)?)\b", _um_to_m, text)
+
+        fixed_netlist = work_dir / glayout_netlist_path.name
+        fixed_netlist.write_text(text)
+        return fixed_netlist
+
+    @staticmethod
+    def _fix_cs_bias_netlist(text: str, glayout_params: dict) -> str:
+        """Patch GAIN_STAGE CMIRROR instance to use half_common_source_bias.
+
+        gLayout's opamp_twostage has a bug (line 223-228 in
+        ``opamp_twostage.py``) where the CS_BIAS current mirror netlist
+        is created with ``diffpair_bias`` parameters instead of
+        ``half_common_source_bias``.  The layout uses the correct sizing,
+        but the exported netlist is wrong, causing a netlist-layout
+        mismatch and grossly unbalanced output stage bias.
+
+        We fix this by finding the CMIRROR instance inside the GAIN_STAGE
+        subcircuit and replacing its l/w/m with the correct values derived
+        from ``half_common_source_bias``.
+        """
+        import re as _re
+
+        hcsb = glayout_params["half_common_source_bias"]
+        cs_w, cs_l, cs_fingers = hcsb[0], hcsb[1], hcsb[2]
+
+        lines = text.splitlines()
+        in_gain_stage = False
+        for i, line in enumerate(lines):
+            stripped = line.strip().lower()
+            if stripped.startswith(".subckt") and "gain_stage" in stripped:
+                in_gain_stage = True
+            elif in_gain_stage and stripped.startswith(".ends"):
+                in_gain_stage = False
+            elif in_gain_stage and "cmirror" in stripped:
+                line = _re.sub(r" l=[\d.e+-]+", f" l={cs_l}", line)
+                line = _re.sub(r" w=[\d.e+-]+", f" w={cs_w}", line)
+                line = _re.sub(r" m=[\d.e+-]+", f" m={cs_fingers}", line)
+                lines[i] = line
+                logger.info(
+                    "CS_BIAS fix: patched GAIN_STAGE CMIRROR "
+                    "to w=%.1f l=%.1f m=%d",
+                    cs_w, cs_l, cs_fingers,
+                )
+
+        return "\n".join(lines)
+
+    def _build_parasitic_cap_lines(
+        self,
+        parasitic_caps: list,
+        port_map: dict[str, str],
+    ) -> list[str]:
+        """Convert ParasiticCap list to SPICE cap element lines.
+
+        Port-to-port caps become direct coupling capacitors.
+        Port-to-internal caps are lumped to GND on the port node.
+        """
+        cap_lines: list[str] = []
+        lumped: dict[str, float] = {}
+        port_set = {p.upper() for p in self._GLAYOUT_PORTS}
+
+        for i, cap in enumerate(parasitic_caps):
+            n1_is_port = cap.net1.upper() in port_set
+            n2_is_port = cap.net2.upper() in port_set
+
+            if n1_is_port and n2_is_port:
+                node1 = port_map.get(cap.net1.upper(), cap.net1)
+                node2 = port_map.get(cap.net2.upper(), cap.net2)
+                if node1 != node2:
+                    cap_lines.append(
+                        f"Cp{i} {node1} {node2} {cap.value_fF:.4f}f"
+                    )
+            elif n1_is_port:
+                key = cap.net1.upper()
+                lumped[key] = lumped.get(key, 0.0) + cap.value_fF
+            elif n2_is_port:
+                key = cap.net2.upper()
+                lumped[key] = lumped.get(key, 0.0) + cap.value_fF
+
+        for port_name, total_fF in sorted(lumped.items()):
+            node = port_map.get(port_name, port_name.lower())
+            cap_lines.append(
+                f"Cp_load_{port_name.lower()} {node} 0 {total_fF:.4f}f"
+            )
+
+        return cap_lines
+
+    # Port mapping for gLayout NMOS-input OTA testbenches.
+    # VP is the inverting input, VN is the non-inverting input.
+    # DIFFPAIR_BIAS and CS_BIAS get separate bias nodes.
+    _GLAYOUT_PORT_MAP = {
+        "VDD": "VDD",
+        "GND": "0",
+        "DIFFPAIR_BIAS": "nb_dp",
+        "VP": "inn",
+        "VN": "inp",
+        "CS_BIAS": "nb_cs",
+        "VOUT": "vout",
+    }
+
+    # Hybrid port map: gLayout port names -> pre-layout OTA node names.
+    # Both bias pins (DIFFPAIR_BIAS, CS_BIAS) map to a single "nb" node
+    # because the pre-layout OTA uses one bias mirror (M9 diode -> M5/M7).
+    _HYBRID_PORT_MAP = {
+        "VDD": "VDD",
+        "GND": "0",
+        "DIFFPAIR_BIAS": "nb",
+        "CS_BIAS": "nb",
+        "VP": "inn",
+        "VN": "inp",
+        "VOUT": "vout",
+    }
+
+    def _glayout_ac_testbench_lines(
+        self,
+        fixed_netlist: Path,
+        sizing: dict,
+        parasitic_cap_lines: list[str] | None = None,
+        dat_prefix: str = "gf180_ota_baseline",
+    ) -> list[str]:
+        """Build AC testbench lines wrapping a preprocessed gLayout netlist.
+
+        Shared structure for both baseline (no parasitics) and overlay
+        (with parasitic caps) testbenches.
+        """
+        Ibias = sizing["_Ibias"]
+        VDD = sizing["_VDD"]
+        VCM = sizing["_VCM"]
+
+        subckt_name = self._find_subckt_name(fixed_netlist)
+
+        if parasitic_cap_lines:
+            title = f"Post-Layout AC Analysis (Overlay) - {self.pdk.display_name}"
+        else:
+            title = f"gLayout Baseline AC Analysis - {self.pdk.display_name}"
+
+        lines = [
+            title,
+            "",
+            *netlist_lib_lines(self.pdk),
+            f".include {fixed_netlist}",
+            "",
+            "* Instantiate gLayout subcircuit (NMOS diff pair topology)",
+            f"* Port order: {', '.join(self._GLAYOUT_PORTS)}",
+            "* gLayout convention: VP=inverting, VN=non-inverting",
+            f"X1 VDD 0 nb_dp inn inp nb_cs vout {subckt_name}",
+            "",
+            "* Bias: separate NMOS mirrors for diff-pair tail and CS output",
+            f"Ibias_dp 0 nb_dp {Ibias:.4e}",
+            f"Ibias_cs 0 nb_cs {Ibias:.4e}",
+            "",
+            "* DC operating point: inductor feedback (DC short, AC open)",
+            "* sets inn=vout at DC, ensuring amplifier is in active region",
+            "Lfb vout inn 1T",
+            "",
+            "* AC input on non-inverting input (VN=inp)",
+            f"VVDD VDD 0 {VDD}",
+            f"Vinp inp 0 DC={VCM} AC=1",
+            "",
+            "* Load capacitance",
+            f"CL vout 0 {sizing['_CL']:.4e}",
+        ]
+
+        if parasitic_cap_lines:
+            lines.append("")
+            lines.append(
+                f"* Parasitic caps from .ext file ({len(parasitic_cap_lines)} entries)"
+            )
+            lines.extend(parasitic_cap_lines)
+
+        lines.extend([
+            "",
+            ".control",
+            "  set ngbehavior=hsa",
+            *netlist_osdi_lines(self.pdk),
+            "  op",
+            "  save v(vout)",
+            "  ac dec 41 10 100MEG",
+            "  let AmagdB=vdb(vout)",
+            "  let Aphdeg=180/PI*vp(vout)",
+            "  meas ac Adc find AmagdB at=10",
+            "  meas ac Adc_peak max AmagdB",
+            "  meas ac GBW when AmagdB=0",
+            "  meas ac PGBW find Aphdeg at=GBW",
+            "  set wr_singlescale",
+            "  set wr_vecnames",
+            f"  wrdata {dat_prefix}.ac.dat AmagdB Aphdeg",
+            ".endc",
+            ".end",
+        ])
+
+        return lines
+
+    # ------------------------------------------------------------------
+    # gLayout testbench generators
+    # ------------------------------------------------------------------
+
+    def generate_postlayout_testbench_overlay(
+        self,
+        glayout_netlist_path: Path,
+        parasitic_caps: list,
+        sizing: dict[str, dict],
+        work_dir: Path,
+        glayout_params: dict | None = None,
+    ) -> Path:
+        """Generate AC testbench using gLayout netlist + parasitic cap overlay.
+
+        When Magic's PEX extraction produces a degenerate netlist (due to
+        missing internal GDS labels), this method uses gLayout's own
+        hierarchical SPICE netlist as the circuit model and overlays
+        parasitic capacitances parsed from the .ext file.
+
+        Parameters
+        ----------
+        glayout_netlist_path : Path
+            Path to gLayout's SPICE netlist (correct topology).
+        parasitic_caps : list[ParasiticCap]
+            Parasitic caps from ExtFileParser.parse_port_caps().
+        sizing : dict
+            Output from params_to_sizing() (for bias values).
+        work_dir : Path
+            Directory for output files.
+        glayout_params : dict or None
+            gLayout parameter dict for CS_BIAS fix.  If None, uses
+            ``glayout_default_params()``.
+
+        Returns
+        -------
+        Path
+            Path to the .cir control file for SpiceRunner.
+        """
+        work_dir.mkdir(parents=True, exist_ok=True)
+        glayout_netlist_path = Path(glayout_netlist_path).resolve()
+
+        if glayout_params is None:
+            glayout_params = self.glayout_default_params()
+
+        fixed_netlist = self._preprocess_glayout_netlist(
+            glayout_netlist_path, work_dir, glayout_params,
+        )
+
+        cap_lines = self._build_parasitic_cap_lines(
+            parasitic_caps, self._GLAYOUT_PORT_MAP,
+        )
+
+        tb_lines = self._glayout_ac_testbench_lines(
+            fixed_netlist,
+            sizing,
+            parasitic_cap_lines=cap_lines,
+            dat_prefix="gf180_ota_postlayout_overlay",
+        )
+
+        cir_path = work_dir / "gf180_ota_postlayout_overlay.ac.cir"
+        cir_path.write_text("\n".join(tb_lines) + "\n")
+        return cir_path
+
+    def generate_glayout_baseline_testbench(
+        self,
+        glayout_netlist_path: Path,
+        sizing: dict[str, dict],
+        work_dir: Path,
+        glayout_params: dict | None = None,
+    ) -> Path:
+        """Generate AC testbench using gLayout netlist WITHOUT parasitics.
+
+        This is the "pre-layout" reference for the gLayout topology: same
+        preprocessed netlist (MIM fix, unit conversion, CS_BIAS fix), same
+        bias and input structure, but no parasitic caps.  Comparing this
+        against the overlay testbench isolates the impact of parasitics
+        within the same topology.
+
+        Parameters
+        ----------
+        glayout_netlist_path : Path
+            Path to gLayout's SPICE netlist.
+        sizing : dict
+            Output from params_to_sizing() (for bias values).
+        work_dir : Path
+            Directory for output files.
+        glayout_params : dict or None
+            gLayout parameter dict for CS_BIAS fix.  If None, uses
+            ``glayout_default_params()``.
+
+        Returns
+        -------
+        Path
+            Path to the .cir control file for SpiceRunner.
+        """
+        work_dir.mkdir(parents=True, exist_ok=True)
+        glayout_netlist_path = Path(glayout_netlist_path).resolve()
+
+        if glayout_params is None:
+            glayout_params = self.glayout_default_params()
+
+        fixed_netlist = self._preprocess_glayout_netlist(
+            glayout_netlist_path, work_dir, glayout_params,
+        )
+
+        tb_lines = self._glayout_ac_testbench_lines(
+            fixed_netlist,
+            sizing,
+            parasitic_cap_lines=None,
+            dat_prefix="gf180_ota_baseline",
+        )
+
+        cir_path = work_dir / "gf180_ota_baseline.ac.cir"
+        cir_path.write_text("\n".join(tb_lines) + "\n")
+        return cir_path
+
+    def generate_hybrid_postlayout_testbench(
+        self,
+        parasitic_caps: list,
+        sizing: dict[str, dict],
+        work_dir: Path,
+    ) -> Path:
+        """Generate AC testbench overlaying gLayout parasitics on pre-layout OTA.
+
+        The hybrid approach uses the working pre-layout OTA netlist (PMOS-input,
+        9 transistors) as the circuit, and adds parasitic capacitances extracted
+        from the gLayout physical layout (NMOS-input, different topology).  Port
+        names are translated via ``_HYBRID_PORT_MAP``.
+
+        This decouples circuit correctness (our OTA) from physical parasitics
+        (gLayout layout), sidestepping the gLayout topology's broken gain.
+
+        Parameters
+        ----------
+        parasitic_caps : list[ParasiticCap]
+            Parasitic caps from ExtFileParser.parse_port_caps().
+        sizing : dict
+            Output from params_to_sizing() (for netlist generation + bias).
+        work_dir : Path
+            Directory for output files.
+
+        Returns
+        -------
+        Path
+            Path to the hybrid post-layout .cir control file.
+        """
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate the pre-layout netlist (circuit only, no .control)
+        ac_cir_path = self.generate_netlist(sizing, work_dir)
+
+        # Build parasitic cap lines using the hybrid port map
+        cap_lines = self._build_parasitic_cap_lines(
+            parasitic_caps, self._HYBRID_PORT_MAP,
+        )
+
+        # Read the generated AC testbench and inject parasitic caps
+        ac_text = ac_cir_path.read_text()
+        lines = ac_text.splitlines()
+
+        # Insert cap lines between the .include and .control blocks
+        insert_idx = None
+        for i, line in enumerate(lines):
+            if line.strip().startswith(".control"):
+                insert_idx = i
+                break
+
+        if insert_idx is None:
+            insert_idx = len(lines)
+
+        hybrid_lines = []
+        if cap_lines:
+            hybrid_lines.append("")
+            hybrid_lines.append(
+                f"* Parasitic caps from gLayout PEX ({len(cap_lines)} entries)"
+            )
+            hybrid_lines.append("* Hybrid: gLayout physical parasitics on pre-layout OTA")
+            hybrid_lines.extend(cap_lines)
+
+        new_lines = lines[:insert_idx] + hybrid_lines + lines[insert_idx:]
+
+        # Update title line
+        if new_lines:
+            new_lines[0] = f"Hybrid Post-Layout AC Analysis - {self.pdk.display_name}"
+
+        # Update .dat output name
+        new_lines = [
+            line.replace("gf180_ota.ac.dat", "gf180_ota_hybrid_postlayout.ac.dat")
+            for line in new_lines
+        ]
+
+        hybrid_cir_path = work_dir / "gf180_ota_hybrid_postlayout.ac.cir"
+        hybrid_cir_path.write_text("\n".join(new_lines) + "\n")
+        return hybrid_cir_path
+
     @staticmethod
     def _find_subckt_name(netlist_path: Path) -> str:
-        """Extract the top-level .subckt name from a SPICE netlist."""
+        """Extract the top-level .subckt name from a SPICE netlist.
+
+        In hierarchical netlists the top-level cell is defined last,
+        so we return the *last* .subckt name found.
+        """
         text = netlist_path.read_text()
+        last_name = None
         for line in text.splitlines():
             stripped = line.strip().lower()
             if stripped.startswith(".subckt"):
                 parts = line.split()
                 if len(parts) >= 2:
-                    return parts[1]
+                    last_name = parts[1]
+        if last_name:
+            return last_name
         # Fallback to filename stem
         return netlist_path.stem.replace(".rcx", "")
 

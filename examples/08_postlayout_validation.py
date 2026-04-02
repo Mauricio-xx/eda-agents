@@ -6,15 +6,18 @@ Demonstrates the full analog design closure loop:
     -> PEX (Magic) -> post-layout SPICE -> pre/post comparison
 
 Usage:
-    # Validate default OTA design
+    # Hybrid validation (default -- pre-layout OTA + gLayout parasitics)
     python examples/08_postlayout_validation.py
+
+    # Full pipeline (gLayout circuit + PEX extraction)
+    python examples/08_postlayout_validation.py --no-hybrid
 
     # Custom parameters
     python examples/08_postlayout_validation.py \
         --ibias 200 --ldp 2.0 --lload 5.0 --cc 2.0 --wdp 10.0
 
     # Skip DRC/LVS (faster, layout+PEX+SPICE only)
-    python examples/08_postlayout_validation.py --skip-drc --skip-lvs
+    python examples/08_postlayout_validation.py --no-hybrid --skip-drc --skip-lvs
 
     # Dry run (check prerequisites only)
     python examples/08_postlayout_validation.py --dry-run
@@ -67,7 +70,8 @@ def check_prerequisites(skip_drc: bool = False, skip_lvs: bool = False) -> list[
     if not skip_drc:
         try:
             from eda_agents.core.klayout_drc import KLayoutDrcRunner
-            drc = KLayoutDrcRunner()
+            from eda_agents.core.pdk import GF180MCU_D
+            drc = KLayoutDrcRunner(pdk_root=GF180MCU_D.default_pdk_root)
             problems.extend(drc.validate_setup())
         except Exception as e:
             problems.append(f"KLayout DRC: {e}")
@@ -76,7 +80,8 @@ def check_prerequisites(skip_drc: bool = False, skip_lvs: bool = False) -> list[
     if not skip_lvs:
         try:
             from eda_agents.core.klayout_lvs import KLayoutLvsRunner
-            lvs = KLayoutLvsRunner()
+            from eda_agents.core.pdk import GF180MCU_D
+            lvs = KLayoutLvsRunner(pdk_root=GF180MCU_D.default_pdk_root)
             problems.extend(lvs.validate_setup())
         except Exception as e:
             problems.append(f"KLayout LVS: {e}")
@@ -130,10 +135,12 @@ def run_single(
     lvs_runner = None
     if not skip_drc:
         from eda_agents.core.klayout_drc import KLayoutDrcRunner
-        drc_runner = KLayoutDrcRunner()
+        from eda_agents.core.pdk import GF180MCU_D
+        drc_runner = KLayoutDrcRunner(pdk_root=GF180MCU_D.default_pdk_root)
     if not skip_lvs:
         from eda_agents.core.klayout_lvs import KLayoutLvsRunner
-        lvs_runner = KLayoutLvsRunner()
+        from eda_agents.core.pdk import GF180MCU_D
+        lvs_runner = KLayoutLvsRunner(pdk_root=GF180MCU_D.default_pdk_root)
 
     validator = PostLayoutValidator(
         topology=topo,
@@ -184,6 +191,108 @@ def run_single(
         "drc_clean": result.drc_clean,
         "drc_violations": result.drc_violations,
         "lvs_match": result.lvs_match,
+        "extracted_netlist_path": result.extracted_netlist_path,
+        "pex_corner": result.pex_corner,
+        "post_Adc_dB": result.post_Adc_dB,
+        "post_GBW_Hz": result.post_GBW_Hz,
+        "post_PM_deg": result.post_PM_deg,
+        "post_fom": result.post_fom,
+        "post_valid": result.post_valid,
+        "gain_delta_dB": result.gain_delta_dB,
+        "gbw_delta_pct": result.gbw_delta_pct,
+        "pm_delta_deg": result.pm_delta_deg,
+        "fom_delta_pct": result.fom_delta_pct,
+        "total_time_s": result.total_time_s,
+        "error": result.error,
+    }
+    summary_path.write_text(json.dumps(summary, indent=2) + "\n")
+    logger.info("Summary saved to %s", summary_path)
+
+
+def run_single_hybrid(
+    params: dict[str, float],
+    output_dir: Path,
+) -> None:
+    """Run hybrid post-layout validation: pre-layout OTA + gLayout parasitics."""
+    from eda_agents.agents.postlayout_validator import PostLayoutValidator
+    from eda_agents.core.glayout_runner import GLayoutRunner
+    from eda_agents.core.magic_pex import MagicPexRunner
+    from eda_agents.core.spice_runner import SpiceRunner
+    from eda_agents.topologies.ota_gf180 import GF180OTATopology
+
+    topo = GF180OTATopology()
+
+    # Run pre-layout SPICE first for comparison
+    logger.info("Running pre-layout SPICE for baseline...")
+    sizing = topo.params_to_sizing(params)
+    pre_dir = output_dir / "pre_layout"
+    cir_path = topo.generate_netlist(sizing, pre_dir)
+
+    spice = SpiceRunner(pdk="gf180mcu")
+    pre_result = spice.run(cir_path, work_dir=pre_dir)
+
+    if pre_result.success:
+        pre_fom = topo.compute_fom(pre_result, sizing)
+        logger.info(
+            "Pre-layout: Adc=%.1fdB, GBW=%.2fMHz, PM=%.1fdeg, FoM=%.2e",
+            pre_result.Adc_dB or 0,
+            (pre_result.GBW_Hz or 0) / 1e6,
+            pre_result.PM_deg or 0,
+            pre_fom,
+        )
+    else:
+        logger.warning("Pre-layout SPICE failed: %s", pre_result.error)
+        pre_fom = 0.0
+        pre_result = None
+
+    # Build runners (no DRC/LVS for hybrid)
+    glayout = GLayoutRunner()
+    pex_runner = MagicPexRunner()
+
+    validator = PostLayoutValidator(
+        topology=topo,
+        glayout_runner=glayout,
+        magic_pex_runner=pex_runner,
+        spice_runner=spice,
+    )
+
+    result = validator.validate_hybrid(
+        params=params,
+        pre_layout_fom=pre_fom,
+        pre_layout_spice=pre_result,
+        work_dir=output_dir / "postlayout_hybrid",
+    )
+
+    # Report
+    print("\n" + "=" * 70)
+    print("HYBRID POST-LAYOUT VALIDATION RESULTS")
+    print("(pre-layout OTA circuit + gLayout physical parasitics)")
+    print("=" * 70)
+    print(f"  Parameters: {params}")
+    print(f"  GDS:        {result.gds_path}")
+    print(f"  PEX:        {result.extracted_netlist_path} ({result.pex_corner})")
+    print()
+    if result.post_Adc_dB is not None:
+        print("  Hybrid post-layout SPICE:")
+        print(f"    Adc  = {result.post_Adc_dB:.1f} dB  (delta: {result.gain_delta_dB:+.1f} dB)")
+        if result.post_GBW_Hz is not None:
+            print(f"    GBW  = {result.post_GBW_Hz/1e6:.2f} MHz (delta: {result.gbw_delta_pct:+.1f}%)")
+        if result.post_PM_deg is not None:
+            print(f"    PM   = {result.post_PM_deg:.1f} deg (delta: {result.pm_delta_deg:+.1f} deg)")
+        print(f"    FoM  = {result.post_fom:.2e} (delta: {result.fom_delta_pct:+.1f}%)")
+        print(f"    Valid: {result.post_valid}")
+    elif result.error:
+        print(f"  Error: {result.error}")
+    print(f"\n  Total time: {result.total_time_s:.1f}s")
+    print("=" * 70)
+
+    # Save JSON summary
+    summary_path = output_dir / "postlayout_hybrid_summary.json"
+    summary = {
+        "mode": "hybrid",
+        "params": result.params,
+        "pre_layout_fom": result.pre_layout_fom,
+        "gds_path": result.gds_path,
         "extracted_netlist_path": result.extracted_netlist_path,
         "pex_corner": result.pex_corner,
         "post_Adc_dB": result.post_Adc_dB,
@@ -268,6 +377,10 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Check prerequisites only")
     parser.add_argument("--from-autoresearch", type=str, help="Path to autoresearch results dir")
     parser.add_argument("--top-n", type=int, default=3, help="Top-N designs to validate")
+    parser.add_argument(
+        "--no-hybrid", action="store_true",
+        help="Use full pipeline instead of hybrid (pre-layout OTA + gLayout parasitics)",
+    )
 
     args = parser.parse_args()
 
@@ -287,6 +400,14 @@ def main():
 
     output_dir = Path(args.output_dir)
 
+    params = {
+        "Ibias_uA": args.ibias,
+        "L_dp_um": args.ldp,
+        "L_load_um": args.lload,
+        "Cc_pF": args.cc,
+        "W_dp_um": args.wdp,
+    }
+
     if args.from_autoresearch:
         run_from_autoresearch(
             results_dir=Path(args.from_autoresearch),
@@ -295,19 +416,17 @@ def main():
             skip_lvs=args.skip_lvs,
             top_n=args.top_n,
         )
-    else:
-        params = {
-            "Ibias_uA": args.ibias,
-            "L_dp_um": args.ldp,
-            "L_load_um": args.lload,
-            "Cc_pF": args.cc,
-            "W_dp_um": args.wdp,
-        }
+    elif args.no_hybrid:
         run_single(
             params=params,
             output_dir=output_dir,
             skip_drc=args.skip_drc,
             skip_lvs=args.skip_lvs,
+        )
+    else:
+        run_single_hybrid(
+            params=params,
+            output_dir=output_dir,
         )
 
 

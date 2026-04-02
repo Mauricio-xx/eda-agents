@@ -244,6 +244,24 @@ class GLayoutRunner:
             run_time_s=elapsed,
         )
 
+    def generate_ota_defaults(
+        self,
+        output_dir: str | Path,
+    ) -> GLayoutResult:
+        """Generate OTA layout with validated gLayout default params.
+
+        Uses the known-good default parameters from gLayout's
+        opamp_twostage() function, bypassing the deprecated
+        sizing_to_glayout_params() mapping.
+        """
+        from eda_agents.topologies.ota_gf180 import GF180OTATopology
+
+        return self.generate_component(
+            component="opamp_twostage",
+            params=GF180OTATopology.glayout_default_params(),
+            output_dir=output_dir,
+        )
+
     def generate_ota(
         self,
         sizing: dict,
