@@ -1017,6 +1017,8 @@ for any Make-based or LibreLane invocation must:
    typical analog/digital dev setup). The solution is defensive
    env handling, not documentation in a README.
 
+| **F6** | 2026-04-12 | Sub-fase 0.3: chip-top Chip flow completed 78 steps, `manufacturability.rpt` reports Antenna/LVS/DRC **Passed**, but flow exits with code 2 due to **2 KLayout antenna errors** (`ANT.16_ii_ANT.4`, via layer antenna ratio) detected in step `60-klayout-antenna` / `61-checker-klayoutantenna` | KLayout antenna check is **stricter than OpenROAD's antenna check**. OpenROAD reports 0 antenna violations (step 45 `checkantennas-1`), but KLayout finds 2 residual violations that the DRT antenna repair (`DRT_ANTENNA_REPAIR_ITERS: 15`, `DRT_ANTENNA_MARGIN: 20%`) did not fully resolve. The `manufacturability.rpt` only gates on the OpenROAD antenna result, not KLayout's. The upstream Makefile has a `librelane-nodrc` target that explicitly `--skip KLayout.Antenna`. **The deferred error prevents `final/` collection** — all artifacts exist in per-step dirs but are not collected. | Transferable rule: framework must distinguish between **manufacturability.rpt pass/fail** (canonical signoff gate) and **per-checker exit codes** (may be stricter). `klayout__antenna_error__count > 0` does NOT mean signoff failure if `manufacturability.rpt` says Passed. Framework should: (1) parse `manufacturability.rpt` as the primary gate, (2) log KLayout antenna violations as warnings, (3) support `--skip KLayout.Antenna` as a config option when the design accepts OpenROAD-only antenna checking, (4) handle missing `final/` dir by falling back to per-step artifact paths. |
+
 ### 1.5.15 `SAFE_CONFIG_KEYS` audit against LibreLane v3
 
 **Verified against `resolved.json` from frv_1 `RUN_2026-04-11_23-15-24`
@@ -1324,6 +1326,88 @@ make sim-gl
 ```
 
 #### 2.2.7 Observations from Phase 0 runs
+
+##### Sub-fase 0.3 — chip-top integration with padring (2026-04-12, run tag `RUN_2026-04-12_15-08-24`)
+
+**Invocation**:
+```bash
+cd /home/montanares/git/gf180mcu-fazyrv-hachure
+nix-shell --run 'make PDK_ROOT=/home/montanares/git/gf180mcu-fazyrv-hachure/gf180mcu PDK=gf180mcuD copy-macro librelane'
+```
+
+**Flow**: `meta.flow: Chip` with `slot_1x1.yaml` overlay. 3932x5122 um
+die with padring, 7 FazyRV macros + 4 logo/ID IPs + 20 SRAMs.
+
+**Result**: **78 steps**, **3h16m** (11,784 s sum of step runtimes).
+`manufacturability.rpt`: Antenna/LVS/DRC **Passed**. Exit code 2 due
+to 2 residual KLayout antenna violations (`ANT.16_ii_ANT.4`) — see F6.
+No `final/` dir created (deferred error aborted collection).
+
+**Key metrics** (from step 78 `state_out.json`, 339 metrics total):
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| Die area | 20,139,700 um2 (20.1 mm2) | 3932 x 5122 um |
+| Core area | 12,902,000 um2 | Inside pad ring |
+| Total cells | 264,174 | Post-fill |
+| Stdcell count | 112,526 | Logic + buffers + CTS |
+| Fill cells | 150,481 | 57% of total (sparse) |
+| Macro instances | 31 | 7 FazyRV + 4 logo/ID + 20 SRAMs |
+| Macro area | 6,304,530 um2 | 48.9% of core |
+| Padcell area | 5,271,000 um2 | 26.2% of die |
+| Stdcell area | 2,830,320 um2 | 21.9% of core |
+| Sequential cells | 10,336 | |
+| Clock buffers | 1,585 | |
+| Antenna diodes | 164 | |
+| Tap cells | 40,060 | |
+| WNS setup (worst across corners) | +5.956 ns | `max_ss_125C_4v50` |
+| WNS setup nom_tt | +21.930 ns | 78% margin on 100 ns clock |
+| WNS setup nom_ss | +8.534 ns | 91.5% margin |
+| WNS hold (worst) | +0.089 ns | Clean |
+| Power total | 15.6 mW | Much lower than macro sum (~380 mW) due to chip-level activity factor |
+| Global route wirelength | 8,284,592 um | ~8.3 mm total |
+| Detailed route wirelength | 6,650,313 um | ~6.7 mm total |
+| Global route vias | 18 | (chip-level only, macros internal) |
+| Magic DRC | 0 errors | |
+| KLayout DRC | 0 errors | |
+| KLayout antenna | 2 errors | `ANT.16_ii_ANT.4` only |
+| OpenROAD antenna | 0 violations | |
+| IR drop worst | 15.3 uV | Negligible |
+| IR drop avg | 3.4 uV | |
+| Route DRC errors | 0 | Converged |
+
+**Chip flow vs Classic flow step comparison**:
+
+| Aspect | Classic (macros) | Chip (chip-top) |
+|--------|-----------------|-----------------|
+| Total steps | 76 | 78 |
+| Unique step: padring | — | `16-openroad-padring` |
+| Unique step: diodes on ports | — | `40-odb-diodesonports` |
+| I/O placement | `openroad-ioplacement` | Via padring (implicit) |
+| `odb-checkmacroantennaproperties` | Step 15 | Step 17 (shifted by padring) |
+| KLayout antenna check | Not present | Steps 60-61 (fatal checker) |
+| KLayout density | Not present | Steps 64-65 |
+| Wall time | 267 s (frv_1) / 523 s (7 parallel) | 11,784 s (~3.3 hr) |
+| Metric count | 318 | 339 |
+
+**Key observations**:
+- **Chip-top is 22x slower** than a single macro (3.3 hr vs 267 s).
+  KLayout DRC alone took ~40 min at 12.3 GB memory.
+- **Timing has massive headroom** at chip level: +21.9 ns on 100 ns
+  clock (78% margin at nom_tt). The design is severely
+  over-provisioned — CLOCK_PERIOD could be pushed much lower.
+- **Power is 15.6 mW** vs ~380 mW sum of macros — chip-level
+  analysis uses default switching activity (no VCD/SAIF), which
+  underestimates real power significantly. Not comparable to
+  macro-level power figures.
+- **Fill cells dominate** (57% of total cells, but only in area
+  outside macros). Core utilization is low (~22% stdcell/core).
+- **KLayout antenna check is the only failure mode** — and the
+  upstream project skips it. Framework should default to
+  `manufacturability.rpt` as the pass/fail gate.
+- **No `final/` directory** when a deferred error fires. Framework
+  must handle this by extracting artifacts from per-step dirs
+  (GDS in `56-magic-streamout/` or `57-klayout-streamout/`).
 
 ##### Sub-fase 0.2 — parallel hardening of all 7 macros (2026-04-11, run tag `RUN_2026-04-11_23-15-24`)
 
