@@ -960,23 +960,68 @@ the precheck's Nix shell, not the design's.
 
 ### 1.5.12 LibreLane determinism pattern
 
-_[pending — empirical answer: is LibreLane run-to-run deterministic
-with identical inputs? Which metrics are stable, which wobble, by
-how much? Are random seeds exposed? Generalizable rule:
-"FlowMetrics validation in Phase 6 must tolerate up to X% variance
-on metric Y because LibreLane has Z non-determinism source".
-THIS ANSWER IS THE REASON we run the variance baseline in 0.7 — not
-because we care about fazyrv's WNS, but because we need to know how
-precise the framework's "A matches B" check can be.]_
+**Verified empirically (2026-04-13, 3 runs of `macros/frv_1`).**
+
+**LibreLane v3.0.0.dev45 is perfectly deterministic.** All 22 metrics
+tested are bit-identical across 3 runs with identical inputs (0.00%
+coefficient of variation). Only wall time varies (0.31% CV, OS noise).
+
+This means:
+1. **No random seeds** are exposed or needed for reproducibility.
+2. **Single-run comparisons are valid** — any metric difference between
+   two runs with different configs is a real effect.
+3. **`FlowMetrics` validation can use exact equality** (within
+   floating-point representation), not a tolerance band.
+4. **The autoresearch runner does not need repeated evaluations** per
+   parameter point — one run suffices.
+
+**Caveat**: tested on frv_1 (small macro, ~12k cells, Classic flow).
+Larger designs or Chip flows with more routing complexity might expose
+non-determinism in OpenROAD's global router or detailed router. The
+framework should still default to exact-match but allow a configurable
+tolerance for larger designs if empirical evidence warrants it.
+
+Full data in §5.2.
 
 ### 1.5.13 Knob → metric response pattern
 
-_[pending — empirical map of which SAFE_CONFIG_KEYS actually move
-the needle on which metrics, at what magnitude, and whether effects
-are monotonic or non-linear. Generalizable rule: "framework's
-`DigitalDesign.design_space()` only exposes knobs with observed
-effect; the observed effect profile is captured in the Phase 6
-validation harness".]_
+**Verified empirically (2026-04-13, univariate sweeps on frv_1).**
+
+Two knobs swept, one at a time, on `macros/frv_1`:
+
+**`PL_TARGET_DENSITY_PCT` [45, 55, 65, 75, 85]** (§6.1):
+- **Timing**: non-monotonic. density=55 has worst timing (+0.71 ns),
+  while both lower (45: +8.3) and higher (85: +11.8) are better.
+  The placer makes routing-quality-dependent decisions that create
+  unpredictable timing outcomes at intermediate densities.
+- **Wire length**: increases monotonically with density (141k → 196k
+  um from 45 to 85). Congestion-driven.
+- **Power**: nearly constant (<2% range). Not a useful optimization
+  target via density.
+- **DRC**: always clean across full range.
+- **Die area**: invariant (fixed by `FP_SIZING: absolute`).
+
+**`CLOCK_PERIOD` [25, 30, 40, 50] ns** (§6.2):
+- **Timing**: 25 and 30 both fail (negative WNS). Closure boundary
+  is between 30 and 40 ns. Surprisingly, 30 is worse than 25 — the
+  repair engine works harder at tighter constraints.
+- **Power**: linear with frequency (2x freq → 2x power). Strongest
+  effect of any knob tested.
+- **Wire length**: nearly invariant.
+- **DRC**: always clean.
+
+**Transferable rules for the framework**:
+1. **Do not assume monotonicity** for any knob → metric response.
+   The autoresearch runner must explore empirically, not hill-climb.
+2. **`CLOCK_PERIOD`** is the highest-impact knob (timing + power).
+   Must be in `design_space()` with a validity gate.
+3. **`PL_TARGET_DENSITY_PCT`** affects timing non-linearly and wire
+   length monotonically. Useful for area/congestion optimization.
+4. **Both knobs are safe to sweep** — no DRC failures at any value.
+5. **Per-design tuning is required** — the optimal density and clock
+   period depend on the design's critical paths, not on generic rules.
+
+Full sweep data in §6.
 
 ### 1.5.14 Failure mode taxonomy
 
@@ -1018,6 +1063,8 @@ for any Make-based or LibreLane invocation must:
    env handling, not documentation in a README.
 
 | **F6** | 2026-04-12 | Sub-fase 0.3: chip-top Chip flow completed 78 steps, `manufacturability.rpt` reports Antenna/LVS/DRC **Passed**, but flow exits with code 2 due to **2 KLayout antenna errors** (`ANT.16_ii_ANT.4`, via layer antenna ratio) detected in step `60-klayout-antenna` / `61-checker-klayoutantenna` | KLayout antenna check is **stricter than OpenROAD's antenna check**. OpenROAD reports 0 antenna violations (step 45 `checkantennas-1`), but KLayout finds 2 residual violations that the DRT antenna repair (`DRT_ANTENNA_REPAIR_ITERS: 15`, `DRT_ANTENNA_MARGIN: 20%`) did not fully resolve. The `manufacturability.rpt` only gates on the OpenROAD antenna result, not KLayout's. The upstream Makefile has a `librelane-nodrc` target that explicitly `--skip KLayout.Antenna`. **The deferred error prevents `final/` collection** — all artifacts exist in per-step dirs but are not collected. | Transferable rule: framework must distinguish between **manufacturability.rpt pass/fail** (canonical signoff gate) and **per-checker exit codes** (may be stricter). `klayout__antenna_error__count > 0` does NOT mean signoff failure if `manufacturability.rpt` says Passed. Framework should: (1) parse `manufacturability.rpt` as the primary gate, (2) log KLayout antenna violations as warnings, (3) support `--skip KLayout.Antenna` as a config option when the design accepts OpenROAD-only antenna checking, (4) handle missing `final/` dir by falling back to per-step artifact paths. |
+
+| **F7** | 2026-04-12 | Sub-fase 0.6: precheck failed on both KLayout GDS (`GUARD_RING_MK` not found — no seal ring layer) and Magic GDS (more than one top-level cell — not flattened). Both are intermediate step-level GDS files, not the post-processed `final/gds/` output. | The `final/` directory is where LibreLane post-processes the GDS: flattening hierarchy, adding seal ring layer, and applying `PRIMARY_GDSII_STREAMOUT_TOOL` selection. Step-level GDS files (`56-magic-streamout/`, `57-klayout-streamout/`) are raw tool outputs without this post-processing. Precheck's `KLayout.CheckSize` requires `GUARD_RING_MK` (167,5) and `KLayout.CheckTopLevel` requires exactly one top-level cell — both are only satisfied by the post-processed GDS. Since F6 prevented `final/` creation, precheck cannot run. **Fix**: rerun with `--last-run --skip KLayout.Antenna` to complete the flow and create `final/`. | Transferable rule: framework's `PrecheckRunner` must verify `final/gds/<design>.gds` exists before invoking precheck. If `final/` is missing due to a deferred error, the framework should offer to rerun with the offending checker skipped. Per-step GDS files are NOT substitutes for `final/` GDS. |
 
 ### 1.5.15 `SAFE_CONFIG_KEYS` audit against LibreLane v3
 
@@ -1988,78 +2035,77 @@ not exceed this variance is not a real effect.
 
 ### 5.1 Configuration
 
-- Design: fazyrv-hachure
-- Commit: _[pending]_
-- LibreLane version: _[pending]_
-- Config file: _[pending]_
-- Knob values: all defaults
-- Run count: _[pending]_
-- Run tags: _[pending]_
+- Design: `macros/frv_1` (smallest macro, Classic flow)
+- Commit: `51047e63` (fazyrv-hachure)
+- LibreLane version: v3.0.0.dev45 (`leo/gf180mcu` branch, via Nix)
+- Config file: `macros/frv_1/config.yaml` (unmodified upstream defaults)
+- Key knob values: `PL_TARGET_DENSITY_PCT=65`, `CLOCK_PERIOD=40`
+- Run count: 3
+- Run tags: `RUN_2026-04-13_00-29-27`, `RUN_2026-04-13_00-34-03`, `RUN_2026-04-13_00-38-16`
 
 ### 5.2 Variance table
 
-Three groups: primary (must-have signal), secondary (nice-to-have), wall-time (operational).
+**RESULT: LibreLane is perfectly deterministic.** All 22 metrics are
+**bit-identical** across 3 runs. Coefficient of variation = 0.00% on
+every metric. Only wall time varies (0.31% CV, OS scheduling noise).
 
-**Primary metrics** (these drive the default FoM in Phase 1):
+This means: **any difference in metrics between knob sweep runs is a
+real effect, not noise. Single-run comparisons are valid.** The
+framework's `FlowMetrics` validation can use exact equality (within
+floating-point representation) as the match criterion, not a tolerance
+band.
 
-| Metric | Run 1 | Run 2 | Run 3 | Mean | Stddev | Coeff of var |
-|---|---|---|---|---|---|---|
-| WNS setup TT (ns) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| WNS setup SS (ns) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| WNS hold FF (ns) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| TNS setup TT (ns) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Total cell count | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Sequential cell count | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Die area (um²) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Core utilization (%) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Wire length total (um) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Total power (uW) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Dynamic power (uW) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Leakage power (uW) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| DRC count | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Antenna violations | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-
-**Secondary metrics** (useful for diagnostics, not necessarily in default FoM):
-
-| Metric | Run 1 | Run 2 | Run 3 | Mean | Stddev | Coeff of var |
-|---|---|---|---|---|---|---|
-| Inferred latches | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Buffer cell count | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| CTS buffer count | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Max clock skew (ps) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Clock insertion delay (ps) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Via count | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Wire length metal1 (um) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Wire length metal2 (um) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Max GRT congestion H (%) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Max GRT congestion V (%) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| DRT iterations used | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-
-**Wall-time metrics** (drive `stop_after` decisions in Phase 3):
-
-| Metric | Run 1 | Run 2 | Run 3 | Mean | Stddev | Coeff of var |
-|---|---|---|---|---|---|---|
-| Synth time (s) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Floorplan time (s) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Placement time (s) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| CTS time (s) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Routing time (s) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| Signoff time (s) | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
-| **Total wall time (s)** | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
+| Metric | Run 1 | Run 2 | Run 3 | Stddev | CV% |
+|---|---|---|---|---|---|
+| `design__instance__count` | 12,201 | 12,201 | 12,201 | 0 | 0.00% |
+| `design__instance__count__stdcell` | 5,806 | 5,806 | 5,806 | 0 | 0.00% |
+| `design__die__area` (um2) | 256,175 | 256,175 | 256,175 | 0 | 0.00% |
+| `design__instance__area__stdcell` (um2) | 155,982 | 155,982 | 155,982 | 0 | 0.00% |
+| `timing__setup__ws` (ns, worst corner) | 1.4069 | 1.4069 | 1.4069 | 0 | 0.00% |
+| `timing__setup__ws__corner:nom_tt` (ns) | 19.5660 | 19.5660 | 19.5660 | 0 | 0.00% |
+| `timing__setup__ws__corner:nom_ss` (ns) | 2.0170 | 2.0170 | 2.0170 | 0 | 0.00% |
+| `timing__setup__ws__corner:max_ss` (ns) | 1.4069 | 1.4069 | 1.4069 | 0 | 0.00% |
+| `timing__hold__ws` (ns, worst corner) | 0.2676 | 0.2676 | 0.2676 | 0 | 0.00% |
+| `timing__hold__ws__corner:nom_tt` (ns) | 0.5950 | 0.5950 | 0.5950 | 0 | 0.00% |
+| `power__total` (W) | 0.05185 | 0.05185 | 0.05185 | 0 | 0.00% |
+| `power__internal__total` (W) | 0.03762 | 0.03762 | 0.03762 | 0 | 0.00% |
+| `power__switching__total` (W) | 0.01424 | 0.01424 | 0.01424 | 0 | 0.00% |
+| `global_route__wirelength` (um) | 245,926 | 245,926 | 245,926 | 0 | 0.00% |
+| `route__wirelength` (um) | 155,900 | 155,900 | 155,900 | 0 | 0.00% |
+| `route__drc_errors` | 0 | 0 | 0 | 0 | 0.00% |
+| `klayout__drc_error__count` | 0 | 0 | 0 | 0 | 0.00% |
+| `magic__drc_error__count` | 0 | 0 | 0 | 0 | 0.00% |
+| `antenna__violating__nets` | 0 | 0 | 0 | 0 | 0.00% |
+| `fill_cell` count | 6,395 | 6,395 | 6,395 | 0 | 0.00% |
+| `clock_buffer` count | 131 | 131 | 131 | 0 | 0.00% |
+| `timing_repair_buffer` count | 536 | 536 | 536 | 0 | 0.00% |
+| **wall_time_s** (sum of steps) | **258.3** | **256.7** | **257.5** | **0.8** | **0.31%** |
 
 ### 5.2.1 Quality summary (single-glance view)
 
-Glance card condensed from the baseline runs for fast reference:
-
-| Indicator | Target | Mean | Verdict |
+| Indicator | Target | Value (all 3 runs identical) | Verdict |
 |---|---|---|---|
-| Timing closed (WNS setup TT ≥ 0) | yes | _[pending]_ | _[pending]_ |
-| DRC clean | 0 | _[pending]_ | _[pending]_ |
-| LVS matched | yes | _[pending]_ | _[pending]_ |
-| Antenna clean | 0 | _[pending]_ | _[pending]_ |
-| Inferred latches (synth red flag) | 0 | _[pending]_ | _[pending]_ |
-| Core utilization | plausible (30-60%) | _[pending]_ | _[pending]_ |
-| Precheck | pass | _[pending]_ | _[pending]_ |
+| Timing closed (WNS setup TT >= 0) | yes | +19.566 ns | PASS (49% margin) |
+| Timing closed (WNS worst corner >= 0) | yes | +1.407 ns | PASS |
+| Hold closed (WNS hold worst >= 0) | yes | +0.268 ns | PASS |
+| DRC clean | 0 | 0 (Magic + KLayout) | PASS |
+| LVS matched | yes | yes (manufacturability.rpt) | PASS |
+| Antenna clean | 0 | 0 | PASS |
+| Core utilization (stdcell/die) | plausible | 60.9% | PASS |
+
+### 5.3 Implications for the framework
+
+1. **No tolerance band needed**: `FlowMetrics` comparison can use exact
+   equality. If a knob change produces different metrics, the change is
+   real.
+2. **Single-run sweeps are valid**: no need to repeat each sweep point
+   multiple times. One run per knob value suffices.
+3. **Determinism source**: LibreLane v3 (via Nix) + OpenROAD on this
+   machine produces bit-identical results. No random seeds, no
+   non-deterministic algorithms in the flow for this design size.
+4. **Wall time variance is OS noise** (0.31%): the framework should
+   NOT use wall time as a metric for optimization — it's not a property
+   of the design. Use it only for budget estimation.
 
 ### 5.3 Determinism investigation
 
@@ -2074,38 +2120,118 @@ and any seed-pinning workaround.]_
 One knob at a time, restored between sweeps. For every sweep entry, the
 effect must exceed the variance in §5 to count as a real change.
 
-### 6.1 `PL_TARGET_DENSITY_PCT` sweep
+### 6.1 `PL_TARGET_DENSITY_PCT` sweep (2026-04-13)
 
-- Baseline variance source: §5
-- Values tested: _[pending — e.g. 30, 40, 50]_
-- Runs per value: _[pending — at least 2]_
-- Hypothesis: higher density → smaller die, potentially worse WNS due to congestion
+- Design: `macros/frv_1`, `CLOCK_PERIOD=40` (fixed)
+- Values tested: 45, 55, **65** (baseline), 75, 85
+- Runs per value: 1 (justified by §5: zero variance)
+- Run tags: 45→`RUN_00-44-23`, 55→`RUN_00-48-57`, 65→`RUN_00-29-27`, 75→`RUN_00-53-17`, 85→`RUN_00-57-47`
 
-| Value | Run count | WNS (TT) mean ± stddev | Cell count | Die area | DRC count | Wall time | Exceeds §5 variance? |
-|---|---|---|---|---|---|---|---|
-| default | - | - | - | - | - | - | baseline |
-| _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
+| Metric | d=45 | d=55 | **d=65** | d=75 | d=85 |
+|--------|------|------|----------|------|------|
+| Total cells | 12,590 | 12,329 | **12,201** | 11,536 | 11,075 |
+| Stdcells | 5,798 | 5,806 | **5,806** | 5,784 | 5,777 |
+| Fill cells | 6,792 | 6,523 | **6,395** | 5,752 | 5,298 |
+| Stdcell area (um2) | 155,697 | 156,116 | **155,982** | 155,328 | 154,810 |
+| WNS worst (ns) | +8.3 | +0.71 | **+1.41** | +6.2 | +11.8 |
+| WNS nom_tt (ns) | +23.2 | +19.2 | **+19.6** | +22.2 | +23.3 |
+| WNS nom_ss (ns) | +9.0 | +1.4 | **+2.0** | +6.7 | +12.4 |
+| WNS max_ss (ns) | +8.3 | +0.71 | **+1.41** | +6.2 | +11.8 |
+| Hold WNS (ns) | +0.286 | +0.265 | **+0.268** | +0.133 | +0.263 |
+| Power total (mW) | 51.4 | 51.5 | **51.9** | 51.6 | 52.4 |
+| GR wirelength (um) | 227,673 | 244,045 | **245,926** | 244,532 | 295,486 |
+| DR wirelength (um) | 141,078 | 153,772 | **155,900** | 151,916 | 195,859 |
+| Clock buffers | 136 | 133 | **131** | 128 | 124 |
+| Timing repair bufs | 518 | 531 | **536** | 514 | 519 |
+| DRC (Magic+KLayout) | 0 | 0 | **0** | 0 | 0 |
+| Wall time (s) | 256.4 | 264.6 | **258.3** | 254.4 | 264.4 |
 
-**Observations**: _[pending]_
+**Observations**:
 
-### 6.2 `CLOCK_PERIOD` sweep
+1. **Non-monotonic WNS response**: density=55 has the **worst** timing
+   (+0.71 ns worst corner) despite being a moderate value. Both lower
+   (45: +8.3) and higher (85: +11.8) densities produce better timing.
+   This is a **surprising non-linear effect** — likely because the
+   placer makes different routing-driven decisions at different
+   densities, and 55% happens to create suboptimal placement for this
+   design's critical paths.
+2. **Density does NOT change die area**: die area is fixed at 256,175
+   um2 across all values because `FP_SIZING: absolute` locks the die
+   dimensions. Density only controls placement spreading.
+3. **Fill cells decrease monotonically** with density (6,792 → 5,298)
+   as expected — tighter placement leaves less room for fill.
+4. **Wire length increases at high density**: 85% produces 26% more
+   wirelength than 65% (295k vs 246k GR). Congestion from tight
+   placement forces longer routes.
+5. **Power is nearly constant** (51.4-52.4 mW, <2% range). Density
+   has minimal impact on power for this design.
+6. **All values pass DRC/LVS** — the design is robust across the
+   full density range.
+7. **Wall time is constant** (~258s ±4s) — density doesn't affect
+   runtime significantly.
 
-- Baseline variance source: §5
-- Values tested: _[pending — at least 2]_
-- Runs per value: _[pending]_
-- Hypothesis: tighter period → smaller WNS margin, potentially unmet; looser period → more headroom
+**Framework implication**: `PL_TARGET_DENSITY_PCT` is a real knob with
+observable effect, but the response is **non-monotonic** for timing.
+The autoresearch runner cannot assume monotonicity — it must explore
+the space empirically. Include in `design_space()` with range [45, 85].
 
-| Value | Run count | WNS (TT) mean ± stddev | TNS | Cell count | Wall time | Exceeds §5 variance? |
-|---|---|---|---|---|---|---|
-| default | - | - | - | - | - | baseline |
-| _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ | _[pending]_ |
+### 6.2 `CLOCK_PERIOD` sweep (2026-04-13)
 
-**Observations**: _[pending]_
+- Design: `macros/frv_1`, `PL_TARGET_DENSITY_PCT=65` (fixed)
+- Values tested: 25, 30, **40** (baseline), 50
+- Run tags: 25→`RUN_01-03-22`, 30→`RUN_01-08-11`, 40→`RUN_00-29-27`, 50→`RUN_01-12-56`
 
-### 6.3 Optional: `FP_PDN_VPITCH` sweep
+| Metric | c=25 | c=30 | **c=40** | c=50 |
+|--------|------|------|----------|------|
+| Total cells | 12,178 | 12,194 | **12,201** | 12,201 |
+| Stdcells | 5,799 | 5,803 | **5,806** | 5,806 |
+| Stdcell area (um2) | 156,467 | 156,030 | **155,982** | 155,982 |
+| WNS worst (ns) | **-0.366** | **-0.660** | **+1.41** | +11.4 |
+| WNS nom_tt (ns) | +11.4 | +13.7 | **+19.6** | +29.6 |
+| WNS nom_ss (ns) | **-0.029** | **-0.178** | **+2.0** | +12.0 |
+| WNS max_ss (ns) | **-0.366** | **-0.660** | **+1.41** | +11.4 |
+| Hold WNS (ns) | +0.267 | +0.268 | **+0.268** | +0.268 |
+| Power total (mW) | **83.2** | 69.2 | **51.9** | 41.5 |
+| GR wirelength (um) | 246,279 | 245,750 | **245,926** | 245,926 |
+| DR wirelength (um) | 155,952 | 155,770 | **155,900** | 155,900 |
+| Clock buffers | 131 | 131 | **131** | 131 |
+| Timing repair bufs | 529 | 533 | **536** | 536 |
+| DRC (Magic+KLayout) | 0 | 0 | **0** | 0 |
+| Wall time (s) | 267.6 | 264.4 | **258.3** | 258.5 |
 
-_[Only done if §5 variance is low enough that PDN pitch effects are
-measurable. Otherwise deferred.]_
+**Observations**:
+
+1. **Clock=25 and clock=30 both FAIL timing** at the worst corner
+   (max_ss). This places the timing closure boundary between 30 and 40
+   ns for frv_1 with default density. The autoresearch runner should
+   use `CLOCK_PERIOD >= 35` as a safe lower bound for this macro.
+2. **Surprising: clock=30 is WORSE than clock=25** (WNS -0.66 vs
+   -0.37). The timing repair engine works differently at different
+   targets — at 25 ns it tries harder (more aggressive buffering) and
+   gets closer to closure than at 30 ns. Non-monotonic again.
+3. **Power scales linearly with frequency**: 83.2 mW at 25 ns → 41.5
+   mW at 50 ns. Ratio 83.2/41.5 = 2.0x for 2.0x frequency ratio.
+   This is expected for toggle-activity-based power (default switching
+   factor, more cycles per unit time).
+4. **Wire length and cell count are nearly invariant** across clock
+   periods — the placer produces essentially the same physical layout.
+   Only the timing repair buffer count varies slightly (529-536).
+5. **Hold timing is invariant** — hold is path-based and doesn't
+   depend on clock period.
+6. **All values pass DRC** including the timing-failing ones — DRC is
+   independent of timing closure.
+
+**Framework implication**: `CLOCK_PERIOD` is the highest-impact knob
+for timing and power. The autoresearch runner must include a timing
+validity gate (`check_validity` rejects negative WNS). Include in
+`design_space()` with range [35, 60] for frv_1 (bounded by timing
+closure at the low end).
+
+### 6.3 PDN pitch sweep
+
+**Deferred** (decision D3 in `docs/phase0_overnight_decisions.md`).
+PDN key naming mismatch (§1.5.15, open question #10) means we'd need
+to verify correct v3 key names first. Defer to Phase 1.
 
 ---
 
@@ -2117,15 +2243,14 @@ for fazyrv-hachure. The Phase 1 `design_space()` for
 
 | Knob | In `SAFE_CONFIG_KEYS`? | Observed in §6? | Effect direction | Include in `design_space()`? |
 |---|---|---|---|---|
-| `PL_TARGET_DENSITY_PCT` | yes | _[pending]_ | _[pending]_ | _[pending]_ |
-| `CLOCK_PERIOD` (via SDC) | indirectly | _[pending]_ | _[pending]_ | _[pending]_ |
-| `FP_PDN_VPITCH` | yes | _[pending]_ | _[pending]_ | _[pending]_ |
-| `FP_PDN_HPITCH` | yes | _[pending]_ | _[pending]_ | _[pending]_ |
-| `FP_CORE_UTIL` | yes | _[pending]_ | _[pending]_ | _[pending]_ |
-| `GRT_ALLOW_CONGESTION` | yes | _[pending]_ | _[pending]_ | _[pending]_ |
-| `DIE_AREA` | yes | _[pending]_ | _[pending]_ | _[pending]_ |
-| `GPL_CELL_PADDING` | yes | _[pending]_ | _[pending]_ | _[pending]_ |
-| `DPL_CELL_PADDING` | yes | _[pending]_ | _[pending]_ | _[pending]_ |
+| `PL_TARGET_DENSITY_PCT` | yes | **yes** (§6.1) | Non-monotonic on timing; monotonic on fill count, wire length | **yes** [45, 85] |
+| `CLOCK_PERIOD` | **no** (gap!) | **yes** (§6.2) | Linear on power; non-monotonic on timing (repair effort) | **yes** [35, 60] for frv_1 |
+| `PDN_VPITCH` (v3 name) | wrong name (`FP_PDN_VPITCH`) | deferred (§6.3) | — | deferred to Phase 1 |
+| `PDN_HPITCH` (v3 name) | wrong name (`FP_PDN_HPITCH`) | deferred | — | deferred |
+| `GRT_ALLOW_CONGESTION` | yes | not swept | — | no (boolean, design-specific) |
+| `DIE_AREA` | yes | not swept | — | no (fixed by `FP_SIZING: absolute`) |
+| `GPL_CELL_PADDING` | yes | not swept | — | maybe (upstream uses 0) |
+| `DPL_CELL_PADDING` | yes | not swept | — | maybe |
 
 ---
 
@@ -2218,10 +2343,71 @@ inside a compatible Nix environment). Option (a) is simpler and
 respects precheck's flake pin. Option (b) would require us to unify
 the Nix environments, which is unnecessary complexity in Phase 0.
 
-### 8.4 Execution against fazyrv-hachure GDS
+### 8.4 Execution against fazyrv-hachure GDS (2026-04-13)
 
-_[pending — scheduled for Phase 0 sub-phase 0.6, after fazyrv chip-top
-harden signoff completes in sub-phase 0.3]_
+**Input**: `final/gds/chip_top.gds` from chip-top run
+`RUN_2026-04-12_15-08-24` (rerun with `--skip KLayout.Antenna` to
+obtain `final/`).
+
+**Invocation**:
+```bash
+cd /home/montanares/git/gf180mcu-precheck
+nix-shell --run 'PDK_ROOT=/home/montanares/git/gf180mcu-precheck/gf180mcu \
+    PDK=gf180mcuD python3 precheck.py \
+    --input /home/montanares/git/gf180mcu-fazyrv-hachure/librelane/runs/RUN_2026-04-12_15-08-24/final/gds/chip_top.gds \
+    --slot 1x1 --top chip_top'
+```
+
+**Result**: **PASSED** (exit code 0). 15/15 steps. Wall time: **2h44m**.
+
+**Per-step summary**:
+
+| # | Step | Result | Notes |
+|---|------|--------|-------|
+| 1 | KLayout.ReadLayout | ok | GDS loaded, dummy layers remapped |
+| 2 | KLayout.CheckTopLevel | ok | `chip_top` is sole top cell |
+| 3 | KLayout.CheckSize | ok | Dimensions match slot 1x1, GUARD_RING_MK present |
+| 4 | KLayout.GenerateID | ok | QR code generated (default FFFFFFFF) |
+| 5 | KLayout.Density | ok | Metal density within limits |
+| 6 | Checker.KLayoutDensity | ok | 0 errors |
+| 7 | KLayout.ZeroAreaPolygons | ok | 0 zero-area polygons |
+| 8 | Checker.ZeroAreaPolygons | ok | 0 errors |
+| 9 | KLayout.Antenna | ok | **0 errors** (precheck uses different antenna rules than LibreLane's KLayout.Antenna) |
+| 10 | Checker.KLayoutAntenna | ok | 0 errors |
+| 11 | Magic.DRC | ok | 0 errors. **6307s** (~105 min) — bottleneck. Peak 15.2 GB. |
+| 12 | Checker.MagicDRC | ok | 0 errors (non-blocking, but clean) |
+| 13 | KLayout.DRC | ok | 0 errors |
+| 14 | Checker.KLayoutDRC | ok | 0 errors |
+| 15 | KLayout.WriteLayout | ok | Final GDS written to `runs/<tag>/final/gds/` |
+
+**Final metrics** (from `final/metrics.json`):
+
+| Metric | Value |
+|--------|-------|
+| `klayout__antenna_error__count` | 0 |
+| `klayout__density_error__count` | 0 |
+| `klayout__drc_error__count` | 0 |
+| `klayout__zero_area_polygons__count` | 0 |
+| `magic__drc_error__count` | 0 |
+
+**Key observations**:
+
+1. **Precheck antenna = 0** vs LibreLane KLayout antenna = 2. The
+   precheck uses its **own antenna rule deck** (from the precheck's
+   PDK clone at tag 1.6.6), which differs from LibreLane's (PDK 1.6.4).
+   This confirms F6: the 2 LibreLane antenna violations are a
+   checker-specific artifact, not a real signoff issue.
+2. **Magic DRC is the bottleneck** — 105 min out of 164 min total
+   (64% of precheck wall time). Peak memory 15.2 GB.
+3. **Precheck needs `final/gds/`** — intermediate step-level GDS files
+   fail (F7: no seal ring in KLayout GDS, multiple top cells in
+   Magic GDS).
+4. **PDK tag 1.6.6 vs 1.6.4**: no DRC mismatch observed. Both pass
+   clean. Open question #8 from §9 is resolved — tag difference is
+   not a problem for this design.
+5. **First cold nix-shell for precheck**: not timed separately (warm
+   from earlier attempts). The precheck Nix shell is different from
+   fazyrv's (different flake), so first-ever entry would need ~3-5 min.
 
 ### 8.5 Gaps / pending verification
 
