@@ -125,16 +125,20 @@ class FazyRvHachureDesign(DigitalDesign):
         return metrics.validity_check()
 
     def testbench(self) -> TestbenchSpec | None:
-        # RTL sim requires riscv-gcc (F2 blocker from Phase 0).
-        # Return the spec anyway so the framework knows the pattern.
+        # Sim runs from repo root (Makefile `sim:` target does `cd cocotb;`)
+        # project_dir() -> macros/frv_1/ or librelane/, so navigate up.
+        if self._macro:
+            work_dir = "../.."  # macros/<name>/ -> repo root
+        else:
+            work_dir = ".."    # librelane/ -> repo root
         return TestbenchSpec(
             driver="cocotb",
-            target="sim",
+            target="make sim",
             env_overrides={
                 "PDK_ROOT": str(self.pdk_root() or ""),
                 "PDK": "gf180mcuD",
             },
-            work_dir_relative=".",
+            work_dir_relative=work_dir,
         )
 
     def validate_clone(self) -> list[str]:
