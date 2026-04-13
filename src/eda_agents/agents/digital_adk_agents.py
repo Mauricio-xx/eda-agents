@@ -442,6 +442,7 @@ class ProjectManager:
             project_dir=config_path.parent,
             config_file=config_path.name,
             pdk_root=str(self.design.pdk_root()) if self.design.pdk_root() else None,
+            shell_wrapper=self.design.shell_wrapper(),
         )
 
     def _build_agents(self, work_dir: Path):

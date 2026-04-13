@@ -166,6 +166,17 @@ class DigitalDesign(ABC):
         """
         return None
 
+    def shell_wrapper(self) -> str | None:
+        """Shell command prefix for environments like nix-shell.
+
+        When set, LibreLaneRunner wraps flow commands as:
+        ``<shell_wrapper> '<python> -m librelane ...'``
+
+        Example: ``"nix-shell /path/to/project --run"`` for projects
+        whose LibreLane and tools live inside a Nix devshell.
+        """
+        return None
+
     def default_config(self) -> dict[str, object]:
         """Return a reasonable default design point.
 

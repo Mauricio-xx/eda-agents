@@ -315,6 +315,7 @@ class DigitalAutoresearchRunner:
             config_file=config_path.name,
             pdk_root=str(self.design.pdk_root() or ""),
             timeout_s=1800,
+            shell_wrapper=self.design.shell_wrapper(),
         )
 
         # Write exploration params to config

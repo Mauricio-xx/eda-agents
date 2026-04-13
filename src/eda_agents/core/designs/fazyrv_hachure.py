@@ -107,6 +107,16 @@ class FazyRvHachureDesign(DigitalDesign):
             return pdk_path
         return None
 
+    def shell_wrapper(self) -> str | None:
+        # fazyrv's LibreLane (v3.0.0.dev45, leo/gf180mcu branch) lives
+        # inside the project's nix-shell.  The wrapper invokes commands
+        # through nix-shell --run so the correct Python + tools are used.
+        shell_nix = self._repo_dir / "shell.nix"
+        flake_nix = self._repo_dir / "flake.nix"
+        if shell_nix.is_file() or flake_nix.is_file():
+            return f"nix-shell {self._repo_dir} --run"
+        return None
+
     def flow_type(self):
         return "Chip" if not self._macro else "Classic"
 

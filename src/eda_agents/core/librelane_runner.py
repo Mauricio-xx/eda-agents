@@ -7,8 +7,9 @@ iterative DRC-fix loops.
 LibreLane CLI:
     librelane <config.json> [--run-tag <tag>] [--pdk-root <path>]
 
-The project directory must contain a config.json (or config.yaml)
-with the design configuration (meta.version >= 2).
+The project directory must contain a config file (JSON or YAML)
+with the design configuration (meta.version >= 2). Both
+``config.json`` and ``config.yaml`` are supported transparently.
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ import os
 import subprocess
 import time
 from pathlib import Path
+
+import yaml
 
 from eda_agents.agents.phase_results import DRCResult, FlowResult
 
@@ -84,7 +87,7 @@ class LibreLaneRunner:
     Parameters
     ----------
     project_dir : Path
-        Directory containing the design (Verilog sources, config.json).
+        Directory containing the design (Verilog sources, config file).
     config_file : str
         Config filename relative to project_dir. Default: "config.json".
     pdk_root : str or None
@@ -93,6 +96,12 @@ class LibreLaneRunner:
         Maximum flow runtime in seconds. Default: 1800 (30 min).
     python_cmd : str or None
         Python interpreter with librelane installed. Auto-detected if None.
+        Ignored when ``shell_wrapper`` is set (the wrapper provides Python).
+    shell_wrapper : str or None
+        Shell command prefix for environments like nix-shell.
+        When set, the flow command is run as:
+        ``<shell_wrapper> '<python> -m librelane ...'``
+        For nix-shell: ``"nix-shell /path/to/project --run"``
     """
 
     def __init__(
@@ -102,13 +111,19 @@ class LibreLaneRunner:
         pdk_root: str | None = None,
         timeout_s: int = 1800,
         python_cmd: str | None = None,
+        shell_wrapper: str | None = None,
     ):
         self.project_dir = Path(project_dir).resolve()
         self.config_file = config_file
         self.config_path = self.project_dir / config_file
         self.pdk_root = pdk_root
         self.timeout_s = timeout_s
-        self.python_cmd = python_cmd or _find_librelane_python()
+        self.shell_wrapper = shell_wrapper
+        if shell_wrapper:
+            # When using a shell wrapper, default python to "python3"
+            self.python_cmd = python_cmd or "python3"
+        else:
+            self.python_cmd = python_cmd or _find_librelane_python()
 
     def validate_setup(self) -> list[str]:
         """Check prerequisites. Returns list of problems (empty = OK)."""
@@ -128,18 +143,31 @@ class LibreLaneRunner:
 
         return problems
 
+    @property
+    def _is_yaml(self) -> bool:
+        """True if the config file uses YAML format."""
+        return self.config_path.suffix in (".yaml", ".yml")
+
     def _read_config(self) -> dict:
-        """Read the current config.json."""
+        """Read the current config file (JSON or YAML)."""
         if not self.config_path.is_file():
             raise FileNotFoundError(f"Config not found: {self.config_path}")
-        return json.loads(self.config_path.read_text())
+        text = self.config_path.read_text()
+        if self._is_yaml:
+            return yaml.safe_load(text) or {}
+        return json.loads(text)
 
     def _write_config(self, config: dict) -> None:
-        """Write config back to disk."""
-        self.config_path.write_text(json.dumps(config, indent=4) + "\n")
+        """Write config back to disk (JSON or YAML)."""
+        if self._is_yaml:
+            self.config_path.write_text(
+                yaml.dump(config, default_flow_style=False, sort_keys=False)
+            )
+        else:
+            self.config_path.write_text(json.dumps(config, indent=4) + "\n")
 
     def modify_config(self, key: str, value, force: bool = False) -> dict:
-        """Safely modify a config.json parameter.
+        """Safely modify a config parameter.
 
         Only allows known-safe keys unless force=True.
 
@@ -212,24 +240,34 @@ class LibreLaneRunner:
                 error=f"Config not found: {self.config_path}",
             )
 
-        cmd = [
+        # Build the inner librelane command parts
+        inner_parts = [
             self.python_cmd,
             "-m", "librelane",
             str(self.config_path),
         ]
 
         if tag:
-            cmd.extend(["--run-tag", tag])
+            inner_parts.extend(["--run-tag", tag])
         if frm:
-            cmd.extend(["--frm", frm])
+            inner_parts.extend(["--frm", frm])
         if to:
-            cmd.extend(["--to", to])
+            inner_parts.extend(["--to", to])
         if overwrite:
-            cmd.append("--overwrite")
+            inner_parts.append("--overwrite")
 
         env = os.environ.copy()
         if self.pdk_root:
             env["PDK_ROOT"] = self.pdk_root
+
+        # Build the actual subprocess command
+        if self.shell_wrapper:
+            # Wrap: e.g. nix-shell /path --run 'python3 -m librelane ...'
+            inner_str = " ".join(inner_parts)
+            wrapper_parts = self.shell_wrapper.split()
+            cmd = [*wrapper_parts, inner_str]
+        else:
+            cmd = inner_parts
 
         logger.info("Running LibreLane: %s", " ".join(cmd))
         t0 = time.monotonic()

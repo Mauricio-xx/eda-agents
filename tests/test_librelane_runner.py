@@ -6,6 +6,7 @@ Integration tests (marked @pytest.mark.librelane) require a real project.
 
 import json
 import pytest
+import yaml
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -16,24 +17,34 @@ from eda_agents.core.librelane_runner import (
 from eda_agents.agents.phase_results import FlowResult
 
 
+_SAMPLE_CONFIG = {
+    "meta": {
+        "version": 2,
+        "flow": ["Yosys.Synthesis", "OpenROAD.Floorplan"],
+    },
+    "DESIGN_NAME": "test_design",
+    "VERILOG_FILES": "dir::src/*.v",
+    "CLOCK_PORT": None,
+    "PL_TARGET_DENSITY_PCT": 75,
+    "FP_PDN_VPITCH": 25,
+    "FP_PDN_HPITCH": 25,
+    "DIE_AREA": [0, 0, 50, 50],
+}
+
+
 @pytest.fixture
 def project_dir(tmp_path):
     """Create a minimal project directory with config.json."""
-    config = {
-        "meta": {
-            "version": 2,
-            "flow": ["Yosys.Synthesis", "OpenROAD.Floorplan"],
-        },
-        "DESIGN_NAME": "test_design",
-        "VERILOG_FILES": "dir::src/*.v",
-        "CLOCK_PORT": None,
-        "PL_TARGET_DENSITY_PCT": 75,
-        "FP_PDN_VPITCH": 25,
-        "FP_PDN_HPITCH": 25,
-        "DIE_AREA": [0, 0, 50, 50],
-    }
     config_path = tmp_path / "config.json"
-    config_path.write_text(json.dumps(config, indent=4))
+    config_path.write_text(json.dumps(_SAMPLE_CONFIG, indent=4))
+    return tmp_path
+
+
+@pytest.fixture
+def yaml_project_dir(tmp_path):
+    """Create a minimal project directory with config.yaml."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump(_SAMPLE_CONFIG, default_flow_style=False))
     return tmp_path
 
 
@@ -99,6 +110,54 @@ class TestConfigModification:
         assert "RCX_RULES" not in SAFE_CONFIG_KEYS
 
 
+class TestYamlConfig:
+    """Verify config read/write works with YAML files."""
+
+    def test_read_yaml_config(self, yaml_project_dir):
+        runner = LibreLaneRunner(
+            yaml_project_dir, config_file="config.yaml", python_cmd="python3"
+        )
+        config = runner._read_config()
+        assert config["DESIGN_NAME"] == "test_design"
+        assert config["PL_TARGET_DENSITY_PCT"] == 75
+
+    def test_modify_yaml_config(self, yaml_project_dir):
+        runner = LibreLaneRunner(
+            yaml_project_dir, config_file="config.yaml", python_cmd="python3"
+        )
+        result = runner.modify_config("PL_TARGET_DENSITY_PCT", 60)
+        assert result["old_value"] == 75
+        assert result["new_value"] == 60
+
+        # Verify YAML was written (not JSON)
+        config_path = yaml_project_dir / "config.yaml"
+        text = config_path.read_text()
+        assert "PL_TARGET_DENSITY_PCT: 60" in text
+        # Round-trip: still readable
+        reloaded = yaml.safe_load(text)
+        assert reloaded["PL_TARGET_DENSITY_PCT"] == 60
+
+    def test_yaml_detected_by_extension(self, yaml_project_dir):
+        runner = LibreLaneRunner(
+            yaml_project_dir, config_file="config.yaml", python_cmd="python3"
+        )
+        assert runner._is_yaml
+
+    def test_json_not_yaml(self, project_dir):
+        runner = LibreLaneRunner(project_dir, python_cmd="python3")
+        assert not runner._is_yaml
+
+    def test_yml_extension(self, tmp_path):
+        config_path = tmp_path / "config.yml"
+        config_path.write_text(yaml.dump(_SAMPLE_CONFIG))
+        runner = LibreLaneRunner(
+            tmp_path, config_file="config.yml", python_cmd="python3"
+        )
+        assert runner._is_yaml
+        config = runner._read_config()
+        assert config["DESIGN_NAME"] == "test_design"
+
+
 class TestDesignName:
     def test_read_design_name(self, project_dir):
         runner = LibreLaneRunner(project_dir, python_cmd="python3")
@@ -107,6 +166,47 @@ class TestDesignName:
     def test_missing_design_name(self, tmp_path):
         runner = LibreLaneRunner(tmp_path, python_cmd="python3")
         assert runner.design_name() is None
+
+
+class TestShellWrapper:
+    """Verify nix-shell wrapper is applied to commands."""
+
+    @patch("subprocess.run")
+    def test_shell_wrapper_wraps_command(self, mock_run, project_dir):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="Flow completed\n", stderr="",
+        )
+        run_dir = project_dir / "runs" / "test_run"
+        final_dir = run_dir / "final"
+        final_dir.mkdir(parents=True)
+        (final_dir / "test_design.gds").write_bytes(b"GDS")
+
+        runner = LibreLaneRunner(
+            project_dir,
+            python_cmd="python3",
+            shell_wrapper="nix-shell /path/to/project --run",
+        )
+        runner.run_flow(tag="test_run")
+
+        call_args = mock_run.call_args
+        cmd = call_args[0][0] if call_args[0] else call_args[1].get("cmd", [])
+        # First 4 args are the wrapper
+        assert cmd[0] == "nix-shell"
+        assert cmd[1] == "/path/to/project"
+        assert cmd[2] == "--run"
+        # Last arg is the wrapped command string
+        assert "python3 -m librelane" in cmd[3]
+        assert "--run-tag test_run" in cmd[3]
+
+    def test_no_wrapper_by_default(self, project_dir):
+        runner = LibreLaneRunner(project_dir, python_cmd="python3")
+        assert runner.shell_wrapper is None
+
+    def test_wrapper_defaults_python(self, project_dir):
+        runner = LibreLaneRunner(
+            project_dir, shell_wrapper="nix-shell . --run",
+        )
+        assert runner.python_cmd == "python3"
 
 
 class TestRunFlow:
