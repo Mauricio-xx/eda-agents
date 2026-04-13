@@ -535,6 +535,7 @@ class DigitalAutoresearchRunner:
         from eda_agents.agents.claude_code_harness import ClaudeCodeHarness
         from eda_agents.agents.rtl_proposal_prompts import (
             cc_cli_hybrid_prompt,
+            cc_cli_rtl_prompt,
             rtl_proposal_prompt,
         )
 
@@ -551,22 +552,34 @@ class DigitalAutoresearchRunner:
         if hasattr(self.design, "pdk_root") and self.design.pdk_root():
             pdk_root = str(self.design.pdk_root())
 
-        prompt = cc_cli_hybrid_prompt(
-            design_name=self.design.project_name(),
-            design_spec=self.design.specification(),
-            optimization_goal=optimization_goal,
-            rtl_file_paths=self.design.rtl_sources(),
-            config_path=self.design.librelane_config(),
-            current_metrics=(
-                {
-                    "wns_worst_ns": best.get("wns_worst_ns"),
-                    "cell_count": best.get("cell_count"),
-                    "die_area_um2": best.get("die_area_um2"),
-                    "power_mw": best.get("power_mw"),
-                } if best else None
-            ),
-            pdk_root=pdk_root,
+        metrics = (
+            {
+                "wns_worst_ns": best.get("wns_worst_ns"),
+                "cell_count": best.get("cell_count"),
+                "die_area_um2": best.get("die_area_um2"),
+                "power_mw": best.get("power_mw"),
+            } if best else None
         )
+
+        if self.strategy == "rtl":
+            prompt = cc_cli_rtl_prompt(
+                design_name=self.design.project_name(),
+                design_spec=self.design.specification(),
+                optimization_goal=optimization_goal,
+                rtl_file_paths=self.design.rtl_sources(),
+                current_metrics=metrics,
+                pdk_root=pdk_root,
+            )
+        else:
+            prompt = cc_cli_hybrid_prompt(
+                design_name=self.design.project_name(),
+                design_spec=self.design.specification(),
+                optimization_goal=optimization_goal,
+                rtl_file_paths=self.design.rtl_sources(),
+                config_path=self.design.librelane_config(),
+                current_metrics=metrics,
+                pdk_root=pdk_root,
+            )
 
         harness = ClaudeCodeHarness(
             prompt=prompt,
@@ -840,9 +853,14 @@ class DigitalAutoresearchRunner:
                     f"to return a non-empty list of RTL file paths"
                 )
             snapshot_mgr = RtlSnapshotManager(work_dir, self.design.project_dir())
+            # Always snapshot config for CC CLI (agent may accidentally modify it)
+            # For litellm backend, only snapshot config for hybrid strategy
+            snapshot_config = (
+                self.strategy == "hybrid"
+                or self.backend == "cc_cli"
+            )
             config_path = (
-                self.design.librelane_config()
-                if self.strategy == "hybrid" else None
+                self.design.librelane_config() if snapshot_config else None
             )
             snapshot_mgr.init_from_originals(rtl_sources, config_path=config_path)
 
@@ -871,12 +889,10 @@ class DigitalAutoresearchRunner:
             # Pre-proposal: restore best RTL for CC CLI (agent writes in-place)
             # ----------------------------------------------------------
             if snapshot_mgr and self.backend == "cc_cli":
-                config_path = (
-                    self.design.librelane_config()
-                    if self.strategy == "hybrid" else None
-                )
+                # Always restore config for CC CLI to prevent accidental changes
                 snapshot_mgr.restore_best(
-                    self.design.rtl_sources(), config_path=config_path
+                    self.design.rtl_sources(),
+                    config_path=self.design.librelane_config(),
                 )
 
             # ----------------------------------------------------------

@@ -143,6 +143,56 @@ def rtl_proposal_prompt(
     return "".join(parts)
 
 
+def cc_cli_rtl_prompt(
+    design_name: str,
+    design_spec: str,
+    optimization_goal: str,
+    rtl_file_paths: list[Path],
+    current_metrics: dict | None = None,
+    pdk_root: str | None = None,
+) -> str:
+    """Prompt for CC CLI agent in strategy='rtl' mode.
+
+    The agent modifies ONLY RTL files. Config is off-limits.
+    """
+    rtl_paths_str = "\n".join(f"  - {p}" for p in rtl_file_paths)
+
+    metrics_section = ""
+    if current_metrics:
+        metrics_section = (
+            "## Current Metrics\n"
+            f"  WNS: {current_metrics.get('wns_worst_ns', '?')} ns\n"
+            f"  Cells: {current_metrics.get('cell_count', '?')}\n"
+            f"  Area: {current_metrics.get('die_area_um2', '?')} um2\n"
+            f"  Power: {current_metrics.get('power_mw', '?')} mW\n\n"
+        )
+
+    return (
+        f"# RTL Optimization: {design_name}\n\n"
+        f"## Goal\n{optimization_goal}\n\n"
+        f"## Specification\n{design_spec}\n\n"
+        f"## RTL Files (ONLY these may be modified)\n{rtl_paths_str}\n\n"
+        f"{metrics_section}"
+        "## Instructions\n"
+        "1. Read the RTL files listed above.\n"
+        "2. Analyze for area/power optimization opportunities.\n"
+        "3. Apply RTL modifications. Preserve module name and port interface.\n"
+        "4. Run `verilator --lint-only -sv <files>` to verify syntax.\n"
+        "5. Report what you changed and why.\n\n"
+        "CRITICAL RULES:\n"
+        "- Do NOT modify any config files (config.yaml, config.json, etc.)\n"
+        "- Do NOT run LibreLane or any synthesis/place-route tools.\n"
+        "- Do NOT change the module name or port list.\n"
+        "- ONLY modify .v (Verilog) files.\n\n"
+        "Techniques to consider: resource sharing, shift-add instead of "
+        "multiply, bitwidth reduction, FSM re-encoding, register merging, "
+        "clock gating, pipeline balancing.\n\n"
+        "When done, output a JSON summary:\n"
+        '{"rtl_changes_applied": true, "rationale": "what you changed"}\n\n'
+        "End with: DONE\n"
+    )
+
+
 def cc_cli_hybrid_prompt(
     design_name: str,
     design_spec: str,
