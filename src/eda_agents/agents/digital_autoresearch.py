@@ -306,6 +306,53 @@ class DigitalAutoresearchRunner:
     # RTL-aware methods (strategy='rtl' and 'hybrid')
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _prepend_nix_tools(env_extra: dict[str, str]) -> None:
+        """Add nix-provided yosys (0.62+) to PATH if system yosys is old.
+
+        LibreLane v3 requires yosys >= 0.60 for the ``-y`` Python script
+        flag.  Many systems have an older yosys (e.g., 0.43 from apt).
+        If a nix store yosys-with-plugins-0.62 exists, prepend it.
+        """
+        import glob
+        import os as _os
+        import shutil
+        import subprocess as _sp
+
+        # Check system yosys version
+        sys_yosys = shutil.which("yosys")
+        if sys_yosys:
+            try:
+                out = _sp.run(
+                    [sys_yosys, "--version"],
+                    capture_output=True, text=True, timeout=5,
+                ).stdout
+                # "Yosys 0.43 ..." -> extract version
+                parts = out.split()
+                if len(parts) >= 2:
+                    ver = parts[1]
+                    major, minor = ver.split(".")[:2]
+                    if int(major) == 0 and int(minor) >= 60:
+                        return  # system yosys is new enough
+            except Exception:
+                pass
+
+        # Look for nix store yosys 0.62+
+        candidates = sorted(
+            glob.glob("/nix/store/*-yosys-with-plugins-0.6*/bin"),
+            reverse=True,
+        )
+        if not candidates:
+            candidates = sorted(
+                glob.glob("/nix/store/*-yosys-0.6*/bin"),
+                reverse=True,
+            )
+        if candidates:
+            nix_bin = candidates[0]
+            current_path = env_extra.get("PATH", _os.environ.get("PATH", ""))
+            env_extra["PATH"] = f"{nix_bin}:{current_path}"
+            logger.info("Prepended nix yosys to PATH: %s", nix_bin)
+
     def _read_rtl_sources(self) -> dict[str, str]:
         """Read current RTL files into {relative_path: content}."""
         result: dict[str, str] = {}
@@ -617,6 +664,9 @@ class DigitalAutoresearchRunner:
         pdk_root_str = str(self.design.pdk_root() or "")
         if "gf180mcu" in pdk_root_str.lower():
             env_extra["PDK"] = "gf180mcuD"
+
+        # Ensure nix-provided yosys (0.62+) is on PATH if system yosys is old
+        self._prepend_nix_tools(env_extra)
 
         runner = LibreLaneRunner(
             project_dir=self.design.project_dir(),
