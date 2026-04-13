@@ -7,14 +7,12 @@ Integration tests (marked @pytest.mark.librelane) require a real project.
 import json
 import pytest
 import yaml
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from eda_agents.core.librelane_runner import (
     LibreLaneRunner,
     SAFE_CONFIG_KEYS,
 )
-from eda_agents.agents.phase_results import FlowResult
 
 
 _SAMPLE_CONFIG = {

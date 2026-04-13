@@ -43,6 +43,13 @@ The `pdk_config` fixture in `conftest.py` parametrizes tests across
   (`ihp_sg13g2` | `gf180mcu`). Default is IHP SG13G2.
 - `OPENROUTER_API_KEY`, `ZAI_API_KEY` — model backends used by the
   agent harnesses (loaded from `.env`, which is gitignored).
+- `EDA_AGENTS_DIGITAL_DESIGNS_DIR` — parent directory for external
+  digital design repos (fazyrv-hachure, Systolic_MAC, precheck).
+  Default: `/home/montanares/git`. Clone with
+  `scripts/fetch_digital_designs.sh`.
+- `EDA_AGENTS_ALLOW_DANGEROUS` — set to `1` to enable
+  `--dangerously-skip-permissions` for Claude Code CLI backend
+  (also requires `allow_dangerous=True` in constructor).
 - `SESSION_LOG.md` is gitignored and holds per-session plan/blockers
   (see global rules). Do not commit it.
 
@@ -106,9 +113,37 @@ for analytical sizing) or a full `CircuitTopology` subclass. Current:
   -> post-layout SPICE and emits pre/post deltas. Has overlay and
   hybrid paths (see SESSION_LOG for the degenerate-PEX caveat on
   gLayout GDS — it affects numerical meaningfulness, not mechanics).
+- `digital_adk_agents.py` + `digital_adk_prompts.py` — digital
+  RTL-to-GDS multi-agent hierarchy: `ProjectManager` master with
+  `VerificationEngineer`, `SynthesisEngineer`, `PhysicalDesigner`,
+  `SignoffChecker`. Supports `backend="adk"` (ADK multi-agent) or
+  `backend="cc_cli"` (Claude Code CLI via `claude --print`).
+- `digital_autoresearch.py` — `DigitalAutoresearchRunner`: greedy
+  exploration over flow config knobs (density, clock, PDN).
+- `claude_code_harness.py` — `ClaudeCodeHarness`: async wrapper
+  around `claude --print --output-format json`. Double-gated
+  `--dangerously-skip-permissions` (constructor + env var).
+- `digital_cc_runner.py` — `DigitalClaudeCodeRunner`: builds
+  RTL-to-GDS prompts from `DigitalDesign` metadata, invokes
+  `ClaudeCodeHarness`.
 - `handler.py`, `system_handler.py`, `phase_results.py`,
   `scenarios.py`, `tool_defs.py` — shared infrastructure
   (`SpiceEvaluationHandler`, scenario records, tool-spec builders).
+  `tool_defs.py` also has `build_digital_rtl2gds_prompt()` and
+  `write_librelane_flow_script()`.
+
+### `core/stages/` — digital flow stage runners
+
+- `rtl_lint_runner.py` — verilator/yosys lint
+- `rtl_sim_runner.py` — cocotb/iverilog simulation
+- `synth_runner.py`, `physical_slice_runner.py`, `sta_runner.py` —
+  LibreLane sub-flow wrappers
+- `precheck_runner.py` — wafer-space precheck
+
+### `core/designs/` — digital design wrappers
+
+- `fazyrv_hachure.py` — GF180 RISC-V SoC (primary design, nix-shell)
+- `systolic_mac_dft.py` — CI fixture (simpler, faster)
 
 ### `tools/`, `parsers/`, `utils/`
 
@@ -133,6 +168,9 @@ working.
 Numbered `examples/` scripts are the canonical end-to-end entry points
 (Miller/GF180 sweeps, single/multi-agent runs, ADK validation, Track D
 GF180 flow, autoresearch, post-layout validation with `--dry-run` and
-`--from-autoresearch`). `scripts/` holds utility drivers (LUT
-generation, GF180 OTA validation, LibreLane setup check, post-layout
-evaluation, gLayout driver).
+`--from-autoresearch`). Digital examples: `09_rtl2gds_gf180.py`
+(full pipeline, supports `--backend adk|cc_cli`) and
+`10_digital_autoresearch_gf180.py` (greedy config exploration).
+`scripts/` holds utility drivers (LUT generation, GF180 OTA
+validation, LibreLane setup check, digital flow validation, post-layout
+evaluation, gLayout driver, design fetcher).

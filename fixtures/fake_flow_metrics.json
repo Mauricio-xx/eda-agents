@@ -1,0 +1,16 @@
+{
+    "synth_cell_count": 12201,
+    "wns_worst_ns": 1.407,
+    "wns_tt_ns": 19.566,
+    "wns_ss_ns": 1.407,
+    "wns_ff_ns": 24.913,
+    "tns_ns": 0.0,
+    "power_total_mw": 51.85,
+    "die_area_um2": 256175,
+    "wire_length_um": 155900,
+    "utilization_pct": 65.0,
+    "drc_clean": true,
+    "drc_count": 0,
+    "lvs_match": true,
+    "antenna_violations": 0
+}

@@ -108,6 +108,41 @@ python examples/08_postlayout_validation.py \
 
 **Requirements**: gLayout (.venv-glayout), Magic, KLayout, ngspice, GF180MCU PDK.
 
+### Digital RTL-to-GDS (GF180MCU)
+
+LLM-driven RTL-to-GDS pipeline for GF180MCU designs via LibreLane v3.
+Two backends: ADK multi-agent (OpenRouter/Gemini) or Claude Code CLI
+(uses your CC subscription). Supports nix-shell environments and both
+JSON and YAML LibreLane configs.
+
+```bash
+# Validate environment
+python scripts/validate_digital_flow.py
+
+# Dry run (no LLM, <5s)
+python examples/09_rtl2gds_gf180.py --dry-run
+
+# Full run with ADK + Gemini Flash
+python examples/09_rtl2gds_gf180.py \
+    --design fazyrv_hachure \
+    --backend adk \
+    --model google/gemini-3-flash-preview
+
+# Full run with Claude Code CLI
+python examples/09_rtl2gds_gf180.py \
+    --design fazyrv_hachure \
+    --backend cc_cli \
+    --allow-dangerous
+
+# Autoresearch greedy loop (flow config exploration)
+python examples/10_digital_autoresearch_gf180.py \
+    --model google/gemini-3-flash-preview \
+    --budget 5
+```
+
+**Requirements**: LibreLane (via nix-shell for fazyrv), GF180MCU PDK.
+Clone designs: `scripts/fetch_digital_designs.sh`.
+
 ### Adding a new topology
 
 Implement `CircuitTopology` (or `SystemTopology` for multi-block systems):
