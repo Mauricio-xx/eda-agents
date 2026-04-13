@@ -308,50 +308,34 @@ class DigitalAutoresearchRunner:
 
     @staticmethod
     def _prepend_nix_tools(env_extra: dict[str, str]) -> None:
-        """Add nix-provided yosys (0.62+) to PATH if system yosys is old.
+        """Prepend nix-provided EDA tools to PATH if system versions are old.
 
-        LibreLane v3 requires yosys >= 0.60 for the ``-y`` Python script
-        flag.  Many systems have an older yosys (e.g., 0.43 from apt).
-        If a nix store yosys-with-plugins-0.62 exists, prepend it.
+        LibreLane v3 requires yosys >= 0.60 and a recent OpenROAD.
+        System packages may be outdated. Auto-detect and prepend
+        nix-store tool directories when available.
         """
         import glob
         import os as _os
-        import shutil
-        import subprocess as _sp
 
-        # Check system yosys version
-        sys_yosys = shutil.which("yosys")
-        if sys_yosys:
-            try:
-                out = _sp.run(
-                    [sys_yosys, "--version"],
-                    capture_output=True, text=True, timeout=5,
-                ).stdout
-                # "Yosys 0.43 ..." -> extract version
-                parts = out.split()
-                if len(parts) >= 2:
-                    ver = parts[1]
-                    major, minor = ver.split(".")[:2]
-                    if int(major) == 0 and int(minor) >= 60:
-                        return  # system yosys is new enough
-            except Exception:
-                pass
+        nix_dirs: list[str] = []
 
-        # Look for nix store yosys 0.62+
-        candidates = sorted(
-            glob.glob("/nix/store/*-yosys-with-plugins-0.6*/bin"),
-            reverse=True,
-        )
-        if not candidates:
-            candidates = sorted(
-                glob.glob("/nix/store/*-yosys-0.6*/bin"),
-                reverse=True,
-            )
-        if candidates:
-            nix_bin = candidates[0]
+        # Collect nix bin dirs for key tools
+        for pattern in [
+            "/nix/store/*-yosys-with-plugins-0.6*/bin",
+            "/nix/store/*-openroad-202[56]*/bin",
+            "/nix/store/*-magic-*/bin",
+            "/nix/store/*-netgen-*/bin",
+            "/nix/store/*-klayout-*/bin",
+        ]:
+            candidates = sorted(glob.glob(pattern), reverse=True)
+            if candidates:
+                nix_dirs.append(candidates[0])
+
+        if nix_dirs:
             current_path = env_extra.get("PATH", _os.environ.get("PATH", ""))
-            env_extra["PATH"] = f"{nix_bin}:{current_path}"
-            logger.info("Prepended nix yosys to PATH: %s", nix_bin)
+            nix_prefix = ":".join(nix_dirs)
+            env_extra["PATH"] = f"{nix_prefix}:{current_path}"
+            logger.info("Prepended nix tools to PATH: %s", nix_prefix)
 
     def _read_rtl_sources(self) -> dict[str, str]:
         """Read current RTL files into {relative_path: content}."""
