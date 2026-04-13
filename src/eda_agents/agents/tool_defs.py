@@ -1273,6 +1273,27 @@ def build_digital_rtl2gds_prompt(design: DigitalDesign) -> str:
         knob_lines.append(f"  {key}: {list(values)}")
     knobs_str = "\n".join(knob_lines) if knob_lines else "  (none)"
 
+    # Shell wrapper (nix-shell support)
+    wrapper = design.shell_wrapper()
+    if wrapper:
+        # Wrap the LibreLane command inside the shell wrapper
+        flow_cmd = (
+            f"cd {project_dir} && {wrapper} "
+            f"'PDK_ROOT={pdk_root_str} PDK=gf180mcuD "
+            f"python3 -m librelane {config_path.name} --overwrite'"
+        )
+        env_note = (
+            f"\nNOTE: This design uses a shell wrapper for its toolchain.\n"
+            f"All LibreLane commands MUST be run through: {wrapper} '<command>'\n"
+            f"The wrapper provides the correct Python, LibreLane, and EDA tools.\n"
+        )
+    else:
+        flow_cmd = (
+            f"cd {project_dir} && PDK_ROOT={pdk_root_str} PDK=gf180mcuD "
+            f"python3 -m librelane {config_path.name} --overwrite"
+        )
+        env_note = ""
+
     return f"""You are a digital design automation agent executing the full RTL-to-GDS \
 flow for '{project}'.
 
@@ -1296,7 +1317,7 @@ CRITICAL ENVIRONMENT RULE:
 Always pass explicit PDK environment variables in every shell command.
 Never rely on inherited env vars -- they may point to a different PDK.
 Use: PDK_ROOT={pdk_root_str} PDK=gf180mcuD
-
+{env_note}
 WORKFLOW:
 Execute these phases in order. Stop and report if any phase fails critically.
 
@@ -1308,8 +1329,7 @@ Phase 1 - RTL VERIFICATION:
 
 Phase 2 - SYNTHESIS + PHYSICAL IMPLEMENTATION:
   Run the full LibreLane flow:
-    cd {project_dir} && PDK_ROOT={pdk_root_str} PDK=gf180mcuD \\
-      python -m librelane {config_path.name} --overwrite
+    {flow_cmd}
   Monitor the output. If it fails, check the error and report.
   After completion, check:
     - Flow status in the runs/<tag>/ directory
@@ -1344,6 +1364,125 @@ When done, report:
 4. Timing: WNS per corner (or at least worst corner)
 5. DRC: violation count
 6. LVS: match/mismatch
+7. Overall verdict: SIGNOFF CLEAN or BLOCKED (with reasons)
+
+Then output "DONE" as your final message."""
+
+
+def build_from_spec_prompt(
+    spec: str,
+    work_dir: str,
+    pdk_root: str,
+    librelane_python: str = "python3",
+) -> str:
+    """Build a prompt for CC CLI to create a design from a natural language spec.
+
+    The agent writes RTL, generates a LibreLane config, runs the flow,
+    and iterates until signoff. This is the "from idea to GDS" path.
+
+    Parameters
+    ----------
+    spec : str
+        Natural language description of the desired circuit.
+    work_dir : str
+        Working directory where the agent writes all files.
+    pdk_root : str
+        Explicit PDK_ROOT path for GF180MCU.
+    librelane_python : str
+        Python command that can run ``python3 -m librelane``.
+    """
+    from eda_agents.agents.gf180_config_template import (
+        GF180_CONFIG_TEMPLATE,
+        GF180_DEFAULTS,
+    )
+
+    return f"""You are a digital design automation agent. Your task is to take a
+circuit specification and produce a complete RTL-to-GDS implementation
+on GF180MCU, from scratch.
+
+SPECIFICATION:
+{spec}
+
+WORKING DIRECTORY: {work_dir}
+PDK_ROOT: {pdk_root}
+PDK: gf180mcuD
+
+CRITICAL ENVIRONMENT RULE:
+Always pass explicit PDK vars in every shell command:
+  PDK_ROOT={pdk_root} PDK=gf180mcuD
+
+WORKFLOW:
+Execute these phases in order. Fix errors before proceeding.
+
+Phase 1 - WRITE RTL:
+  Create the Verilog source file at {work_dir}/src/<design_name>.v
+  Requirements:
+  - Synthesizable Verilog (no $display, no initial blocks, no delays)
+  - Clear module interface with clock and reset if needed
+  - Use 'clk' for clock, 'rst_n' for active-low async reset (convention)
+  - Include all combinational and sequential logic
+  - Module name must match the filename (without .v)
+
+Phase 2 - LINT:
+  Run: verilator --lint-only -sv {work_dir}/src/<design_name>.v
+  Fix ALL errors and warnings. Re-lint until clean.
+
+Phase 3 - GENERATE LIBRELANE CONFIG:
+  Create {work_dir}/config.yaml with the following template, filling in
+  the design-specific fields:
+
+{GF180_CONFIG_TEMPLATE.format(
+    design_name="<YOUR_DESIGN_NAME>",
+    verilog_file="../src/<design_name>.v",
+    clock_port=GF180_DEFAULTS["clock_port"],
+    clock_period=GF180_DEFAULTS["clock_period"],
+    die_width=GF180_DEFAULTS["die_width"],
+    die_height=GF180_DEFAULTS["die_height"],
+)}
+
+  Replace <YOUR_DESIGN_NAME> with the actual module name.
+  Replace <design_name>.v with the actual filename.
+  Adjust CLOCK_PORT to match your RTL's clock signal name.
+  Adjust CLOCK_PERIOD based on your design's speed needs:
+    - Simple combinational: 50-100 ns
+    - Small sequential (counters, FSMs): 25-50 ns
+    - Complex pipelines: 10-25 ns
+  Adjust DIE_AREA based on design complexity:
+    - Very small (<100 cells): 100x100 um
+    - Small (100-1000 cells): 200x200 um
+    - Medium (1k-10k cells): 300x400 um
+    - Large (10k+ cells): 500x500+ um
+
+Phase 4 - RUN LIBRELANE FLOW:
+  cd {work_dir} && PDK_ROOT={pdk_root} PDK=gf180mcuD \\
+    {librelane_python} -m librelane config.yaml --overwrite
+  This runs synthesis, floorplanning, placement, CTS, routing, and signoff.
+  It takes 2-15 minutes depending on design size.
+
+Phase 5 - CHECK RESULTS:
+  After the flow completes, check:
+  a) Look for the runs/ directory. Find the latest run.
+  b) Check for GDS: runs/<tag>/final/gds/<design>.gds
+  c) Check timing: look for STA reports with WNS (Worst Negative Slack).
+     WNS >= 0 means timing is closed.
+  d) Check the manufacturability report if available.
+
+Phase 6 - FIX AND ITERATE (if needed):
+  If the flow fails:
+  - Synthesis error: fix RTL (usually port/signal issues), re-run
+  - Timing violation: increase CLOCK_PERIOD in config.yaml, re-run
+  - Routing congestion: increase DIE_AREA, re-run
+  - DRC violations: increase PL_TARGET_DENSITY_PCT to 50-60%, re-run
+  Make ONE change at a time. Maximum 3 re-run attempts.
+
+FINAL REPORT:
+When done, report:
+1. Design name and description
+2. RTL: module interface (ports), cell count estimate
+3. Timing: WNS (or best achieved)
+4. DRC: violation count
+5. LVS: match/mismatch (if available)
+6. GDS path (if generated)
 7. Overall verdict: SIGNOFF CLEAN or BLOCKED (with reasons)
 
 Then output "DONE" as your final message."""

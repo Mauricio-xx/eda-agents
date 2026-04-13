@@ -1,0 +1,14 @@
+DESIGN_NAME: sample_counter
+VERILOG_FILES:
+  - dir::../src/counter.v
+CLOCK_PORT: clk
+CLOCK_PERIOD: 50
+FP_SIZING: absolute
+DIE_AREA: [0.0, 0.0, 200.0, 200.0]
+PL_TARGET_DENSITY_PCT: 65
+VDD_NETS:
+  - VDD
+GND_NETS:
+  - VSS
+DIODE_ON_PORTS: in
+RT_MAX_LAYER: Metal4

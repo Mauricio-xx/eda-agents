@@ -119,7 +119,7 @@ class TestBuildDigitalRtl2gdsPrompt:
 
     def test_contains_librelane_invocation(self):
         prompt = build_digital_rtl2gds_prompt(_make_design())
-        assert "python -m librelane" in prompt
+        assert "python3 -m librelane" in prompt
         assert "config.yaml" in prompt
 
     def test_prompt_is_substantial(self):
