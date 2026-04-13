@@ -170,6 +170,21 @@ async def main():
         help="Number of top designs to keep (default: 3)",
     )
     parser.add_argument(
+        "--backend", default="adk",
+        choices=["adk", "cc_cli"],
+        help="Proposal backend: adk (litellm API), cc_cli (Claude Code CLI). "
+             "Default: adk. Use cc_cli for RTL-aware strategies.",
+    )
+    parser.add_argument(
+        "--allow-dangerous", action="store_true",
+        help="Enable --dangerously-skip-permissions for CC CLI backend "
+             "(also requires EDA_AGENTS_ALLOW_DANGEROUS=1)",
+    )
+    parser.add_argument(
+        "--cli-path", default="claude",
+        help="Path to claude CLI binary (default: claude)",
+    )
+    parser.add_argument(
         "--no-dedup", action="store_true",
         help="Disable parameter deduplication",
     )
@@ -207,9 +222,15 @@ async def main():
 
     # Check env
     if not args.use_mock_metrics:
-        if not os.environ.get("OPENROUTER_API_KEY"):
-            print("OPENROUTER_API_KEY not set")
+        if args.backend == "adk" and not os.environ.get("OPENROUTER_API_KEY"):
+            print("OPENROUTER_API_KEY not set (required for --backend adk)")
             sys.exit(1)
+        if args.backend == "cc_cli":
+            import shutil
+            cli = shutil.which(args.cli_path)
+            if not cli:
+                print(f"Claude CLI not found: {args.cli_path}")
+                sys.exit(1)
 
     from eda_agents.agents.digital_autoresearch import (
         DigitalAutoresearchRunner,
@@ -232,8 +253,10 @@ async def main():
     print("=" * 60)
     print(f"  Mode:        {mode}")
     print(f"  Strategy:    {args.strategy}")
+    print(f"  Backend:     {args.backend}")
     print(f"  Design:      {design.project_name()}")
-    print(f"  Model:       {args.model}")
+    if args.backend == "adk":
+        print(f"  Model:       {args.model}")
     print(f"  Budget:      {args.budget} evals")
     print(f"  Stop after:  {stop_after.name}")
     print(f"  Output:      {work_dir}")
@@ -259,6 +282,9 @@ async def main():
         top_n=args.top_n,
         strategy=args.strategy,
         run_rtl_sim=args.run_rtl_sim,
+        backend=args.backend,
+        allow_dangerous=args.allow_dangerous,
+        cli_path=args.cli_path,
     )
 
     t0 = time.monotonic()

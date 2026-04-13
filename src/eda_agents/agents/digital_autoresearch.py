@@ -115,6 +115,8 @@ class DigitalAutoresearchRunner:
         backend: str = "adk",
         strategy: str = "flow",
         run_rtl_sim: bool = False,
+        allow_dangerous: bool = False,
+        cli_path: str = "claude",
     ):
         if backend not in ("adk", "cc_cli"):
             raise ValueError(f"Unknown backend: {backend!r}. Use 'adk' or 'cc_cli'.")
@@ -134,6 +136,8 @@ class DigitalAutoresearchRunner:
         self.backend = backend
         self.strategy = strategy
         self.run_rtl_sim = run_rtl_sim
+        self.allow_dangerous = allow_dangerous
+        self.cli_path = cli_path
 
     # ------------------------------------------------------------------
     # program.md
@@ -484,6 +488,110 @@ class DigitalAutoresearchRunner:
         content = extract_json_from_response(content)
         return json.loads(content)
 
+    async def _propose_cc_cli(
+        self,
+        program_content: str,
+        history: list[dict],
+        best: dict | None,
+        eval_num: int,
+    ) -> dict:
+        """CC CLI proposal for rtl/hybrid strategies.
+
+        The CC CLI agent reads RTL from disk, proposes and writes changes,
+        runs lint, and outputs a JSON summary.  We then read the modified
+        files to determine what changed.
+        """
+        from eda_agents.agents.claude_code_harness import ClaudeCodeHarness
+        from eda_agents.agents.rtl_proposal_prompts import (
+            cc_cli_hybrid_prompt,
+            rtl_proposal_prompt,
+        )
+
+        # Build the proposal context
+        user_context = rtl_proposal_prompt(history, best, eval_num, self.budget)
+
+        optimization_goal = (
+            f"{self.design.fom_description()}\n\n"
+            f"Constraints: {self.design.specs_description()}\n\n"
+            f"Current evaluation: {user_context}"
+        )
+
+        pdk_root = None
+        if hasattr(self.design, "pdk_root") and self.design.pdk_root():
+            pdk_root = str(self.design.pdk_root())
+
+        prompt = cc_cli_hybrid_prompt(
+            design_name=self.design.project_name(),
+            design_spec=self.design.specification(),
+            optimization_goal=optimization_goal,
+            rtl_file_paths=self.design.rtl_sources(),
+            config_path=self.design.librelane_config(),
+            current_metrics=(
+                {
+                    "wns_worst_ns": best.get("wns_worst_ns"),
+                    "cell_count": best.get("cell_count"),
+                    "die_area_um2": best.get("die_area_um2"),
+                    "power_mw": best.get("power_mw"),
+                } if best else None
+            ),
+            pdk_root=pdk_root,
+        )
+
+        harness = ClaudeCodeHarness(
+            prompt=prompt,
+            work_dir=self.design.project_dir(),
+            allow_dangerous=self.allow_dangerous,
+            cli_path=self.cli_path,
+            timeout_s=600,  # 10 min per proposal
+            max_budget_usd=2.0,
+        )
+
+        result = await harness.run()
+
+        if not result.success:
+            raise RuntimeError(
+                f"CC CLI proposal failed: {result.error or 'unknown'}"
+            )
+
+        # The agent wrote files directly. Read back what changed.
+        rtl_changes: dict[str, str] = {}
+        for src in self.design.rtl_sources():
+            if src.is_file():
+                try:
+                    rel = str(
+                        src.resolve().relative_to(
+                            self.design.project_dir().resolve()
+                        )
+                    )
+                except ValueError:
+                    rel = src.name
+                rtl_changes[rel] = src.read_text()
+
+        # Try to extract rationale from the agent output
+        rationale = "CC CLI agent proposal"
+        text = result.result_text or ""
+        try:
+            # Look for JSON in the output
+            summary = json.loads(extract_json_from_response(text))
+            rationale = summary.get("rationale", rationale)
+        except (json.JSONDecodeError, ValueError):
+            # Extract any line that looks like a rationale
+            for line in text.split("\n"):
+                if "rationale" in line.lower() or "changed" in line.lower():
+                    rationale = line.strip()[:200]
+                    break
+
+        proposal: dict = {
+            "rtl_changes": rtl_changes,
+            "rationale": rationale,
+        }
+
+        # For hybrid, also check if config was modified
+        if self.strategy == "hybrid":
+            proposal["config"] = {}  # agent may have modified config directly
+
+        return proposal
+
     # ------------------------------------------------------------------
     # Evaluation
     # ------------------------------------------------------------------
@@ -718,6 +826,18 @@ class DigitalAutoresearchRunner:
             rtl_rationale = ""
 
             # ----------------------------------------------------------
+            # Pre-proposal: restore best RTL for CC CLI (agent writes in-place)
+            # ----------------------------------------------------------
+            if snapshot_mgr and self.backend == "cc_cli":
+                config_path = (
+                    self.design.librelane_config()
+                    if self.strategy == "hybrid" else None
+                )
+                snapshot_mgr.restore_best(
+                    self.design.rtl_sources(), config_path=config_path
+                )
+
+            # ----------------------------------------------------------
             # Propose
             # ----------------------------------------------------------
             try:
@@ -725,17 +845,21 @@ class DigitalAutoresearchRunner:
                     params = await self._propose_params(
                         program_content, history, best, eval_num
                     )
-                elif self.strategy == "rtl":
-                    proposal = await self._propose_rtl(
-                        program_content, history, best, eval_num
-                    )
-                    rtl_changes = proposal.get("rtl_changes", {})
-                    rtl_rationale = proposal.get("rationale", "")
-                elif self.strategy == "hybrid":
-                    proposal = await self._propose_hybrid(
-                        program_content, history, best, eval_num
-                    )
-                    params = self._clamp_params(proposal.get("config", {}))
+                elif self.strategy in ("rtl", "hybrid"):
+                    if self.backend == "cc_cli":
+                        proposal = await self._propose_cc_cli(
+                            program_content, history, best, eval_num
+                        )
+                    elif self.strategy == "rtl":
+                        proposal = await self._propose_rtl(
+                            program_content, history, best, eval_num
+                        )
+                    else:
+                        proposal = await self._propose_hybrid(
+                            program_content, history, best, eval_num
+                        )
+                    if self.strategy == "hybrid":
+                        params = self._clamp_params(proposal.get("config", {}))
                     rtl_changes = proposal.get("rtl_changes", {})
                     rtl_rationale = proposal.get("rationale", "")
             except Exception as e:
@@ -792,10 +916,20 @@ class DigitalAutoresearchRunner:
                         tsv_logger.append_row(entry)
                         continue
 
-                    # Apply RTL changes and lint
-                    lint_ok, lint_err, _ = self._apply_rtl_and_lint(
-                        proposal, snapshot_mgr, eval_num
-                    )
+                    if self.backend == "cc_cli":
+                        # CC CLI agent already wrote files; just lint-verify
+                        from eda_agents.core.stages.rtl_lint_runner import RtlLintRunner
+                        from eda_agents.core.tool_environment import LocalToolEnvironment
+                        lint_result = RtlLintRunner(
+                            design=self.design, env=LocalToolEnvironment()
+                        ).run()
+                        lint_ok = lint_result.success
+                        lint_err = lint_result.error if not lint_ok else None
+                    else:
+                        # litellm backend: restore best, apply, lint
+                        lint_ok, lint_err, _ = self._apply_rtl_and_lint(
+                            proposal, snapshot_mgr, eval_num
+                        )
                     if not lint_ok:
                         entry = {
                             "eval": eval_num, "params": params,
