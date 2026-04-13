@@ -112,11 +112,13 @@ class LibreLaneRunner:
         timeout_s: int = 1800,
         python_cmd: str | None = None,
         shell_wrapper: str | None = None,
+        env_extra: dict[str, str] | None = None,
     ):
         self.project_dir = Path(project_dir).resolve()
         self.config_file = config_file
         self.config_path = self.project_dir / config_file
         self.pdk_root = pdk_root
+        self.env_extra = env_extra or {}
         self.timeout_s = timeout_s
         self.shell_wrapper = shell_wrapper
         if shell_wrapper:
@@ -259,6 +261,7 @@ class LibreLaneRunner:
         env = os.environ.copy()
         if self.pdk_root:
             env["PDK_ROOT"] = self.pdk_root
+        env.update(self.env_extra)
 
         # Build the actual subprocess command
         if self.shell_wrapper:

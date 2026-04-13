@@ -611,12 +611,20 @@ class DigitalAutoresearchRunner:
 
         # Apply config overrides
         config_path = self.design.librelane_config()
+
+        # Detect PDK variant from config (GF180 needs PDK=gf180mcuD in env)
+        env_extra: dict[str, str] = {}
+        pdk_root_str = str(self.design.pdk_root() or "")
+        if "gf180mcu" in pdk_root_str.lower():
+            env_extra["PDK"] = "gf180mcuD"
+
         runner = LibreLaneRunner(
             project_dir=self.design.project_dir(),
             config_file=config_path.name,
-            pdk_root=str(self.design.pdk_root() or ""),
+            pdk_root=pdk_root_str,
             timeout_s=1800,
             shell_wrapper=self.design.shell_wrapper(),
+            env_extra=env_extra,
         )
 
         # Write exploration params to config
