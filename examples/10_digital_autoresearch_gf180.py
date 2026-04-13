@@ -17,6 +17,19 @@ Usage:
       --model google/gemini-3-flash-preview \\
       --budget 5
 
+    # Config mode: optimize any LibreLane project (no Python class)
+    python examples/10_digital_autoresearch_gf180.py \\
+      --config /tmp/matmul_e2e/config.yaml \\
+      --pdk-root /path/to/gf180mcu \\
+      --model google/gemini-3-flash-preview \\
+      --budget 5
+
+    # Custom FoM weights (prioritize area over timing)
+    python examples/10_digital_autoresearch_gf180.py \\
+      --config /path/to/config.yaml \\
+      --fom-weights timing=0.5,area=1.0,power=0.3 \\
+      --budget 5
+
     # Real run, stop at synthesis only (faster per eval)
     python examples/10_digital_autoresearch_gf180.py \\
       --model google/gemini-3-flash-preview \\
@@ -26,7 +39,7 @@ Usage:
 Requires:
     pip install eda-agents[adk]
     export OPENROUTER_API_KEY=sk-or-...
-    scripts/fetch_digital_designs.sh
+    scripts/fetch_digital_designs.sh  (for --design mode)
 """
 
 import argparse
@@ -39,6 +52,28 @@ import time
 from pathlib import Path
 
 DEFAULT_MODEL = "google/gemini-3-flash-preview"
+
+
+def parse_fom_weights(raw: str | None) -> dict[str, float] | None:
+    """Parse FoM weights from CLI string like 'timing=1.0,area=0.5,power=0.3'."""
+    if not raw:
+        return None
+    weights = {}
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if "=" not in pair:
+            print(f"Invalid FoM weight format: {pair!r}. Expected key=value.")
+            sys.exit(1)
+        key, val = pair.split("=", 1)
+        key = key.strip()
+        # Normalize short names to internal keys
+        key_map = {"timing": "timing_w", "area": "area_w", "power": "power_w"}
+        key = key_map.get(key, key)
+        if key not in ("timing_w", "area_w", "power_w"):
+            print(f"Unknown FoM weight: {key!r}. Valid: timing, area, power")
+            sys.exit(1)
+        weights[key] = float(val)
+    return weights
 
 
 def load_design(name: str, macro: str = "frv_1"):
@@ -54,18 +89,49 @@ def load_design(name: str, macro: str = "frv_1"):
         sys.exit(1)
 
 
+def load_design_from_config(
+    config_path: str,
+    pdk_root: str | None,
+    fom_weights: dict[str, float] | None = None,
+):
+    """Load a GenericDesign from a LibreLane config file."""
+    from eda_agents.core.designs.generic import GenericDesign
+
+    return GenericDesign(
+        config_path=config_path,
+        pdk_root=pdk_root,
+        fom_weights=fom_weights,
+    )
+
+
 async def main():
     parser = argparse.ArgumentParser(
         description="Digital autoresearch greedy loop for GF180MCU"
     )
-    parser.add_argument(
-        "--design", default="fazyrv_hachure",
+
+    # Entry mode: named design or config file (mutually exclusive)
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--design", default=None,
         choices=["fazyrv_hachure", "systolic_mac"],
-        help="Target design (default: fazyrv_hachure)",
+        help="Named design with Python wrapper (default if neither --design nor --config)",
+    )
+    mode_group.add_argument(
+        "--config", default=None,
+        help="Path to LibreLane config (YAML/JSON). Creates a GenericDesign.",
+    )
+
+    parser.add_argument(
+        "--pdk-root", default=None,
+        help="Explicit PDK_ROOT path (recommended for --config)",
     )
     parser.add_argument(
         "--macro", default="frv_1",
         help="Macro for fazyrv (default: frv_1)",
+    )
+    parser.add_argument(
+        "--fom-weights", default=None,
+        help="FoM weights as key=value pairs: timing=1.0,area=0.5,power=0.3",
     )
     parser.add_argument(
         "--model", default=DEFAULT_MODEL,
@@ -108,7 +174,18 @@ async def main():
     else:
         logging.basicConfig(level=logging.WARNING)
 
-    design = load_design(args.design, macro=args.macro)
+    # Default to fazyrv_hachure if no mode specified
+    if not args.design and not args.config:
+        args.design = "fazyrv_hachure"
+
+    # Parse FoM weights
+    fom_weights = parse_fom_weights(args.fom_weights)
+
+    # Load design
+    if args.config:
+        design = load_design_from_config(args.config, args.pdk_root, fom_weights)
+    else:
+        design = load_design(args.design, macro=args.macro)
 
     # Validate
     problems = design.validate_clone()
@@ -139,14 +216,18 @@ async def main():
     work_dir = Path(args.output) if args.output else Path("autoresearch_digital")
     mock_path = Path(args.use_mock_metrics) if args.use_mock_metrics else None
 
+    mode = "config" if args.config else "expert"
     print("=" * 60)
     print("Digital Autoresearch")
     print("=" * 60)
+    print(f"  Mode:        {mode}")
     print(f"  Design:      {design.project_name()}")
     print(f"  Model:       {args.model}")
     print(f"  Budget:      {args.budget} evals")
     print(f"  Stop after:  {stop_after.name}")
     print(f"  Output:      {work_dir}")
+    if fom_weights:
+        print(f"  FoM weights: {fom_weights}")
     if mock_path:
         print(f"  Mock mode:   {mock_path}")
     print(f"  Dedup:       {not args.no_dedup}")
@@ -170,12 +251,19 @@ async def main():
     print("Results")
     print("=" * 60)
     print(f"  Wall time:   {elapsed:.1f}s")
-    print(f"  Evals done:  {result.get('evals_completed', 0)}")
-    print(f"  Best FoM:    {result.get('best_fom', 0):.4f}")
+    print(f"  Evals done:  {result.total_evals}")
+    print(f"  Kept:        {result.kept}")
+    print(f"  Discarded:   {result.discarded}")
+    print(f"  Best FoM:    {result.best_fom:.4f}")
+    print(f"  Best valid:  {result.best_valid}")
 
-    best = result.get("best_params", {})
-    if best:
-        print(f"  Best params: {json.dumps(best, indent=2)}")
+    if result.best_params:
+        print(f"  Best params: {json.dumps(result.best_params, indent=2)}")
+
+    if result.top_n:
+        print(f"\n  Top-{len(result.top_n)} designs:")
+        for i, entry in enumerate(result.top_n, 1):
+            print(f"    #{i}: FoM={entry['fom']:.2e} -- {json.dumps(entry['params'])}")
 
     # Show program.md path
     program_path = work_dir / "program.md"
@@ -185,7 +273,7 @@ async def main():
     if results_tsv.is_file():
         print(f"  Results:     {results_tsv}")
 
-    print(f"\n  Total cost:  {elapsed:.0f}s wall time")
+    print(f"\n  Improvement: {result.improvement_rate:.0%}")
 
 
 if __name__ == "__main__":

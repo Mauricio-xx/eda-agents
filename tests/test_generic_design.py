@@ -281,3 +281,61 @@ class TestBackendCompat:
         )
         assert "prompt" in result
         assert len(result["prompt"]) > 100
+
+
+# ---------------------------------------------------------------------------
+# Autoresearch chain compatibility
+# ---------------------------------------------------------------------------
+
+
+class TestAutoresearchChain:
+    """Verify GenericDesign is compatible with DigitalAutoresearchRunner."""
+
+    def test_runner_accepts_generic_design(self, yaml_config, tmp_path):
+        from eda_agents.agents.digital_autoresearch import (
+            DigitalAutoresearchRunner,
+        )
+
+        mock_metrics = Path(__file__).resolve().parents[1] / "fixtures" / "fake_flow_metrics.json"
+        d = GenericDesign(yaml_config)
+        runner = DigitalAutoresearchRunner(
+            design=d,
+            model="test-model",
+            budget=1,
+            use_mock_metrics=mock_metrics,
+        )
+        # Runner should initialize without error
+        assert runner.design is d
+        assert runner.budget == 1
+
+    def test_runner_generates_program(self, yaml_config):
+        from eda_agents.agents.digital_autoresearch import (
+            DigitalAutoresearchRunner,
+        )
+
+        d = GenericDesign(yaml_config)
+        runner = DigitalAutoresearchRunner(
+            design=d, model="test", budget=1,
+        )
+        program = runner._generate_program()
+        assert "test-counter" in program
+        assert "PL_TARGET_DENSITY_PCT" in program
+
+    def test_custom_fom_weights_propagate(self, yaml_config, tmp_path):
+        """FoM weights set on GenericDesign propagate to compute_fom."""
+        from eda_agents.core.flow_metrics import FlowMetrics
+
+        d_default = GenericDesign(yaml_config)
+        d_custom = GenericDesign(yaml_config, fom_weights={"area_w": 5.0})
+
+        metrics = FlowMetrics(
+            wns_worst_ns=0.5,
+            die_area_um2=90000.0,
+            power_total_w=0.01,
+        )
+
+        fom_default = d_default.compute_fom(metrics)
+        fom_custom = d_custom.compute_fom(metrics)
+        # Higher area_w should change the result
+        assert fom_custom != fom_default
+        assert fom_custom > fom_default  # area_w 5.0 > 0.5

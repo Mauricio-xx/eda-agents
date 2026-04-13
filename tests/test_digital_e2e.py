@@ -131,6 +131,94 @@ class TestShellWrapper:
         assert hasattr(DigitalDesign, "shell_wrapper")
 
 
+class TestExample10ConfigMode:
+    """Validate example 10 --config mode."""
+
+    def test_dry_run_config_mode(self):
+        """--config with mock metrics completes without crashing."""
+        fixture_config = Path(__file__).resolve().parents[1] / "fixtures" / "sample_librelane_config.yaml"
+        mock_metrics = Path(__file__).resolve().parents[1] / "fixtures" / "fake_flow_metrics.json"
+        result = subprocess.run(
+            [PYTHON, str(EXAMPLE_10),
+             "--config", str(fixture_config),
+             "--use-mock-metrics", str(mock_metrics),
+             "--budget", "1"],
+            capture_output=True, text=True, timeout=60,
+        )
+        # May fail at LLM proposal (no API key) but should parse args OK
+        assert "Digital Autoresearch" in result.stdout
+        assert "config" in result.stdout
+
+    def test_config_mode_shows_design_name(self):
+        """--config mode shows the design name from config file."""
+        fixture_config = Path(__file__).resolve().parents[1] / "fixtures" / "sample_librelane_config.yaml"
+        mock_metrics = Path(__file__).resolve().parents[1] / "fixtures" / "fake_flow_metrics.json"
+        result = subprocess.run(
+            [PYTHON, str(EXAMPLE_10),
+             "--config", str(fixture_config),
+             "--use-mock-metrics", str(mock_metrics),
+             "--budget", "1"],
+            capture_output=True, text=True, timeout=60,
+        )
+        # GenericDesign normalizes underscores to hyphens
+        assert "Design:" in result.stdout
+
+    def test_fom_weights_parsed(self):
+        """--fom-weights flag is parsed and displayed."""
+        fixture_config = Path(__file__).resolve().parents[1] / "fixtures" / "sample_librelane_config.yaml"
+        mock_metrics = Path(__file__).resolve().parents[1] / "fixtures" / "fake_flow_metrics.json"
+        result = subprocess.run(
+            [PYTHON, str(EXAMPLE_10),
+             "--config", str(fixture_config),
+             "--use-mock-metrics", str(mock_metrics),
+             "--fom-weights", "timing=2.0,area=1.0,power=0.5",
+             "--budget", "1"],
+            capture_output=True, text=True, timeout=60,
+        )
+        assert "FoM weights:" in result.stdout
+        assert "timing_w" in result.stdout
+
+    def test_mutually_exclusive_design_config(self):
+        """--design and --config cannot be used together."""
+        result = subprocess.run(
+            [PYTHON, str(EXAMPLE_10),
+             "--design", "fazyrv_hachure",
+             "--config", "/tmp/fake.yaml"],
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode != 0
+
+
+class TestFomWeightsParsing:
+    """Test FoM weight parsing in both examples."""
+
+    def test_example09_fom_weights_dry_run(self):
+        """--fom-weights is accepted by example 09 in --config mode."""
+        fixture_config = Path(__file__).resolve().parents[1] / "fixtures" / "sample_librelane_config.yaml"
+        result = subprocess.run(
+            [PYTHON, str(EXAMPLE_09),
+             "--dry-run", "--backend", "cc_cli",
+             "--config", str(fixture_config),
+             "--fom-weights", "timing=1.0,area=0.5,power=0.3"],
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert "PASS" in result.stdout
+
+    def test_invalid_fom_weights_rejected(self):
+        """Invalid FoM weight key is rejected."""
+        fixture_config = Path(__file__).resolve().parents[1] / "fixtures" / "sample_librelane_config.yaml"
+        result = subprocess.run(
+            [PYTHON, str(EXAMPLE_10),
+             "--config", str(fixture_config),
+             "--fom-weights", "speed=1.0",
+             "--budget", "1"],
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode != 0
+        assert "Unknown FoM weight" in result.stdout
+
+
 class TestMockMetricsFixture:
     """Verify the mock metrics fixture is valid."""
 

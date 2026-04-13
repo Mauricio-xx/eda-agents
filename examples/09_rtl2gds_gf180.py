@@ -41,6 +41,28 @@ from pathlib import Path
 
 DEFAULT_MODEL = "google/gemini-3-flash-preview"
 
+
+def parse_fom_weights(raw: str | None) -> dict[str, float] | None:
+    """Parse FoM weights from CLI string like 'timing=1.0,area=0.5,power=0.3'."""
+    if not raw:
+        return None
+    weights = {}
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if "=" not in pair:
+            print(f"Invalid FoM weight format: {pair!r}. Expected key=value.")
+            sys.exit(1)
+        key, val = pair.split("=", 1)
+        key = key.strip()
+        key_map = {"timing": "timing_w", "area": "area_w", "power": "power_w"}
+        key = key_map.get(key, key)
+        if key not in ("timing_w", "area_w", "power_w"):
+            print(f"Unknown FoM weight: {key!r}. Valid: timing, area, power")
+            sys.exit(1)
+        weights[key] = float(val)
+    return weights
+
+
 DESIGNS = {
     "fazyrv_hachure": "eda_agents.core.designs.fazyrv_hachure:FazyRvHachureDesign",
     "systolic_mac": "eda_agents.core.designs.systolic_mac_dft:SystolicMacDftDesign",
@@ -63,13 +85,18 @@ def load_design_named(name: str, macro: str = "frv_1"):
     return cls()
 
 
-def load_design_from_config(config_path: str, pdk_root: str | None):
+def load_design_from_config(
+    config_path: str,
+    pdk_root: str | None,
+    fom_weights: dict[str, float] | None = None,
+):
     """Mode 2: Create a GenericDesign from a LibreLane config file."""
     from eda_agents.core.designs.generic import GenericDesign
 
     return GenericDesign(
         config_path=config_path,
         pdk_root=pdk_root,
+        fom_weights=fom_weights,
     )
 
 
@@ -77,8 +104,9 @@ def resolve_design(args):
     """Resolve the design from args (Mode 1, 2, or 3)."""
     if args.spec:
         return None  # Mode 3 doesn't use a DigitalDesign object
+    fom_weights = parse_fom_weights(getattr(args, "fom_weights", None))
     if args.config:
-        return load_design_from_config(args.config, args.pdk_root)
+        return load_design_from_config(args.config, args.pdk_root, fom_weights)
     return load_design_named(args.design, macro=args.macro)
 
 
@@ -397,6 +425,11 @@ async def main():
     parser.add_argument(
         "--pdk-root", default=None,
         help="Explicit PDK_ROOT path (required for --config and --spec)",
+    )
+    parser.add_argument(
+        "--fom-weights", default=None,
+        help="FoM weights as key=value pairs: timing=1.0,area=0.5,power=0.3 "
+             "(Mode 2 only, passed to GenericDesign)",
     )
     parser.add_argument(
         "--macro", default="frv_1",
