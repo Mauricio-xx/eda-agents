@@ -5,7 +5,7 @@ execution and result parsing. Supports config modification for
 iterative DRC-fix loops.
 
 LibreLane CLI:
-    librelane <config.json> [--tag <tag>] [--pdk-root <path>]
+    librelane <config.json> [--run-tag <tag>] [--pdk-root <path>]
 
 The project directory must contain a config.json (or config.yaml)
 with the design configuration (meta.version >= 2).
@@ -219,7 +219,7 @@ class LibreLaneRunner:
         ]
 
         if tag:
-            cmd.extend(["--tag", tag])
+            cmd.extend(["--run-tag", tag])
         if frm:
             cmd.extend(["--frm", frm])
         if to:
