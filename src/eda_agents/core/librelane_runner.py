@@ -27,28 +27,34 @@ logger = logging.getLogger(__name__)
 # Keys that are safe to modify in the flow config without breaking
 # the design intent. Other keys require explicit opt-in.
 SAFE_CONFIG_KEYS = frozenset({
+    # Timing
+    "CLOCK_PERIOD",
+    # Placement
     "PL_TARGET_DENSITY_PCT",
-    "FP_PDN_VPITCH",
-    "FP_PDN_HPITCH",
-    "FP_PDN_VOFFSET",
-    "FP_PDN_HOFFSET",
-    "FP_MACRO_HORIZONTAL_HALO",
-    "FP_MACRO_VERTICAL_HALO",
-    "GRT_ALLOW_CONGESTION",
-    "GRT_OVERFLOW_ITERS",
-    "GRT_ANT_ITERS",
-    "DRT_OPT_ITERS",
-    "RSZ_DONT_TOUCH_RX",
-    "DIE_AREA",
-    "FP_SIZING",
     "GPL_CELL_PADDING",
     "DPL_CELL_PADDING",
-    "CELL_PAD_IN_SITES_GLOBAL_PLACEMENT",
-    "CELL_PAD_IN_SITES_DETAIL_PLACEMENT",
-    "FP_PDN_VWIDTH",
-    "FP_PDN_HWIDTH",
-    "QUIT_ON_TIMING_VIOLATIONS",
-    "RCX_RULES",
+    # PDN (v3 naming: PDN_*, not FP_PDN_*)
+    "PDN_VPITCH",
+    "PDN_HPITCH",
+    "PDN_VOFFSET",
+    "PDN_HOFFSET",
+    "PDN_VWIDTH",
+    "PDN_HWIDTH",
+    # Floorplan
+    "FP_MACRO_HORIZONTAL_HALO",
+    "FP_MACRO_VERTICAL_HALO",
+    "DIE_AREA",
+    "FP_SIZING",
+    # Global routing
+    "GRT_ALLOW_CONGESTION",
+    "GRT_OVERFLOW_ITERS",
+    "GRT_ANTENNA_REPAIR_ITERS",
+    # Detailed routing
+    "DRT_OPT_ITERS",
+    # Resizer
+    "RSZ_DONT_TOUCH_RX",
+    # Parasitic extraction
+    "RCX_RULESETS",
 })
 
 

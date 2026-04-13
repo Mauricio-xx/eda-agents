@@ -87,8 +87,16 @@ class TestConfigModification:
 
     def test_safe_keys_exist(self):
         assert "PL_TARGET_DENSITY_PCT" in SAFE_CONFIG_KEYS
-        assert "FP_PDN_VPITCH" in SAFE_CONFIG_KEYS
+        assert "CLOCK_PERIOD" in SAFE_CONFIG_KEYS
+        assert "PDN_VPITCH" in SAFE_CONFIG_KEYS
+        assert "GRT_ANTENNA_REPAIR_ITERS" in SAFE_CONFIG_KEYS
         assert "DESIGN_NAME" not in SAFE_CONFIG_KEYS
+        # v3 removals: these should NOT be in the set
+        assert "FP_PDN_VPITCH" not in SAFE_CONFIG_KEYS
+        assert "QUIT_ON_TIMING_VIOLATIONS" not in SAFE_CONFIG_KEYS
+        assert "CELL_PAD_IN_SITES_GLOBAL_PLACEMENT" not in SAFE_CONFIG_KEYS
+        assert "GRT_ANT_ITERS" not in SAFE_CONFIG_KEYS
+        assert "RCX_RULES" not in SAFE_CONFIG_KEYS
 
 
 class TestDesignName:
