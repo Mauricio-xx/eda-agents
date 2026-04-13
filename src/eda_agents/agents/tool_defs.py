@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from eda_agents.core.digital_design import DigitalDesign
     from eda_agents.core.topology import CircuitTopology
     from eda_agents.core.system_topology import SystemTopology
 
@@ -1222,6 +1223,304 @@ IMPORTANT:
 # ---------------------------------------------------------------------------
 # Generic task prompt builder (used by LLM/ADK harness)
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Digital RTL-to-GDS: Claude Code CLI prompt + helper script
+# ---------------------------------------------------------------------------
+
+
+def build_digital_rtl2gds_prompt(design: DigitalDesign) -> str:
+    """Build the full prompt for a Claude Code CLI agent driving RTL-to-GDS.
+
+    The prompt tells the CLI agent:
+    - What the design is and its specifications
+    - The exact LibreLane config path and project directory
+    - Explicit PDK_ROOT and PDK env vars (F5 transferable rule)
+    - Step-by-step workflow: lint -> sim -> synth -> P&R -> DRC -> LVS
+    - How to modify config, re-run, and read reports
+    - What to report when done
+    """
+    project = design.project_name()
+    project_dir = design.project_dir()
+    config_path = design.librelane_config()
+
+    # PDK environment (F5: never rely on inherited env vars)
+    pdk_root = design.pdk_root()
+    pdk_root_str = str(pdk_root) if pdk_root else "$PDK_ROOT"
+
+    # RTL sources
+    rtl_sources = design.rtl_sources()
+    rtl_list = "\n".join(f"  - {p}" for p in rtl_sources) if rtl_sources else "  (see project directory)"
+
+    # Testbench info
+    tb = design.testbench()
+    if tb:
+        tb_section = (
+            f"Testbench available:\n"
+            f"  Driver: {tb.driver}\n"
+            f"  Target: {tb.target}\n"
+        )
+        if tb.env_overrides:
+            tb_section += f"  Env overrides: {tb.env_overrides}\n"
+    else:
+        tb_section = "No testbench configured. Skip simulation.\n"
+
+    # Design space
+    ds = design.design_space()
+    knob_lines = []
+    for key, values in ds.items():
+        knob_lines.append(f"  {key}: {list(values)}")
+    knobs_str = "\n".join(knob_lines) if knob_lines else "  (none)"
+
+    return f"""You are a digital design automation agent executing the full RTL-to-GDS \
+flow for '{project}'.
+
+{design.prompt_description()}
+
+Specifications: {design.specs_description()}
+FoM: {design.fom_description()}
+Reference: {design.reference_description()}
+
+Design variables (tunable knobs):
+{knobs_str}
+
+RTL sources:
+{rtl_list}
+
+{tb_section}
+Project directory: {project_dir}
+LibreLane config: {config_path}
+
+CRITICAL ENVIRONMENT RULE:
+Always pass explicit PDK environment variables in every shell command.
+Never rely on inherited env vars -- they may point to a different PDK.
+Use: PDK_ROOT={pdk_root_str} PDK=gf180mcuD
+
+WORKFLOW:
+Execute these phases in order. Stop and report if any phase fails critically.
+
+Phase 1 - RTL VERIFICATION:
+  Run lint on RTL sources using verilator:
+    verilator --lint-only -sv <sources>
+  If a testbench is available, run simulation.
+  Report: warnings, errors, pass/fail.
+
+Phase 2 - SYNTHESIS + PHYSICAL IMPLEMENTATION:
+  Run the full LibreLane flow:
+    cd {project_dir} && PDK_ROOT={pdk_root_str} PDK=gf180mcuD \\
+      python -m librelane {config_path.name} --overwrite
+  Monitor the output. If it fails, check the error and report.
+  After completion, check:
+    - Flow status in the runs/<tag>/ directory
+    - Timing reports in STA post-PNR step directories
+    - DRC/LVS reports in signoff step directories
+
+Phase 3 - SIGNOFF ANALYSIS:
+  After the flow completes, check:
+  a) Timing: Look for WNS (Worst Negative Slack) in STA reports.
+     WNS >= 0 means timing is closed.
+  b) DRC: Check KLayout DRC report. Zero violations = clean.
+  c) LVS: Check Netgen LVS report. Must match.
+  d) Manufacturability: Check the manufacturability report for
+     Antenna/LVS/DRC passed status.
+
+Phase 4 - CONFIG TUNING (if needed):
+  If timing is violated or DRC has issues, you can modify the LibreLane
+  config and re-run. Safe tunable keys:
+    PL_TARGET_DENSITY_PCT (placement density, 30-90%)
+    CLOCK_PERIOD (ns)
+    GRT_OVERFLOW_ITERS (global routing iterations)
+    GRT_ANTENNA_REPAIR_ITERS (antenna fix iterations)
+    DRT_OPT_ITERS (detailed routing optimization)
+    PDN_VPITCH / PDN_HPITCH (power grid spacing)
+  Make ONE change at a time. Re-run and compare.
+
+FINAL REPORT:
+When done, report:
+1. Lint status (warnings/errors)
+2. Sim status (if applicable)
+3. Synthesis: cell count
+4. Timing: WNS per corner (or at least worst corner)
+5. DRC: violation count
+6. LVS: match/mismatch
+7. Overall verdict: SIGNOFF CLEAN or BLOCKED (with reasons)
+
+Then output "DONE" as your final message."""
+
+
+def write_librelane_flow_script(dest_dir: str, design: DigitalDesign) -> str:
+    """Write a helper script for CC CLI agents to query flow results.
+
+    The script wraps LibreLaneRunner and FlowMetrics for easy CLI access.
+    Returns the script path.
+    """
+    import os
+    from pathlib import Path as _Path
+
+    src_dir = str(_Path(__file__).resolve().parents[1])
+    script_path = os.path.join(dest_dir, "query_flow.py")
+
+    project_dir = str(design.project_dir())
+    config_name = design.librelane_config().name
+    pdk_root = str(design.pdk_root()) if design.pdk_root() else ""
+
+    content = f'''#!/usr/bin/env python3
+"""Query digital flow results. Used by Claude Code CLI agents.
+
+Usage:
+  python3 query_flow.py status              - Check latest flow run status
+  python3 query_flow.py metrics             - Extract metrics from latest run
+  python3 query_flow.py timing              - Read timing report summary
+  python3 query_flow.py modify KEY VALUE    - Modify a config knob
+  python3 query_flow.py list-runs           - List available run directories
+"""
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, {src_dir!r})
+
+PROJECT_DIR = Path({project_dir!r})
+CONFIG_NAME = {config_name!r}
+PDK_ROOT = {pdk_root!r}
+
+
+def find_latest_run():
+    """Find the most recent run directory."""
+    runs_dir = PROJECT_DIR / "runs"
+    if not runs_dir.exists():
+        return None
+    runs = sorted(runs_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+    return runs[0] if runs else None
+
+
+def cmd_status():
+    run_dir = find_latest_run()
+    if not run_dir:
+        print(json.dumps({{"status": "no_runs", "message": "No run directories found"}}))
+        return
+    # Check for manufacturability report
+    mfg = run_dir / "76-misc-reportmanufacturability" / "manufacturability.rpt"
+    if not mfg.exists():
+        # Try to find any manufacturability report
+        mfg_candidates = list(run_dir.glob("*reportmanufacturability*/manufacturability.rpt"))
+        mfg = mfg_candidates[0] if mfg_candidates else None
+    mfg_text = mfg.read_text() if mfg and mfg.exists() else ""
+    print(json.dumps({{
+        "run_dir": str(run_dir),
+        "run_name": run_dir.name,
+        "manufacturability": mfg_text[-1000:] if mfg_text else "not found",
+    }}))
+
+
+def cmd_metrics():
+    run_dir = find_latest_run()
+    if not run_dir:
+        print(json.dumps({{"error": "No run directories found"}}))
+        return
+    from eda_agents.core.flow_metrics import FlowMetrics
+    try:
+        fm = FlowMetrics.from_librelane_run_dir(run_dir)
+        print(json.dumps({{
+            "wns_worst_ns": fm.wns_worst_ns,
+            "cell_count": fm.synth_cell_count,
+            "die_area_um2": fm.die_area_um2,
+            "power_mw": fm.power_total_mw,
+            "wire_length_um": fm.wire_length_um,
+            "utilization_pct": fm.utilization_pct,
+            "drc_count": fm.drc_count,
+            "drc_clean": fm.drc_clean,
+            "lvs_match": fm.lvs_match,
+            "antenna_violations": fm.antenna_violations,
+        }}))
+    except Exception as e:
+        print(json.dumps({{"error": str(e)}}))
+
+
+def cmd_timing():
+    run_dir = find_latest_run()
+    if not run_dir:
+        print(json.dumps({{"error": "No run directories found"}}))
+        return
+    # Find STA post-PNR directories
+    sta_dirs = sorted(run_dir.glob("*stapostpnr*"))
+    results = {{}}
+    for d in sta_dirs:
+        for rpt in d.glob("*.rpt"):
+            # Read last 500 chars of each report for summary
+            text = rpt.read_text()
+            results[f"{{d.name}}/{{rpt.name}}"] = text[-500:]
+    if not results:
+        print(json.dumps({{"error": "No STA reports found", "run_dir": str(run_dir)}}))
+    else:
+        print(json.dumps({{"run_dir": str(run_dir), "reports": results}}))
+
+
+def cmd_modify(key, value):
+    from eda_agents.core.librelane_runner import LibreLaneRunner
+    runner = LibreLaneRunner(
+        project_dir=PROJECT_DIR,
+        config_file=CONFIG_NAME,
+        pdk_root=PDK_ROOT or None,
+    )
+    try:
+        # Try to parse as number
+        try:
+            value = int(value)
+        except ValueError:
+            try:
+                value = float(value)
+            except ValueError:
+                pass
+        result = runner.modify_config(key, value)
+        print(json.dumps(result))
+    except Exception as e:
+        print(json.dumps({{"error": str(e)}}))
+
+
+def cmd_list_runs():
+    runs_dir = PROJECT_DIR / "runs"
+    if not runs_dir.exists():
+        print(json.dumps({{"runs": []}}))
+        return
+    runs = []
+    for d in sorted(runs_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+        if d.is_dir():
+            runs.append({{"name": d.name, "path": str(d)}})
+    print(json.dumps({{"runs": runs[:10]}}))
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(json.dumps({{"error": "Usage: query_flow.py <status|metrics|timing|modify|list-runs>"}}))
+        sys.exit(1)
+
+    cmd = sys.argv[1]
+    if cmd == "status":
+        cmd_status()
+    elif cmd == "metrics":
+        cmd_metrics()
+    elif cmd == "timing":
+        cmd_timing()
+    elif cmd == "modify" and len(sys.argv) >= 4:
+        cmd_modify(sys.argv[2], sys.argv[3])
+    elif cmd == "list-runs":
+        cmd_list_runs()
+    else:
+        print(json.dumps({{"error": f"Unknown command: {{cmd}}"}}))
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+    os.makedirs(dest_dir, exist_ok=True)
+    with open(script_path, "w") as f:
+        f.write(content)
+    os.chmod(script_path, 0o755)
+    return script_path
 
 
 def ops_to_task_prompt(agent_id: str, operations: list) -> str:

@@ -61,6 +61,7 @@ markers = [
     "glayout: requires .venv-glayout with gLayout installed (deselect with -m 'not glayout')",
     "librelane: requires librelane + gf180mcu-project-template (deselect with -m 'not librelane')",
     "magic: requires magic + GF180MCU PDK (deselect with -m 'not magic')",
+    "cc_cli: requires Claude Code CLI installed (deselect with -m 'not cc_cli')",
 ]
 
 [tool.ruff]

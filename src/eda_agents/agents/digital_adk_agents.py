@@ -364,15 +364,26 @@ class ProjectManager:
     One shared ``LibreLaneRunner`` and ``ToolEnvironment`` instance
     serve all sub-agents.  ADK routes tasks through the master's LLM.
 
+    Supports two backends:
+    - ``"adk"`` (default): ADK multi-agent with LlmAgent sub-agents.
+    - ``"cc_cli"``: Single Claude Code CLI agent via ``claude --print``.
+
     Usage::
 
         from eda_agents.agents.digital_adk_agents import ProjectManager
         from eda_agents.core.designs.fazyrv_hachure import FazyRvHachureDesign
-        from eda_agents.core.tool_environment import LocalToolEnvironment
 
+        # ADK backend (default)
         pm = ProjectManager(
             design=FazyRvHachureDesign(),
             model="openrouter/anthropic/claude-haiku-4.5",
+        )
+        result = await pm.run(work_dir=Path("./results"))
+
+        # Claude Code CLI backend
+        pm = ProjectManager(
+            design=FazyRvHachureDesign(),
+            backend="cc_cli",
         )
         result = await pm.run(work_dir=Path("./results"))
     """
@@ -384,11 +395,21 @@ class ProjectManager:
         worker_model: str | None = None,
         precheck_dir: Path | str | None = None,
         env: ToolEnvironment | None = None,
+        backend: str = "adk",
+        allow_dangerous: bool = False,
+        cli_path: str = "claude",
+        max_budget_usd: float | None = None,
     ):
+        if backend not in ("adk", "cc_cli"):
+            raise ValueError(f"Unknown backend: {backend!r}. Use 'adk' or 'cc_cli'.")
         self.design = design
         self.model = model
         self.worker_model = worker_model or model
         self.env = env
+        self.backend = backend
+        self.allow_dangerous = allow_dangerous
+        self.cli_path = cli_path
+        self.max_budget_usd = max_budget_usd
 
         # Default precheck dir: $EDA_AGENTS_DIGITAL_DESIGNS_DIR/gf180mcu-precheck
         if precheck_dir:
@@ -515,7 +536,7 @@ class ProjectManager:
         work_dir: Path,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """Run the full digital RTL-to-GDS flow via ADK agent loop.
+        """Run the full digital RTL-to-GDS flow.
 
         Parameters
         ----------
@@ -523,12 +544,56 @@ class ProjectManager:
             Output directory for results.
         dry_run : bool
             If True, build agents without executing (validation only).
+
+        Dispatches to the ADK multi-agent path or the Claude Code CLI
+        path based on ``self.backend``.
         """
         work_dir.mkdir(parents=True, exist_ok=True)
 
         if dry_run:
+            if self.backend == "cc_cli":
+                return self._run_cc_cli_dry(work_dir)
             return self.dry_run()
 
+        if self.backend == "cc_cli":
+            return await self._run_cc_cli(work_dir)
+
+        return await self._run_adk(work_dir)
+
+    async def _run_cc_cli(self, work_dir: Path) -> dict[str, Any]:
+        """Execute via Claude Code CLI backend."""
+        from eda_agents.agents.digital_cc_runner import (
+            DigitalClaudeCodeRunner,
+        )
+
+        runner = DigitalClaudeCodeRunner(
+            design=self.design,
+            work_dir=work_dir,
+            allow_dangerous=self.allow_dangerous,
+            cli_path=self.cli_path,
+            model=self.model if self.model != "openrouter/anthropic/claude-haiku-4.5" else None,
+            max_budget_usd=self.max_budget_usd,
+        )
+        return await runner.run()
+
+    def _run_cc_cli_dry(self, work_dir: Path) -> dict[str, Any]:
+        """Dry run for CC CLI backend."""
+        from eda_agents.agents.digital_cc_runner import (
+            DigitalClaudeCodeRunner,
+        )
+
+        runner = DigitalClaudeCodeRunner(
+            design=self.design,
+            work_dir=work_dir,
+            allow_dangerous=self.allow_dangerous,
+            cli_path=self.cli_path,
+            model=self.model if self.model != "openrouter/anthropic/claude-haiku-4.5" else None,
+            max_budget_usd=self.max_budget_usd,
+        )
+        return runner.dry_run()
+
+    async def _run_adk(self, work_dir: Path) -> dict[str, Any]:
+        """Execute via ADK multi-agent backend."""
         from google.adk.runners import InMemoryRunner
         from google.genai import types
 

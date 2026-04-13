@@ -106,7 +106,19 @@ class DigitalAutoresearchRunner:
         dedup: bool = True,
         use_mock_metrics: Path | None = None,
         top_n: int = 3,
+        backend: str = "adk",
     ):
+        if backend not in ("adk", "cc_cli"):
+            raise ValueError(f"Unknown backend: {backend!r}. Use 'adk' or 'cc_cli'.")
+        if backend == "cc_cli":
+            # CC CLI for proposals is accepted but uses the same litellm path.
+            # The overhead of spawning claude --print per proposal (~20k context
+            # tokens) makes it impractical vs a direct API call.  Accepted for
+            # interface consistency; actual CC CLI proposal is a future item.
+            logger.warning(
+                "backend='cc_cli' accepted but proposals still use litellm. "
+                "CC CLI proposal path is deferred (high per-invocation overhead)."
+            )
         self.design = design
         self.model = model
         self.budget = budget
@@ -114,6 +126,7 @@ class DigitalAutoresearchRunner:
         self.dedup = dedup
         self.use_mock_metrics = use_mock_metrics
         self.top_n = top_n
+        self.backend = backend
 
     # ------------------------------------------------------------------
     # program.md

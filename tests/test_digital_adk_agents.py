@@ -348,3 +348,49 @@ class TestProjectManager:
         mock_env = _make_env()
         pm = ProjectManager(design=design, env=mock_env)
         assert pm._get_env() is mock_env
+
+    def test_backend_default_is_adk(self):
+        from eda_agents.agents.digital_adk_agents import ProjectManager
+
+        pm = ProjectManager(design=_make_design())
+        assert pm.backend == "adk"
+
+    def test_backend_cc_cli(self):
+        from eda_agents.agents.digital_adk_agents import ProjectManager
+
+        pm = ProjectManager(design=_make_design(), backend="cc_cli")
+        assert pm.backend == "cc_cli"
+
+    def test_backend_invalid_raises(self):
+        import pytest
+        from eda_agents.agents.digital_adk_agents import ProjectManager
+
+        with pytest.raises(ValueError, match="Unknown backend"):
+            ProjectManager(design=_make_design(), backend="invalid")
+
+    def test_cc_cli_dry_run(self):
+        import asyncio
+        from eda_agents.agents.digital_adk_agents import ProjectManager
+
+        design = _make_design()
+        pm = ProjectManager(design=design, backend="cc_cli")
+        result = asyncio.run(
+            pm.run(work_dir=Path("/tmp/cc_dry"), dry_run=True)
+        )
+        assert result["design"] == "test-design"
+        assert "prompt" in result
+        assert len(result["prompt"]) > 100
+
+    def test_cc_cli_params_stored(self):
+        from eda_agents.agents.digital_adk_agents import ProjectManager
+
+        pm = ProjectManager(
+            design=_make_design(),
+            backend="cc_cli",
+            allow_dangerous=True,
+            cli_path="/usr/bin/claude",
+            max_budget_usd=10.0,
+        )
+        assert pm.allow_dangerous is True
+        assert pm.cli_path == "/usr/bin/claude"
+        assert pm.max_budget_usd == 10.0
