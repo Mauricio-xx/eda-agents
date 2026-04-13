@@ -140,6 +140,15 @@ python examples/10_digital_autoresearch_gf180.py \
     --budget 5
 ```
 
+**Quick start (zero Python, from an idea)**:
+```bash
+# From a circuit spec -- agent writes RTL + config + runs flow
+python examples/09_rtl2gds_gf180.py \
+    --spec "4-bit counter with enable and async reset" \
+    --pdk-root /path/to/gf180mcu \
+    --backend cc_cli --allow-dangerous
+```
+
 **Requirements**: LibreLane (via nix-shell for fazyrv), GF180MCU PDK.
 Clone designs: `scripts/fetch_digital_designs.sh`.
 

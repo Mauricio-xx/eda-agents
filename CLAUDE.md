@@ -142,6 +142,9 @@ for analytical sizing) or a full `CircuitTopology` subclass. Current:
 
 ### `core/designs/` — digital design wrappers
 
+- `generic.py` — `GenericDesign`: auto-derives all 13 `DigitalDesign`
+  methods from a LibreLane config file. Zero Python class needed.
+  Constructor: `GenericDesign(config_path, pdk_root=None)`.
 - `fazyrv_hachure.py` — GF180 RISC-V SoC (primary design, nix-shell)
 - `systolic_mac_dft.py` — CI fixture (simpler, faster)
 
