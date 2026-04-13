@@ -150,6 +150,18 @@ class DigitalDesign(ABC):
         """
         return {}
 
+    def rtl_total_lines(self) -> int:
+        """Total line count across all RTL sources.
+
+        Used to decide between litellm (small) and CC CLI (large)
+        backends for RTL-aware autoresearch strategies.
+        """
+        total = 0
+        for src in self.rtl_sources():
+            if src.is_file():
+                total += len(src.read_text().splitlines())
+        return total
+
     def testbench(self) -> TestbenchSpec | None:
         """How to run RTL simulation, or None if not available."""
         return None

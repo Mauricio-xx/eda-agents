@@ -143,6 +143,16 @@ async def main():
              "Each eval runs LibreLane (~5-20 min).",
     )
     parser.add_argument(
+        "--strategy", default="flow",
+        choices=["flow", "rtl", "hybrid"],
+        help="Optimization strategy: flow (config-only), rtl (RTL edits), "
+             "hybrid (RTL + config). Default: flow",
+    )
+    parser.add_argument(
+        "--run-rtl-sim", action="store_true",
+        help="Run RTL simulation after lint (rtl/hybrid only, needs testbench)",
+    )
+    parser.add_argument(
         "--stop-after", default="ROUTE",
         help="Stop flow at this stage (default: ROUTE). "
              "Options: SYNTH, FLOORPLAN, PLACE, CTS, ROUTE",
@@ -221,6 +231,7 @@ async def main():
     print("Digital Autoresearch")
     print("=" * 60)
     print(f"  Mode:        {mode}")
+    print(f"  Strategy:    {args.strategy}")
     print(f"  Design:      {design.project_name()}")
     print(f"  Model:       {args.model}")
     print(f"  Budget:      {args.budget} evals")
@@ -230,6 +241,11 @@ async def main():
         print(f"  FoM weights: {fom_weights}")
     if mock_path:
         print(f"  Mock mode:   {mock_path}")
+    if args.strategy != "flow":
+        rtl_lines = design.rtl_total_lines()
+        print(f"  RTL lines:   {rtl_lines}")
+        if args.run_rtl_sim:
+            print("  RTL sim:     enabled")
     print(f"  Dedup:       {not args.no_dedup}")
     print()
 
@@ -241,6 +257,8 @@ async def main():
         dedup=not args.no_dedup,
         use_mock_metrics=mock_path,
         top_n=args.top_n,
+        strategy=args.strategy,
+        run_rtl_sim=args.run_rtl_sim,
     )
 
     t0 = time.monotonic()

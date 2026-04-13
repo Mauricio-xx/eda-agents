@@ -95,6 +95,12 @@ class DigitalAutoresearchRunner:
         LibreLane.  For testing only.
     top_n : int
         Number of top designs to return.
+    strategy : str
+        Optimization strategy: ``"flow"`` (config-only, default),
+        ``"rtl"`` (RTL micro-edits), ``"hybrid"`` (RTL + config).
+    run_rtl_sim : bool
+        If True, run RTL simulation after lint for ``rtl``/``hybrid``
+        strategies.  Requires design.testbench() to be set.
     """
 
     def __init__(
@@ -107,17 +113,16 @@ class DigitalAutoresearchRunner:
         use_mock_metrics: Path | None = None,
         top_n: int = 3,
         backend: str = "adk",
+        strategy: str = "flow",
+        run_rtl_sim: bool = False,
     ):
         if backend not in ("adk", "cc_cli"):
             raise ValueError(f"Unknown backend: {backend!r}. Use 'adk' or 'cc_cli'.")
-        if backend == "cc_cli":
-            # CC CLI for proposals is accepted but uses the same litellm path.
-            # The overhead of spawning claude --print per proposal (~20k context
-            # tokens) makes it impractical vs a direct API call.  Accepted for
-            # interface consistency; actual CC CLI proposal is a future item.
+        if strategy not in ("flow", "rtl", "hybrid"):
+            raise ValueError(f"Unknown strategy: {strategy!r}. Use 'flow', 'rtl', or 'hybrid'.")
+        if backend == "cc_cli" and strategy == "flow":
             logger.warning(
-                "backend='cc_cli' accepted but proposals still use litellm. "
-                "CC CLI proposal path is deferred (high per-invocation overhead)."
+                "backend='cc_cli' accepted but flow-only proposals still use litellm."
             )
         self.design = design
         self.model = model
@@ -127,6 +132,8 @@ class DigitalAutoresearchRunner:
         self.use_mock_metrics = use_mock_metrics
         self.top_n = top_n
         self.backend = backend
+        self.strategy = strategy
+        self.run_rtl_sim = run_rtl_sim
 
     # ------------------------------------------------------------------
     # program.md
@@ -292,6 +299,192 @@ class DigitalAutoresearchRunner:
         return clean
 
     # ------------------------------------------------------------------
+    # RTL-aware methods (strategy='rtl' and 'hybrid')
+    # ------------------------------------------------------------------
+
+    def _read_rtl_sources(self) -> dict[str, str]:
+        """Read current RTL files into {relative_path: content}."""
+        result: dict[str, str] = {}
+        project_dir = self.design.project_dir()
+        for src in self.design.rtl_sources():
+            if src.is_file():
+                try:
+                    rel = str(src.resolve().relative_to(project_dir.resolve()))
+                except ValueError:
+                    rel = src.name
+                result[rel] = src.read_text()
+        return result
+
+    def _validate_rtl_proposal(self, proposal: dict) -> tuple[bool, str]:
+        """Check that a proposal has the expected structure.
+
+        Returns (ok, error_message). Validates:
+        - rtl_changes is a dict with string values
+        - Module name is preserved in each changed file
+        """
+        rtl_changes = proposal.get("rtl_changes", {})
+        if not isinstance(rtl_changes, dict):
+            return False, "rtl_changes must be a dict"
+
+        # Check module name preservation
+        import re
+        current_rtl = self._read_rtl_sources()
+        for fname, new_content in rtl_changes.items():
+            if not isinstance(new_content, str):
+                return False, f"rtl_changes[{fname!r}] must be a string"
+            # Find module name in current RTL
+            if fname in current_rtl:
+                old_modules = re.findall(
+                    r"module\s+(\w+)", current_rtl[fname]
+                )
+                new_modules = re.findall(r"module\s+(\w+)", new_content)
+                if old_modules and new_modules and old_modules[0] != new_modules[0]:
+                    return False, (
+                        f"Module name changed in {fname}: "
+                        f"{old_modules[0]} -> {new_modules[0]}"
+                    )
+        return True, ""
+
+    def _apply_rtl_and_lint(
+        self,
+        proposal: dict,
+        snapshot_mgr,
+        eval_num: int,
+    ) -> tuple[bool, str | None, int]:
+        """Apply RTL changes, run lint. Returns (ok, error, lint_warnings).
+
+        1. Restore best RTL state
+        2. Apply proposed RTL changes
+        3. Run RtlLintRunner
+        4. Return result
+        """
+        from eda_agents.core.stages.rtl_lint_runner import RtlLintRunner
+        from eda_agents.core.tool_environment import LocalToolEnvironment
+
+        rtl_changes = proposal.get("rtl_changes", {})
+
+        # Restore to best-known state
+        config_path = (
+            self.design.librelane_config()
+            if self.strategy == "hybrid" else None
+        )
+        snapshot_mgr.restore_best(
+            self.design.rtl_sources(), config_path=config_path
+        )
+
+        # Apply new RTL
+        if rtl_changes:
+            snapshot_mgr.apply_rtl_changes(rtl_changes)
+
+        # Lint
+        env = LocalToolEnvironment()
+        linter = RtlLintRunner(design=self.design, env=env)
+        lint_result = linter.run()
+
+        if not lint_result.success:
+            error = lint_result.error or "lint failed"
+            log = lint_result.log_tail or ""
+            return False, f"{error}\n{log[:500]}", 0
+
+        warnings = lint_result.metrics.get("lint_warnings", 0)
+        return True, None, warnings
+
+    async def _propose_rtl(
+        self,
+        program_content: str,
+        history: list[dict],
+        best: dict | None,
+        eval_num: int,
+    ) -> dict:
+        """LLM proposal for strategy='rtl'. Returns dict with rtl_changes."""
+        import litellm
+
+        from eda_agents.agents.rtl_proposal_prompts import (
+            rtl_proposal_prompt,
+            rtl_system_prompt,
+        )
+
+        sys_prompt = rtl_system_prompt(
+            program_content,
+            self._read_rtl_sources(),
+            self.design.specification(),
+        )
+        user_prompt = rtl_proposal_prompt(history, best, eval_num, self.budget)
+
+        kwargs: dict = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "max_tokens": 4096,
+            "temperature": 0.7,
+        }
+
+        try:
+            response = await litellm.acompletion(
+                **kwargs, response_format={"type": "json_object"}
+            )
+        except Exception as e:
+            err_str = f"{type(e).__name__}: {e}"
+            if "response_format" in err_str or "UnsupportedParams" in err_str:
+                response = await litellm.acompletion(**kwargs)
+            else:
+                raise
+
+        content = response.choices[0].message.content or ""
+        content = extract_json_from_response(content)
+        return json.loads(content)
+
+    async def _propose_hybrid(
+        self,
+        program_content: str,
+        history: list[dict],
+        best: dict | None,
+        eval_num: int,
+    ) -> dict:
+        """LLM proposal for strategy='hybrid'. Returns dict with config + rtl_changes."""
+        import litellm
+
+        from eda_agents.agents.rtl_proposal_prompts import (
+            hybrid_system_prompt,
+            rtl_proposal_prompt,
+        )
+
+        sys_prompt = hybrid_system_prompt(
+            program_content,
+            self._read_rtl_sources(),
+            self.design.design_space(),
+            self.design.specification(),
+        )
+        user_prompt = rtl_proposal_prompt(history, best, eval_num, self.budget)
+
+        kwargs: dict = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "max_tokens": 4096,
+            "temperature": 0.7,
+        }
+
+        try:
+            response = await litellm.acompletion(
+                **kwargs, response_format={"type": "json_object"}
+            )
+        except Exception as e:
+            err_str = f"{type(e).__name__}: {e}"
+            if "response_format" in err_str or "UnsupportedParams" in err_str:
+                response = await litellm.acompletion(**kwargs)
+            else:
+                raise
+
+        content = response.choices[0].message.content or ""
+        content = extract_json_from_response(content)
+        return json.loads(content)
+
+    # ------------------------------------------------------------------
     # Evaluation
     # ------------------------------------------------------------------
 
@@ -420,13 +613,19 @@ class DigitalAutoresearchRunner:
     # Dedup
     # ------------------------------------------------------------------
 
-    def _is_duplicate(self, params: dict, history: list[dict]) -> bool:
-        """Check if params exactly match a prior evaluation."""
+    def _is_duplicate(
+        self, params: dict, history: list[dict], rtl_hash: str = ""
+    ) -> bool:
+        """Check if params (+ RTL hash for rtl/hybrid) match a prior eval."""
         if not self.dedup:
             return False
         for h in history:
-            if h["params"] == params:
-                return True
+            if self.strategy == "flow":
+                if h["params"] == params:
+                    return True
+            else:
+                if h["params"] == params and h.get("rtl_hash", "") == rtl_hash:
+                    return True
         return False
 
     # ------------------------------------------------------------------
@@ -437,7 +636,7 @@ class DigitalAutoresearchRunner:
     def _format_digital_best(entry: dict) -> str:
         """Format the Current Best section body for digital metrics."""
         params_str = json.dumps(entry["params"], indent=2)
-        return (
+        text = (
             f"Eval #{entry['eval']}: FoM={entry['fom']:.2e}\n"
             f"Parameters:\n```json\n{params_str}\n```\n"
             f"Measurements: WNS={entry.get('wns_worst_ns', '?')}ns, "
@@ -446,6 +645,11 @@ class DigitalAutoresearchRunner:
             f"power={entry.get('power_mw', '?')}mW, "
             f"wire={entry.get('wire_length_um', '?')}um"
         )
+        if entry.get("rtl_rationale"):
+            text += f"\nRTL change: {entry['rtl_rationale']}"
+        if entry.get("rtl_files_changed"):
+            text += f"\nFiles modified: {', '.join(entry['rtl_files_changed'])}"
+        return text
 
     # ------------------------------------------------------------------
     # Main loop
@@ -455,7 +659,9 @@ class DigitalAutoresearchRunner:
         """Run the autonomous exploration loop.
 
         Mirrors ``AutoresearchRunner.run()`` with digital-specific
-        evaluation and discrete design space handling.
+        evaluation and discrete design space handling.  Supports three
+        strategies: ``flow`` (config-only), ``rtl`` (RTL edits), and
+        ``hybrid`` (RTL + config).
         """
         work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -472,49 +678,146 @@ class DigitalAutoresearchRunner:
 
         end_eval = start_eval + self.budget - 1
 
+        # Initialize RTL snapshot manager for rtl/hybrid strategies
+        snapshot_mgr = None
+        if self.strategy in ("rtl", "hybrid"):
+            from eda_agents.agents.rtl_snapshot_manager import RtlSnapshotManager
+
+            rtl_sources = self.design.rtl_sources()
+            if not rtl_sources:
+                raise ValueError(
+                    f"strategy='{self.strategy}' requires design.rtl_sources() "
+                    f"to return a non-empty list of RTL file paths"
+                )
+            snapshot_mgr = RtlSnapshotManager(work_dir, self.design.project_dir())
+            config_path = (
+                self.design.librelane_config()
+                if self.strategy == "hybrid" else None
+            )
+            snapshot_mgr.init_from_originals(rtl_sources, config_path=config_path)
+
         logger.info(
             "DigitalAutoresearch: %s, model=%s, budget=%d (evals %d-%d), "
-            "stop_after=%s",
+            "stop_after=%s, strategy=%s",
             self.design.project_name(),
             self.model,
             self.budget,
             start_eval,
             end_eval,
             self.stop_after.name,
+            self.strategy,
         )
 
         for eval_num in range(start_eval, end_eval + 1):
             t0 = time.monotonic()
 
             program_content = program_store.read()
+            proposal = {}
+            params: dict[str, float | int] = {}
+            rtl_changes: dict[str, str] = {}
+            rtl_rationale = ""
 
-            # Propose next params
+            # ----------------------------------------------------------
+            # Propose
+            # ----------------------------------------------------------
             try:
-                params = await self._propose_params(
-                    program_content, history, best, eval_num
-                )
+                if self.strategy == "flow":
+                    params = await self._propose_params(
+                        program_content, history, best, eval_num
+                    )
+                elif self.strategy == "rtl":
+                    proposal = await self._propose_rtl(
+                        program_content, history, best, eval_num
+                    )
+                    rtl_changes = proposal.get("rtl_changes", {})
+                    rtl_rationale = proposal.get("rationale", "")
+                elif self.strategy == "hybrid":
+                    proposal = await self._propose_hybrid(
+                        program_content, history, best, eval_num
+                    )
+                    params = self._clamp_params(proposal.get("config", {}))
+                    rtl_changes = proposal.get("rtl_changes", {})
+                    rtl_rationale = proposal.get("rationale", "")
             except Exception as e:
                 logger.warning("LLM proposal failed at eval %d: %s", eval_num, e)
-                params = self._clamp_params(self.design.default_config())
+                if self.strategy == "flow":
+                    params = self._clamp_params(self.design.default_config())
+                else:
+                    # For RTL strategies, no fallback -- skip this eval
+                    entry = {
+                        "eval": eval_num, "params": {},
+                        "success": False, "error": f"Proposal failed: {e}",
+                        "fom": 0.0, "valid": False, "violations": [],
+                        "status": "proposal_fail",
+                    }
+                    history.append(entry)
+                    tsv_logger.append_row(entry)
+                    continue
 
+            # ----------------------------------------------------------
             # Dedup check
-            if self._is_duplicate(params, history):
-                logger.info("Eval %d: duplicate params, skipping", eval_num)
+            # ----------------------------------------------------------
+            rtl_hash = ""
+            if self.strategy in ("rtl", "hybrid") and snapshot_mgr:
+                rtl_hash = snapshot_mgr.content_hash(self.design.rtl_sources())
+
+            if self._is_duplicate(params, history, rtl_hash=rtl_hash):
+                logger.info("Eval %d: duplicate, skipping", eval_num)
                 entry = {
-                    "eval": eval_num,
-                    "params": params,
-                    "success": False,
-                    "error": "duplicate params",
-                    "fom": 0.0,
-                    "valid": False,
-                    "violations": [],
-                    "status": "dedup",
+                    "eval": eval_num, "params": params,
+                    "success": False, "error": "duplicate",
+                    "fom": 0.0, "valid": False, "violations": [],
+                    "status": "dedup", "rtl_hash": rtl_hash,
                 }
                 history.append(entry)
                 tsv_logger.append_row(entry)
                 continue
 
-            # Evaluate
+            # ----------------------------------------------------------
+            # RTL apply + lint gate (rtl/hybrid only)
+            # ----------------------------------------------------------
+            if self.strategy in ("rtl", "hybrid") and snapshot_mgr:
+                if rtl_changes:
+                    # Validate proposal structure
+                    valid_prop, prop_err = self._validate_rtl_proposal(proposal)
+                    if not valid_prop:
+                        entry = {
+                            "eval": eval_num, "params": params,
+                            "success": False, "error": f"Invalid proposal: {prop_err}",
+                            "fom": 0.0, "valid": False, "violations": ["proposal_invalid"],
+                            "status": "proposal_fail",
+                            "rtl_rationale": rtl_rationale,
+                        }
+                        history.append(entry)
+                        tsv_logger.append_row(entry)
+                        continue
+
+                    # Apply RTL changes and lint
+                    lint_ok, lint_err, _ = self._apply_rtl_and_lint(
+                        proposal, snapshot_mgr, eval_num
+                    )
+                    if not lint_ok:
+                        entry = {
+                            "eval": eval_num, "params": params,
+                            "success": False, "error": f"Lint failed: {lint_err}",
+                            "fom": 0.0, "valid": False, "violations": ["lint_fail"],
+                            "status": "lint_fail",
+                            "rtl_rationale": rtl_rationale,
+                        }
+                        history.append(entry)
+                        tsv_logger.append_row(entry)
+                        program_store.update_learning(
+                            f"Eval #{eval_num}: lint fail -- {rtl_rationale}"
+                        )
+                        snapshot_mgr.restore_best(self.design.rtl_sources())
+                        continue
+
+                    # Update RTL hash after applying changes
+                    rtl_hash = snapshot_mgr.content_hash(self.design.rtl_sources())
+
+            # ----------------------------------------------------------
+            # Evaluate (LibreLane flow)
+            # ----------------------------------------------------------
             try:
                 entry = await self._evaluate(params, work_dir, eval_num)
             except Exception as e:
@@ -525,20 +828,26 @@ class DigitalAutoresearchRunner:
                     traceback.format_exc(),
                 )
                 entry = {
-                    "eval": eval_num,
-                    "params": params,
-                    "success": False,
-                    "error": str(e),
-                    "fom": 0.0,
-                    "valid": False,
-                    "violations": [],
+                    "eval": eval_num, "params": params,
+                    "success": False, "error": str(e),
+                    "fom": 0.0, "valid": False, "violations": [],
                     "status": "crash",
                 }
                 history.append(entry)
                 tsv_logger.append_row(entry)
+                if snapshot_mgr:
+                    snapshot_mgr.restore_best(self.design.rtl_sources())
                 continue
 
+            # Add RTL metadata to entry
+            entry["rtl_rationale"] = rtl_rationale
+            entry["rtl_hash"] = rtl_hash
+            if rtl_changes:
+                entry["rtl_files_changed"] = list(rtl_changes.keys())
+
+            # ----------------------------------------------------------
             # Keep or discard
+            # ----------------------------------------------------------
             if entry["success"] and entry["valid"] and (
                 best is None or entry["fom"] > best["fom"]
             ):
@@ -546,6 +855,16 @@ class DigitalAutoresearchRunner:
                 entry["status"] = "kept"
                 best = entry.copy()
                 kept_count += 1
+
+                # Update snapshots on keep
+                if snapshot_mgr:
+                    config_path = (
+                        self.design.librelane_config()
+                        if self.strategy == "hybrid" else None
+                    )
+                    snapshot_mgr.update_best(
+                        self.design.rtl_sources(), config_path=config_path
+                    )
 
                 program_store.update_best(entry, self._format_digital_best)
 
@@ -555,6 +874,8 @@ class DigitalAutoresearchRunner:
                     f"cells={entry.get('cell_count', '?')}) "
                     f"with {json.dumps(entry['params'])}"
                 )
+                if rtl_rationale:
+                    insight += f" -- RTL: {rtl_rationale}"
                 program_store.update_learning(insight)
 
                 logger.info(
@@ -569,6 +890,10 @@ class DigitalAutoresearchRunner:
                 entry["kept"] = False
                 entry["status"] = "discarded"
 
+                # Rollback RTL on discard
+                if snapshot_mgr:
+                    snapshot_mgr.restore_best(self.design.rtl_sources())
+
                 if not entry["success"]:
                     reason = f"Eval #{eval_num}: crash -- {entry.get('error', 'unknown')}"
                     entry["status"] = "crash"
@@ -580,6 +905,8 @@ class DigitalAutoresearchRunner:
                         f"Eval #{eval_num}: valid but FoM={entry['fom']:.2e} "
                         f"< best {best['fom']:.2e}"
                     )
+                if rtl_rationale:
+                    reason += f" -- RTL: {rtl_rationale}"
 
                 if eval_num % 3 == 0 or not entry["success"]:
                     program_store.update_learning(reason)
