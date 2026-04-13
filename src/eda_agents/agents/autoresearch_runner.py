@@ -39,8 +39,8 @@ Usage (standalone):
     result = await runner.run(work_dir=Path("results"))
 
 Usage (resume a previous run):
-    # If work_dir contains program.md and results.tsv, the loop
-    # resumes from where it left off.
+    # If work_dir contains program.md and results.tsv from a previous
+    # run, the loop resumes from where it left off.
     result = await runner.run(work_dir=Path("results"))
 
 Usage (new topology -- e.g., a comparator):
@@ -65,65 +65,24 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import time
 import traceback
 from pathlib import Path
 
+from eda_agents.agents._autoresearch_core import (
+    ProgramStore,
+    TsvLogger,
+    extract_json_from_response,
+    generate_program_content,
+)
 from eda_agents.agents.phase_results import AutoresearchResult
 from eda_agents.core.pdk import PdkConfig, resolve_pdk
 from eda_agents.core.topology import CircuitTopology
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# program.md template
-# ---------------------------------------------------------------------------
-
-_PROGRAM_TEMPLATE = """\
-# Circuit Design Exploration Program
-
-## Goal
-{goal}
-
-## Metrics
-{metrics}
-
-## Design Space
-{design_space}
-
-## Specs
-{specs}
-
-## Current Best
-No valid design found yet.
-
-## Strategy
-Starting exploration. No data yet -- begin with the reference design
-point and systematically explore around it.
-
-Reference: {reference}
-
-## Learned So Far
-(empty -- will be populated as exploration progresses)
-
-## Rules
-- Propose parameters as a JSON object. Keys must match the design space variables.
-- Each evaluation costs 1 SPICE simulation from the budget.
-- A design is "valid" only if ALL specs are met simultaneously.
-- FoM is only meaningful for valid designs.
-- Crashes: If a run crashes (OOM, or a bug, or etc.), use your judgment:
-  If it's something dumb and easy to fix (e.g. a typo, a missing import),
-  fix it and re-run. If the idea itself is fundamentally broken, just skip
-  it, log "crash" as the status in the tsv, and move on.
-- NEVER STOP: Once the experiment loop has begun, do NOT pause to ask the
-  human if you should continue. The human might be asleep, or gone from a
-  computer and expects you to continue working indefinitely until you are
-  manually stopped. You are autonomous. If you run out of ideas, think
-  harder -- re-read the design space, try combining previous near-misses,
-  try more radical parameter changes. The loop runs until the budget is
-  exhausted or the human interrupts you, period.
-"""
+# Analog measurement columns (Adc, GBW, PM)
+_ANALOG_MEASUREMENT_COLS = ["Adc_dB", "GBW_Hz", "PM_deg"]
 
 
 class AutoresearchRunner:
@@ -174,7 +133,7 @@ class AutoresearchRunner:
         self.top_n = top_n
 
     # ------------------------------------------------------------------
-    # program.md management
+    # program.md management (delegates to ProgramStore)
     # ------------------------------------------------------------------
 
     def _generate_program(self) -> str:
@@ -183,49 +142,32 @@ class AutoresearchRunner:
         space_lines = "\n".join(
             f"- {name}: [{lo}, {hi}]" for name, (lo, hi) in space.items()
         )
-
-        return _PROGRAM_TEMPLATE.format(
-            goal=(
-                f"Maximize FoM for {self.topology.topology_name()} circuit "
-                f"on {self.pdk.display_name}.\n"
-                f"FoM definition: {self.topology.fom_description()}"
-            ),
-            metrics=(
-                f"Primary: FoM (higher is better)\n"
-                f"Constraints (all must be met for a valid design):\n"
-                f"  {self.topology.specs_description()}"
-            ),
-            design_space=(
-                f"{self.topology.design_vars_description()}\n\n"
-                f"Ranges:\n{space_lines}"
-            ),
-            specs=self.topology.specs_description(),
-            reference=self.topology.reference_description(),
+        return generate_program_content(
+            domain_name=self.topology.topology_name(),
+            pdk_display_name=self.pdk.display_name,
+            fom_description=self.topology.fom_description(),
+            specs_description=self.topology.specs_description(),
+            design_vars_description=self.topology.design_vars_description(),
+            design_space_lines=space_lines,
+            reference_description=self.topology.reference_description(),
         )
+
+    def _make_program_store(self, work_dir: Path) -> ProgramStore:
+        return ProgramStore(work_dir, self._generate_program)
 
     def _init_program(self, work_dir: Path) -> Path:
         """Create or load program.md."""
-        program_path = work_dir / "program.md"
-        if program_path.is_file():
-            logger.info("Resuming: found existing program.md")
-        else:
-            program_path.write_text(self._generate_program())
-            logger.info("Created program.md")
-        return program_path
+        store = self._make_program_store(work_dir)
+        return store.init()
 
     def _read_program(self, program_path: Path) -> str:
         """Read the current program.md content."""
         return program_path.read_text()
 
-    def _update_program_best(
-        self, program_path: Path, entry: dict
-    ) -> None:
-        """Update the 'Current Best' section of program.md after a kept improvement."""
-        content = program_path.read_text()
-
+    def _format_analog_best(self, entry: dict) -> str:
+        """Format the Current Best section body for analog metrics."""
         params_str = json.dumps(entry["params"], indent=2)
-        new_best = (
-            f"## Current Best\n"
+        return (
             f"Eval #{entry['eval']}: FoM={entry['fom']:.2e}\n"
             f"Parameters:\n```json\n{params_str}\n```\n"
             f"Measurements: Adc={entry.get('Adc_dB', '?'):.1f}dB, "
@@ -233,55 +175,29 @@ class AutoresearchRunner:
             f"PM={entry.get('PM_deg', '?'):.1f}deg"
         )
 
-        content = re.sub(
-            r"## Current Best\n.*?(?=\n## )",
-            new_best + "\n",
-            content,
-            flags=re.DOTALL,
-        )
-        program_path.write_text(content)
+    def _update_program_best(
+        self, program_path: Path, entry: dict
+    ) -> None:
+        """Update the 'Current Best' section of program.md after a kept improvement."""
+        store = ProgramStore(program_path.parent, self._generate_program)
+        store._path = program_path  # point to exact path
+        store.update_best(entry, self._format_analog_best)
 
     def _update_program_learning(
         self, program_path: Path, insight: str
     ) -> None:
         """Append a learning to the 'Learned So Far' section."""
-        content = program_path.read_text()
-
-        # Find the learned section and append
-        marker = "## Learned So Far\n"
-        idx = content.find(marker)
-        if idx == -1:
-            return
-
-        insert_at = idx + len(marker)
-        # Find the end of the section (next ## or end of file)
-        next_section = content.find("\n## ", insert_at)
-        if next_section == -1:
-            next_section = len(content)
-
-        current_learnings = content[insert_at:next_section].strip()
-        if current_learnings == "(empty -- will be populated as exploration progresses)":
-            current_learnings = ""
-
-        updated = current_learnings + f"\n- {insight}" if current_learnings else f"- {insight}"
-
-        content = content[:insert_at] + updated + "\n" + content[next_section:]
-        program_path.write_text(content)
+        store = ProgramStore(program_path.parent, self._generate_program)
+        store._path = program_path
+        store.update_learning(insight)
 
     def _update_program_strategy(
         self, program_path: Path, strategy: str
     ) -> None:
         """Replace the 'Strategy' section with updated strategy from the LLM."""
-        content = program_path.read_text()
-
-        new_strategy = f"## Strategy\n{strategy}"
-        content = re.sub(
-            r"## Strategy\n.*?(?=\n## )",
-            new_strategy + "\n",
-            content,
-            flags=re.DOTALL,
-        )
-        program_path.write_text(content)
+        store = ProgramStore(program_path.parent, self._generate_program)
+        store._path = program_path
+        store.update_strategy(strategy)
 
     # ------------------------------------------------------------------
     # LLM interaction
@@ -376,19 +292,7 @@ class AutoresearchRunner:
                 raise
 
         content = response.choices[0].message.content or ""
-
-        # Extract JSON from response (may be wrapped in markdown code block)
-        if "```" in content:
-            json_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", content, re.DOTALL)
-            if json_match:
-                content = json_match.group(1)
-
-        # Try to find JSON object in free-form text
-        if not content.strip().startswith("{"):
-            json_match = re.search(r"\{[^{}]*\}", content)
-            if json_match:
-                content = json_match.group(0)
-
+        content = extract_json_from_response(content)
         params = json.loads(content)
 
         # Validate and clamp to design space
@@ -464,37 +368,26 @@ class AutoresearchRunner:
         }
 
     # ------------------------------------------------------------------
-    # TSV logging
+    # TSV logging (delegates to TsvLogger)
     # ------------------------------------------------------------------
+
+    def _make_tsv_logger(self, tsv_path: Path) -> TsvLogger:
+        return TsvLogger(
+            tsv_path=tsv_path,
+            param_cols=list(self.topology.design_space().keys()),
+            measurement_cols=_ANALOG_MEASUREMENT_COLS,
+        )
 
     def _write_tsv_header(self, tsv_path: Path):
         """Write TSV header line."""
-        space = self.topology.design_space()
-        param_cols = "\t".join(space.keys())
-        tsv_path.write_text(
-            f"eval\t{param_cols}\tAdc_dB\tGBW_Hz\tPM_deg\tfom\tvalid\tstatus\n"
-        )
+        self._make_tsv_logger(tsv_path).write_header()
 
     def _append_tsv_row(self, tsv_path: Path, entry: dict):
         """Append one row to the TSV log."""
-        space = self.topology.design_space()
-        param_vals = "\t".join(
-            f"{entry['params'].get(k, 0):.4f}" for k in space
-        )
-        status = entry.get("status", "kept" if entry.get("kept") else "discarded")
-        with open(tsv_path, "a") as f:
-            f.write(
-                f"{entry['eval']}\t{param_vals}\t"
-                f"{entry.get('Adc_dB', '')}\t"
-                f"{entry.get('GBW_Hz', '')}\t"
-                f"{entry.get('PM_deg', '')}\t"
-                f"{entry['fom']:.6e}\t"
-                f"{entry['valid']}\t"
-                f"{status}\n"
-            )
+        self._make_tsv_logger(tsv_path).append_row(entry)
 
     # ------------------------------------------------------------------
-    # Resume support
+    # Resume support (delegates to TsvLogger)
     # ------------------------------------------------------------------
 
     def _load_history(self, tsv_path: Path) -> tuple[list[dict], dict | None, int]:
@@ -502,64 +395,7 @@ class AutoresearchRunner:
 
         Returns (history, best, start_eval).
         """
-        if not tsv_path.is_file():
-            return [], None, 1
-
-        lines = tsv_path.read_text().strip().splitlines()
-        if len(lines) <= 1:
-            return [], None, 1
-
-        header = lines[0].split("\t")
-        space_keys = list(self.topology.design_space().keys())
-
-        history = []
-        best = None
-        for line in lines[1:]:
-            fields = line.split("\t")
-            if len(fields) < len(header):
-                continue
-
-            eval_num = int(fields[0])
-            params = {}
-            for i, key in enumerate(space_keys):
-                try:
-                    params[key] = float(fields[1 + i])
-                except (ValueError, IndexError):
-                    params[key] = 0.0
-
-            offset = 1 + len(space_keys)
-            adc = float(fields[offset]) if fields[offset] else None
-            gbw = float(fields[offset + 1]) if fields[offset + 1] else None
-            pm = float(fields[offset + 2]) if fields[offset + 2] else None
-            fom = float(fields[offset + 3]) if fields[offset + 3] else 0.0
-            valid = fields[offset + 4].strip().lower() == "true"
-            status = fields[offset + 5].strip() if len(fields) > offset + 5 else "discarded"
-
-            entry = {
-                "eval": eval_num,
-                "params": params,
-                "success": status != "crash",
-                "fom": fom,
-                "valid": valid,
-                "violations": [],
-                "Adc_dB": adc,
-                "GBW_Hz": gbw,
-                "PM_deg": pm,
-                "status": status,
-                "kept": status == "kept",
-            }
-            history.append(entry)
-
-            if valid and entry["success"] and (best is None or fom > best["fom"]):
-                best = entry.copy()
-
-        start_eval = history[-1]["eval"] + 1 if history else 1
-        logger.info(
-            "Resumed from eval %d (%d prior evals, best FoM=%s)",
-            start_eval, len(history),
-            f"{best['fom']:.2e}" if best else "none",
-        )
-        return history, best, start_eval
+        return self._make_tsv_logger(tsv_path).load_history()
 
     # ------------------------------------------------------------------
     # Main loop
@@ -585,13 +421,17 @@ class AutoresearchRunner:
         Returns AutoresearchResult with top-N designs for downstream use.
         """
         work_dir.mkdir(parents=True, exist_ok=True)
-        program_path = self._init_program(work_dir)
+
+        program_store = self._make_program_store(work_dir)
+        program_store.init()
+
         tsv_path = work_dir / "results.tsv"
+        tsv_logger = self._make_tsv_logger(tsv_path)
 
         # Resume support: load existing history if present
-        history, best, start_eval = self._load_history(tsv_path)
+        history, best, start_eval = tsv_logger.load_history()
         if not history:
-            self._write_tsv_header(tsv_path)
+            tsv_logger.write_header()
         kept_count = sum(1 for h in history if h.get("kept"))
 
         end_eval = start_eval + self.budget - 1
@@ -606,7 +446,7 @@ class AutoresearchRunner:
             t0 = time.monotonic()
 
             # 1. Read program.md (fresh each iteration -- it may have been updated)
-            program_content = self._read_program(program_path)
+            program_content = program_store.read()
 
             # 2. Propose next params
             try:
@@ -638,7 +478,7 @@ class AutoresearchRunner:
                     "status": "crash",
                 }
                 history.append(entry)
-                self._append_tsv_row(tsv_path, entry)
+                tsv_logger.append_row(entry)
                 continue
 
             # 4. Keep or discard
@@ -651,14 +491,14 @@ class AutoresearchRunner:
                 kept_count += 1
 
                 # Update program.md with new best
-                self._update_program_best(program_path, entry)
+                program_store.update_best(entry, self._format_analog_best)
 
                 # Add learning about what worked
                 insight = (
                     f"Eval #{eval_num}: FoM improved to {entry['fom']:.2e} "
                     f"with {json.dumps(entry['params'])}"
                 )
-                self._update_program_learning(program_path, insight)
+                program_store.update_learning(insight)
 
                 logger.info(
                     "Eval %d: KEPT (FoM=%.2e, Adc=%.1fdB, GBW=%.0fHz, PM=%.1fdeg)",
@@ -685,7 +525,7 @@ class AutoresearchRunner:
 
                 # Only log non-trivial learnings (every ~5 evals to avoid bloat)
                 if eval_num % 5 == 0 or not entry["success"]:
-                    self._update_program_learning(program_path, reason)
+                    program_store.update_learning(reason)
 
                 logger.debug(
                     "Eval %d: %s (fom=%.2e, valid=%s)",
@@ -693,7 +533,7 @@ class AutoresearchRunner:
                 )
 
             history.append(entry)
-            self._append_tsv_row(tsv_path, entry)
+            tsv_logger.append_row(entry)
 
             elapsed = time.monotonic() - t0
             logger.debug("Eval %d took %.1fs", eval_num, elapsed)
