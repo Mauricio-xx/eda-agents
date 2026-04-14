@@ -1,28 +1,29 @@
 #!/usr/bin/env python3
-"""Digital RTL-to-GDS flow for GF180MCU designs.
+"""Digital RTL-to-GDS flow for both GF180MCU and IHP SG13G2.
 
-Three entry modes from most to least friction:
+Select the PDK with --pdk {gf180mcu,ihp_sg13g2} (default: EDA_AGENTS_PDK
+env var, falling back to gf180mcu). Three entry modes:
 
   Mode 1 - Expert (named design with Python wrapper):
-    python examples/09_rtl2gds_gf180.py \\
+    python examples/09_rtl2gds_digital.py \\
       --design fazyrv_hachure --backend cc_cli --allow-dangerous
 
   Mode 2 - Bring your config (no Python class needed):
-    python examples/09_rtl2gds_gf180.py \\
+    python examples/09_rtl2gds_digital.py --pdk ihp_sg13g2 \\
       --config /path/to/project/config.yaml \\
-      --pdk-root /path/to/gf180mcu \\
+      --pdk-root /home/montanares/git/IHP-Open-PDK \\
       --backend cc_cli --allow-dangerous
 
   Mode 3 - From spec (idea to GDS, CC CLI only):
-    python examples/09_rtl2gds_gf180.py \\
+    python examples/09_rtl2gds_digital.py --pdk ihp_sg13g2 \\
       --spec "4-bit synchronous counter with enable and async reset" \\
-      --pdk-root /path/to/gf180mcu \\
+      --pdk-root /home/montanares/git/IHP-Open-PDK \\
       --backend cc_cli --allow-dangerous \\
       --work-dir /tmp/my_counter
 
   Dry run (any mode, no LLM calls, <5s):
-    python examples/09_rtl2gds_gf180.py --dry-run
-    python examples/09_rtl2gds_gf180.py --dry-run --spec "counter"
+    python examples/09_rtl2gds_digital.py --dry-run
+    python examples/09_rtl2gds_digital.py --dry-run --pdk ihp_sg13g2 --spec "counter"
 
 Requires:
     pip install eda-agents[adk]          (for ADK backend)
@@ -89,6 +90,7 @@ def load_design_from_config(
     config_path: str,
     pdk_root: str | None,
     fom_weights: dict[str, float] | None = None,
+    pdk: str | None = None,
 ):
     """Mode 2: Create a GenericDesign from a LibreLane config file."""
     from eda_agents.core.designs.generic import GenericDesign
@@ -97,6 +99,7 @@ def load_design_from_config(
         config_path=config_path,
         pdk_root=pdk_root,
         fom_weights=fom_weights,
+        pdk_config=pdk,
     )
 
 
@@ -106,7 +109,9 @@ def resolve_design(args):
         return None  # Mode 3 doesn't use a DigitalDesign object
     fom_weights = parse_fom_weights(getattr(args, "fom_weights", None))
     if args.config:
-        return load_design_from_config(args.config, args.pdk_root, fom_weights)
+        return load_design_from_config(
+            args.config, args.pdk_root, fom_weights, pdk=args.pdk,
+        )
     return load_design_named(args.design, macro=args.macro)
 
 
@@ -160,6 +165,7 @@ async def run_from_spec(args):
     print("=" * 60)
     print(f"  Spec:      {args.spec}")
     print(f"  Work dir:  {work_dir}")
+    print(f"  PDK:       {args.pdk}")
     print(f"  PDK root:  {args.pdk_root}")
     print("  Backend:   cc_cli (forced for --spec)")
 
@@ -167,6 +173,8 @@ async def run_from_spec(args):
         spec=args.spec,
         work_dir=str(work_dir),
         pdk_root=args.pdk_root,
+        pdk_config=args.pdk,
+        librelane_python=args.librelane_python,
     )
 
     if args.dry_run:
@@ -401,7 +409,7 @@ async def run_full(args):
 
 async def main():
     parser = argparse.ArgumentParser(
-        description="Digital RTL-to-GDS flow for GF180MCU (3 entry modes)"
+        description="Digital RTL-to-GDS flow for GF180MCU or IHP SG13G2 (3 entry modes)"
     )
 
     # Entry mode (mutually exclusive)
@@ -423,8 +431,18 @@ async def main():
     )
 
     parser.add_argument(
+        "--pdk", default=os.environ.get("EDA_AGENTS_PDK", "gf180mcu"),
+        choices=["gf180mcu", "ihp_sg13g2"],
+        help="Target PDK (default: EDA_AGENTS_PDK env var or gf180mcu)",
+    )
+    parser.add_argument(
         "--pdk-root", default=None,
         help="Explicit PDK_ROOT path (required for --config and --spec)",
+    )
+    parser.add_argument(
+        "--librelane-python", default="python3",
+        help="Python interpreter that can run `python3 -m librelane` "
+             "(e.g. /home/.../librelane/.venv/bin/python). Only used by --spec.",
     )
     parser.add_argument(
         "--fom-weights", default=None,

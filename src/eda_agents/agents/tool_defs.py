@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from eda_agents.core.digital_design import DigitalDesign
+    from eda_agents.core.pdk import PdkConfig
     from eda_agents.core.topology import CircuitTopology
     from eda_agents.core.system_topology import SystemTopology
 
@@ -1230,7 +1231,10 @@ IMPORTANT:
 # ---------------------------------------------------------------------------
 
 
-def build_digital_rtl2gds_prompt(design: DigitalDesign) -> str:
+def build_digital_rtl2gds_prompt(
+    design: DigitalDesign,
+    pdk_config: PdkConfig | str | None = None,
+) -> str:
     """Build the full prompt for a Claude Code CLI agent driving RTL-to-GDS.
 
     The prompt tells the CLI agent:
@@ -1240,7 +1244,22 @@ def build_digital_rtl2gds_prompt(design: DigitalDesign) -> str:
     - Step-by-step workflow: lint -> sim -> synth -> P&R -> DRC -> LVS
     - How to modify config, re-run, and read reports
     - What to report when done
+
+    ``pdk_config`` is resolved in order: explicit argument ->
+    ``design.pdk_config()`` -> ``resolve_pdk()``.
     """
+    from eda_agents.agents.digital_autoresearch import detect_nix_eda_tool_dirs
+    from eda_agents.core.pdk import resolve_pdk
+
+    cfg = pdk_config if pdk_config is not None else design.pdk_config()
+    cfg = resolve_pdk(cfg)
+    librelane_pdk = cfg.librelane_pdk_name
+    extra_flags = " ".join(cfg.librelane_extra_flags)
+    extra_flags_suffix = f" {extra_flags}" if extra_flags else ""
+
+    nix_dirs = detect_nix_eda_tool_dirs()
+    nix_path_prefix = f"PATH={':'.join(nix_dirs)}:$PATH " if nix_dirs else ""
+
     project = design.project_name()
     project_dir = design.project_dir()
     config_path = design.librelane_config()
@@ -1279,8 +1298,8 @@ def build_digital_rtl2gds_prompt(design: DigitalDesign) -> str:
         # Wrap the LibreLane command inside the shell wrapper
         flow_cmd = (
             f"cd {project_dir} && {wrapper} "
-            f"'PDK_ROOT={pdk_root_str} PDK=gf180mcuD "
-            f"python3 -m librelane {config_path.name} --overwrite'"
+            f"'PDK_ROOT={pdk_root_str} PDK={librelane_pdk} "
+            f"python3 -m librelane {config_path.name} --overwrite{extra_flags_suffix}'"
         )
         env_note = (
             f"\nNOTE: This design uses a shell wrapper for its toolchain.\n"
@@ -1289,10 +1308,15 @@ def build_digital_rtl2gds_prompt(design: DigitalDesign) -> str:
         )
     else:
         flow_cmd = (
-            f"cd {project_dir} && PDK_ROOT={pdk_root_str} PDK=gf180mcuD "
-            f"python3 -m librelane {config_path.name} --overwrite"
+            f"cd {project_dir} && {nix_path_prefix}"
+            f"PDK_ROOT={pdk_root_str} PDK={librelane_pdk} "
+            f"python3 -m librelane {config_path.name} --overwrite{extra_flags_suffix}"
         )
-        env_note = ""
+        env_note = (
+            f"\nEDA tool PATH prefix: {nix_path_prefix.strip()}\n"
+            f"Include it in every shell command invoking LibreLane/EDA tools.\n"
+            if nix_path_prefix else ""
+        )
 
     return f"""You are a digital design automation agent executing the full RTL-to-GDS \
 flow for '{project}'.
@@ -1316,7 +1340,7 @@ LibreLane config: {config_path}
 CRITICAL ENVIRONMENT RULE:
 Always pass explicit PDK environment variables in every shell command.
 Never rely on inherited env vars -- they may point to a different PDK.
-Use: PDK_ROOT={pdk_root_str} PDK=gf180mcuD
+Use: PDK_ROOT={pdk_root_str} PDK={librelane_pdk}
 {env_note}
 WORKFLOW:
 Execute these phases in order. Stop and report if any phase fails critically.
@@ -1374,6 +1398,7 @@ def build_from_spec_prompt(
     work_dir: str,
     pdk_root: str,
     librelane_python: str = "python3",
+    pdk_config: PdkConfig | str | None = None,
 ) -> str:
     """Build a prompt for CC CLI to create a design from a natural language spec.
 
@@ -1387,29 +1412,50 @@ def build_from_spec_prompt(
     work_dir : str
         Working directory where the agent writes all files.
     pdk_root : str
-        Explicit PDK_ROOT path for GF180MCU.
+        Explicit PDK_ROOT path.
     librelane_python : str
         Python command that can run ``python3 -m librelane``.
+    pdk_config : PdkConfig | str | None
+        PDK selection. Falls back to EDA_AGENTS_PDK env var, then to the
+        resolve_pdk() default.
     """
-    from eda_agents.agents.gf180_config_template import (
-        GF180_CONFIG_TEMPLATE,
-        GF180_DEFAULTS,
+    from eda_agents.agents.digital_autoresearch import detect_nix_eda_tool_dirs
+    from eda_agents.agents.librelane_config_templates import get_config_template
+    from eda_agents.core.pdk import resolve_pdk
+
+    cfg = resolve_pdk(pdk_config)
+    config_template, defaults = get_config_template(cfg)
+    librelane_pdk = cfg.librelane_pdk_name
+    extra_flags = " ".join(cfg.librelane_extra_flags)
+    extra_flags_suffix = f" {extra_flags}" if extra_flags else ""
+
+    # Prepend Nix EDA tools to PATH so the agent gets yosys 0.62+ and
+    # recent OpenROAD (LibreLane v3 requires those).
+    nix_dirs = detect_nix_eda_tool_dirs()
+    nix_path_prefix = f"PATH={':'.join(nix_dirs)}:$PATH " if nix_dirs else ""
+    nix_env_note = (
+        f"\nEDA tool PATH prefix (Nix-provided yosys/openroad/magic/netgen/klayout):\n"
+        f"  {nix_path_prefix.strip()}\n"
+        f"Include this prefix in every shell command that invokes LibreLane or\n"
+        f"any EDA tool. Ubuntu's system yosys is too old for LibreLane v3.\n"
+        if nix_dirs else ""
     )
 
     return f"""You are a digital design automation agent. Your task is to take a
 circuit specification and produce a complete RTL-to-GDS implementation
-on GF180MCU, from scratch.
+on {cfg.display_name}, from scratch.
 
 SPECIFICATION:
 {spec}
 
 WORKING DIRECTORY: {work_dir}
 PDK_ROOT: {pdk_root}
-PDK: gf180mcuD
+PDK: {librelane_pdk}
 
 CRITICAL ENVIRONMENT RULE:
 Always pass explicit PDK vars in every shell command:
-  PDK_ROOT={pdk_root} PDK=gf180mcuD
+  PDK_ROOT={pdk_root} PDK={librelane_pdk}
+{nix_env_note}
 
 WORKFLOW:
 Execute these phases in order. Fix errors before proceeding.
@@ -1450,13 +1496,13 @@ Phase 3 - GENERATE LIBRELANE CONFIG:
   Create {work_dir}/config.yaml with the following template, filling in
   the design-specific fields:
 
-{GF180_CONFIG_TEMPLATE.format(
+{config_template.format(
     design_name="<YOUR_DESIGN_NAME>",
     verilog_file="../src/<design_name>.v",
-    clock_port=GF180_DEFAULTS["clock_port"],
-    clock_period=GF180_DEFAULTS["clock_period"],
-    die_width=GF180_DEFAULTS["die_width"],
-    die_height=GF180_DEFAULTS["die_height"],
+    clock_port=defaults["clock_port"],
+    clock_period=defaults["clock_period"],
+    die_width=defaults["die_width"],
+    die_height=defaults["die_height"],
 )}
 
   Replace <YOUR_DESIGN_NAME> with the actual module name.
@@ -1473,8 +1519,8 @@ Phase 3 - GENERATE LIBRELANE CONFIG:
     - Large (10k+ cells): 500x500+ um
 
 Phase 4 - RUN LIBRELANE FLOW:
-  cd {work_dir} && PDK_ROOT={pdk_root} PDK=gf180mcuD \\
-    {librelane_python} -m librelane config.yaml --overwrite
+  cd {work_dir} && {nix_path_prefix}PDK_ROOT={pdk_root} PDK={librelane_pdk} \\
+    {librelane_python} -m librelane config.yaml --overwrite{extra_flags_suffix}
   This runs synthesis, floorplanning, placement, CTS, routing, and signoff.
   It takes 2-15 minutes depending on design size.
 

@@ -100,6 +100,10 @@ class FazyRvHachureDesign(DigitalDesign):
     def librelane_config(self) -> Path:
         return self.project_dir() / "config.yaml"
 
+    def pdk_config(self):
+        from eda_agents.core.pdk import GF180MCU_D
+        return GF180MCU_D
+
     def pdk_root(self) -> Path | None:
         # fazyrv clones its own PDK at tag 1.6.4 via `make clone-pdk`
         pdk_path = self._repo_dir / "gf180mcu"

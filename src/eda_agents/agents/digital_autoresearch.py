@@ -64,6 +64,35 @@ from eda_agents.core.stages.physical_slice_runner import STAGE_TO_LIBRELANE
 
 logger = logging.getLogger(__name__)
 
+
+def detect_nix_eda_tool_dirs() -> list[str]:
+    """Scan /nix/store for LibreLane-compatible EDA tool binaries.
+
+    LibreLane v3 requires yosys >= 0.60 and recent OpenROAD. System
+    packages on Ubuntu are often too old. When a Nix installation is
+    present on this machine, prefer its bin directories.
+
+    Returns the first matching bin directory per tool, in the order
+    yosys -> openroad -> magic -> netgen -> klayout. The caller is
+    responsible for deciding how to prepend these to PATH (or pass them
+    verbatim into a subprocess env). Returns an empty list on systems
+    without Nix or without these tools.
+    """
+    import glob
+
+    nix_dirs: list[str] = []
+    for pattern in [
+        "/nix/store/*-yosys-with-plugins-0.6*/bin",
+        "/nix/store/*-openroad-202[56]*/bin",
+        "/nix/store/*-magic-*/bin",
+        "/nix/store/*-netgen-*/bin",
+        "/nix/store/*-klayout-*/bin",
+    ]:
+        candidates = sorted(glob.glob(pattern), reverse=True)
+        if candidates:
+            nix_dirs.append(candidates[0])
+    return nix_dirs
+
 # Digital measurement columns for TSV logging
 _DIGITAL_MEASUREMENT_COLS = [
     "wns_worst_ns",
@@ -159,9 +188,12 @@ class DigitalAutoresearchRunner:
             elif isinstance(values, tuple) and len(values) == 2:
                 space_lines.append(f"- {name}: [{values[0]}, {values[1]}]")
 
+        from eda_agents.core.pdk import resolve_pdk as _resolve_pdk
+        _pdk = self.design.pdk_config() or _resolve_pdk()
+
         return generate_program_content(
             domain_name=self.design.project_name(),
-            pdk_display_name="GF180MCU",
+            pdk_display_name=_pdk.display_name,
             fom_description=self.design.fom_description(),
             specs_description=self.design.specs_description(),
             design_vars_description=self.design.design_vars_description(),
@@ -321,23 +353,9 @@ class DigitalAutoresearchRunner:
         System packages may be outdated. Auto-detect and prepend
         nix-store tool directories when available.
         """
-        import glob
         import os as _os
 
-        nix_dirs: list[str] = []
-
-        # Collect nix bin dirs for key tools
-        for pattern in [
-            "/nix/store/*-yosys-with-plugins-0.6*/bin",
-            "/nix/store/*-openroad-202[56]*/bin",
-            "/nix/store/*-magic-*/bin",
-            "/nix/store/*-netgen-*/bin",
-            "/nix/store/*-klayout-*/bin",
-        ]:
-            candidates = sorted(glob.glob(pattern), reverse=True)
-            if candidates:
-                nix_dirs.append(candidates[0])
-
+        nix_dirs = detect_nix_eda_tool_dirs()
         if nix_dirs:
             current_path = env_extra.get("PATH", _os.environ.get("PATH", ""))
             nix_prefix = ":".join(nix_dirs)
@@ -659,15 +677,30 @@ class DigitalAutoresearchRunner:
             return self._evaluate_mock(params, eval_num)
 
         from eda_agents.core.librelane_runner import LibreLaneRunner
+        from eda_agents.core.pdk import resolve_pdk
 
         # Apply config overrides
         config_path = self.design.librelane_config()
 
-        # Detect PDK variant from config (GF180 needs PDK=gf180mcuD in env)
-        env_extra: dict[str, str] = {}
+        # Resolve PDK from design (GenericDesign binds it) or env fallback.
+        # Never rely on inherited PDK/PDK_ROOT -- we inject both explicitly
+        # to avoid the layer-conflict bug seen when a GF180 run picked up
+        # an inherited PDK=ihp-sg13g2 from the parent shell.
+        pdk_cfg = self.design.pdk_config() or resolve_pdk()
         pdk_root_str = str(self.design.pdk_root() or "")
-        if "gf180mcu" in pdk_root_str.lower():
-            env_extra["PDK"] = "gf180mcuD"
+
+        env_extra: dict[str, str] = {
+            "PDK": pdk_cfg.librelane_pdk_name,
+        }
+        if pdk_root_str:
+            env_extra["PDK_ROOT"] = pdk_root_str
+
+        logger.info(
+            "[eval %s] PDK=%s PDK_ROOT=%s (design=%s)",
+            eval_num, env_extra["PDK"],
+            env_extra.get("PDK_ROOT", "<unset>"),
+            self.design.project_name(),
+        )
 
         # Ensure nix-provided yosys (0.62+) is on PATH if system yosys is old
         self._prepend_nix_tools(env_extra)
@@ -679,6 +712,7 @@ class DigitalAutoresearchRunner:
             timeout_s=1800,
             shell_wrapper=self.design.shell_wrapper(),
             env_extra=env_extra,
+            extra_flags=pdk_cfg.librelane_extra_flags,
         )
 
         # Write exploration params to config

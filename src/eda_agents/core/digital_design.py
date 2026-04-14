@@ -20,9 +20,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from eda_agents.core.flow_metrics import FlowMetrics
+
+if TYPE_CHECKING:
+    from eda_agents.core.pdk import PdkConfig
 
 
 @dataclass
@@ -175,6 +178,16 @@ class DigitalDesign(ABC):
 
         Designs that clone their own PDK (e.g., via ``make clone-pdk``)
         should return the per-project PDK path here.
+        """
+        return None
+
+    def pdk_config(self) -> PdkConfig | None:
+        """PDK config bound to this design, or None to resolve from env.
+
+        When a design knows which PDK it targets (e.g. GenericDesign
+        constructed with ``pdk_config="ihp_sg13g2"``), override this to
+        expose that config. Callers fall back to ``resolve_pdk()`` when
+        this returns None.
         """
         return None
 

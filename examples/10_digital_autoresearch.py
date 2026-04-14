@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Digital autoresearch greedy loop for GF180MCU.
+"""Digital autoresearch greedy loop for GF180MCU and IHP SG13G2.
+
+Select PDK with --pdk {gf180mcu,ihp_sg13g2} (default: EDA_AGENTS_PDK env,
+falling back to gf180mcu).
 
 Runs an LLM-guided exploration loop over flow config knobs
 (PL_TARGET_DENSITY_PCT, CLOCK_PERIOD, etc.) using the autoresearch
@@ -8,30 +11,30 @@ greedy algorithm. Each evaluation runs LibreLane up to
 
 Usage:
     # Dry run with mock metrics (no LLM, no LibreLane, CI-safe)
-    python examples/10_digital_autoresearch_gf180.py \\
+    python examples/10_digital_autoresearch.py \\
       --use-mock-metrics fixtures/fake_flow_metrics.json \\
       --budget 3
 
     # Real run with Gemini Flash (fazyrv frv_1 macro)
-    python examples/10_digital_autoresearch_gf180.py \\
+    python examples/10_digital_autoresearch.py \\
       --model google/gemini-3-flash-preview \\
       --budget 5
 
     # Config mode: optimize any LibreLane project (no Python class)
-    python examples/10_digital_autoresearch_gf180.py \\
+    python examples/10_digital_autoresearch.py \\
       --config /tmp/matmul_e2e/config.yaml \\
       --pdk-root /path/to/gf180mcu \\
       --model google/gemini-3-flash-preview \\
       --budget 5
 
     # Custom FoM weights (prioritize area over timing)
-    python examples/10_digital_autoresearch_gf180.py \\
+    python examples/10_digital_autoresearch.py \\
       --config /path/to/config.yaml \\
       --fom-weights timing=0.5,area=1.0,power=0.3 \\
       --budget 5
 
     # Real run, stop at synthesis only (faster per eval)
-    python examples/10_digital_autoresearch_gf180.py \\
+    python examples/10_digital_autoresearch.py \\
       --model google/gemini-3-flash-preview \\
       --stop-after SYNTH \\
       --budget 5
@@ -93,6 +96,7 @@ def load_design_from_config(
     config_path: str,
     pdk_root: str | None,
     fom_weights: dict[str, float] | None = None,
+    pdk: str | None = None,
 ):
     """Load a GenericDesign from a LibreLane config file."""
     from eda_agents.core.designs.generic import GenericDesign
@@ -101,12 +105,13 @@ def load_design_from_config(
         config_path=config_path,
         pdk_root=pdk_root,
         fom_weights=fom_weights,
+        pdk_config=pdk,
     )
 
 
 async def main():
     parser = argparse.ArgumentParser(
-        description="Digital autoresearch greedy loop for GF180MCU"
+        description="Digital autoresearch greedy loop for GF180MCU or IHP SG13G2"
     )
 
     # Entry mode: named design or config file (mutually exclusive)
@@ -121,6 +126,11 @@ async def main():
         help="Path to LibreLane config (YAML/JSON). Creates a GenericDesign.",
     )
 
+    parser.add_argument(
+        "--pdk", default=os.environ.get("EDA_AGENTS_PDK", "gf180mcu"),
+        choices=["gf180mcu", "ihp_sg13g2"],
+        help="Target PDK (default: EDA_AGENTS_PDK env var or gf180mcu)",
+    )
     parser.add_argument(
         "--pdk-root", default=None,
         help="Explicit PDK_ROOT path (recommended for --config)",
@@ -209,7 +219,9 @@ async def main():
 
     # Load design
     if args.config:
-        design = load_design_from_config(args.config, args.pdk_root, fom_weights)
+        design = load_design_from_config(
+            args.config, args.pdk_root, fom_weights, pdk=args.pdk,
+        )
     else:
         design = load_design(args.design, macro=args.macro)
 
@@ -258,6 +270,7 @@ async def main():
     print("Digital Autoresearch")
     print("=" * 60)
     print(f"  Mode:        {mode}")
+    print(f"  PDK:         {args.pdk}")
     print(f"  Strategy:    {args.strategy}")
     print(f"  Backend:     {args.backend}")
     print(f"  Design:      {design.project_name()}")

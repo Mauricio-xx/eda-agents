@@ -79,6 +79,19 @@ class PdkConfig:
     # Default PDK_ROOT fallback (absolute path)
     default_pdk_root: str = ""
 
+    # ---- LibreLane digital flow ----------------------------------------
+    librelane_pdk_name: str = ""            # "gf180mcuD" | "ihp-sg13g2"
+    librelane_flow: str = "Classic"         # "Classic" | "Chip"
+    stdcell_library: str = ""               # "gf180mcu_fd_sc_mcu7t5v0" | "sg13g2_stdcell"
+    librelane_extra_flags: tuple[str, ...] = ()  # e.g. ("--manual-pdk",)
+
+    # From-spec template defaults (PDK-specific)
+    default_clock_period_ns: float = 50.0
+    default_die_um: tuple[float, float] = (300.0, 300.0)
+    default_density_pct: int = 65
+    rt_max_layer: str = "Metal4"            # GF180 default; IHP = TopMetal2
+    librelane_config_template: str = "gf180"  # key consumed by get_config_template()
+
     def has_osdi(self) -> bool:
         """Whether this PDK requires OSDI shared-library loading."""
         return bool(self.osdi_dir_rel and self.osdi_files)
@@ -148,6 +161,20 @@ IHP_SG13G2 = PdkConfig(
     vbs_max=1.2,
 
     default_pdk_root="/home/montanares/git/IHP-Open-PDK",
+
+    # LibreLane digital flow (PDK config at
+    # ihp-sg13g2/libs.tech/librelane/config.tcl supplies RT layers + PDN)
+    librelane_pdk_name="ihp-sg13g2",
+    librelane_flow="Classic",
+    stdcell_library="sg13g2_stdcell",
+    # IHP-Open-PDK is manually managed (not shipped via Volare/Ciel),
+    # so LibreLane needs --manual-pdk to skip PDK auto-management.
+    librelane_extra_flags=("--manual-pdk",),
+    default_clock_period_ns=10.0,   # 130nm comfortably handles 100 MHz
+    default_die_um=(300.0, 300.0),
+    default_density_pct=50,         # start conservative; tuneable per design
+    rt_max_layer="TopMetal2",
+    librelane_config_template="ihp_sg13g2",
 )
 
 GF180MCU_D = PdkConfig(
@@ -191,6 +218,17 @@ GF180MCU_D = PdkConfig(
     vbs_max=3.3,
 
     default_pdk_root="/home/montanares/git/wafer-space-gf180mcu",
+
+    # LibreLane digital flow
+    librelane_pdk_name="gf180mcuD",
+    librelane_flow="Classic",
+    stdcell_library="gf180mcu_fd_sc_mcu7t5v0",
+    librelane_extra_flags=(),
+    default_clock_period_ns=50.0,   # 180nm, 20 MHz conservative default
+    default_die_um=(300.0, 300.0),
+    default_density_pct=65,
+    rt_max_layer="Metal4",
+    librelane_config_template="gf180",
 )
 
 
