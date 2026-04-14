@@ -149,13 +149,14 @@ async def main():
              "hybrid (RTL + config). Default: flow",
     )
     parser.add_argument(
-        "--run-rtl-sim", action="store_true",
-        help="Run RTL simulation after lint (rtl/hybrid only, needs testbench)",
+        "--no-rtl-sim", action="store_true",
+        help="Skip RTL simulation (rtl/hybrid strategies run sim by default)",
     )
     parser.add_argument(
-        "--stop-after", default="ROUTE",
-        help="Stop flow at this stage (default: ROUTE). "
-             "Options: SYNTH, FLOORPLAN, PLACE, CTS, ROUTE",
+        "--stop-after", default="FULL",
+        help="Stop flow at this stage (default: FULL = complete signoff). "
+             "Options: SYNTH, FLOORPLAN, PLACE, CTS, ROUTE, FULL. "
+             "WARNING: partial flows produce estimated metrics, not post-RCX values.",
     )
     parser.add_argument(
         "--output", default=None,
@@ -237,12 +238,17 @@ async def main():
     )
     from eda_agents.core.flow_stage import FlowStage
 
-    try:
-        stop_after = FlowStage[args.stop_after]
-    except KeyError:
-        valid = [s.name for s in FlowStage]
-        print(f"Unknown stage: {args.stop_after}. Valid: {valid}")
-        sys.exit(1)
+    if args.stop_after == "FULL":
+        stop_after = None  # full flow: RCX + STA post + DRC + LVS + GDS
+    else:
+        try:
+            stop_after = FlowStage[args.stop_after]
+        except KeyError:
+            valid = [s.name for s in FlowStage] + ["FULL"]
+            print(f"Unknown stage: {args.stop_after}. Valid: {valid}")
+            sys.exit(1)
+        print(f"  WARNING: --stop-after {args.stop_after} produces estimated "
+              "metrics (not post-RCX). Use --stop-after FULL for real values.")
 
     work_dir = Path(args.output) if args.output else Path("autoresearch_digital")
     mock_path = Path(args.use_mock_metrics) if args.use_mock_metrics else None
@@ -258,7 +264,7 @@ async def main():
     if args.backend == "adk":
         print(f"  Model:       {args.model}")
     print(f"  Budget:      {args.budget} evals")
-    print(f"  Stop after:  {stop_after.name}")
+    print(f"  Stop after:  {'FULL (post-RCX signoff)' if stop_after is None else stop_after.name}")
     print(f"  Output:      {work_dir}")
     if fom_weights:
         print(f"  FoM weights: {fom_weights}")
@@ -267,10 +273,12 @@ async def main():
     if args.strategy != "flow":
         rtl_lines = design.rtl_total_lines()
         print(f"  RTL lines:   {rtl_lines}")
-        if args.run_rtl_sim:
-            print("  RTL sim:     enabled")
+        print(f"  RTL sim:     {'disabled' if args.no_rtl_sim else 'enabled (if testbench exists)'}")
     print(f"  Dedup:       {not args.no_dedup}")
     print()
+
+    # run_rtl_sim: None = auto (True for rtl/hybrid), explicit False if --no-rtl-sim
+    run_rtl_sim = False if args.no_rtl_sim else None
 
     runner = DigitalAutoresearchRunner(
         design=design,
@@ -281,7 +289,7 @@ async def main():
         use_mock_metrics=mock_path,
         top_n=args.top_n,
         strategy=args.strategy,
-        run_rtl_sim=args.run_rtl_sim,
+        run_rtl_sim=run_rtl_sim,
         backend=args.backend,
         allow_dangerous=args.allow_dangerous,
         cli_path=args.cli_path,

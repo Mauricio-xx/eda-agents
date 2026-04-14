@@ -85,9 +85,11 @@ class DigitalAutoresearchRunner:
         LiteLLM model identifier for the proposal LLM.
     budget : int
         Maximum number of LibreLane evaluations.
-    stop_after : FlowStage
-        Stop after this stage during exploration.  Default: ROUTE
-        (skips signoff for speed).  Must be in STAGE_TO_LIBRELANE.
+    stop_after : FlowStage or None
+        Stop after this stage.  Default: ``None`` (full flow including
+        RCX, STA post-PnR, DRC, LVS, GDS).  Pass a ``FlowStage``
+        to stop early for faster exploration, but metrics will be
+        estimates, not post-RCX values.
     dedup : bool
         Reject proposals whose parameters exactly match a prior eval.
     use_mock_metrics : Path or None
@@ -99,8 +101,8 @@ class DigitalAutoresearchRunner:
         Optimization strategy: ``"flow"`` (config-only, default),
         ``"rtl"`` (RTL micro-edits), ``"hybrid"`` (RTL + config).
     run_rtl_sim : bool
-        If True, run RTL simulation after lint for ``rtl``/``hybrid``
-        strategies.  Requires design.testbench() to be set.
+        Run RTL simulation after lint for ``rtl``/``hybrid`` strategies.
+        Defaults to True for RTL strategies when testbench exists.
     """
 
     def __init__(
@@ -108,13 +110,13 @@ class DigitalAutoresearchRunner:
         design: DigitalDesign,
         model: str = "openrouter/anthropic/claude-haiku-4.5",
         budget: int = 5,
-        stop_after: FlowStage = FlowStage.ROUTE,
+        stop_after: FlowStage | None = None,
         dedup: bool = True,
         use_mock_metrics: Path | None = None,
         top_n: int = 3,
         backend: str = "adk",
         strategy: str = "flow",
-        run_rtl_sim: bool = False,
+        run_rtl_sim: bool | None = None,
         allow_dangerous: bool = False,
         cli_path: str = "claude",
     ):
@@ -129,15 +131,20 @@ class DigitalAutoresearchRunner:
         self.design = design
         self.model = model
         self.budget = budget
-        self.stop_after = stop_after
+        self.stop_after = stop_after  # None = full flow
         self.dedup = dedup
         self.use_mock_metrics = use_mock_metrics
         self.top_n = top_n
         self.backend = backend
         self.strategy = strategy
-        self.run_rtl_sim = run_rtl_sim
         self.allow_dangerous = allow_dangerous
         self.cli_path = cli_path
+
+        # Default run_rtl_sim: True for RTL strategies (if testbench exists)
+        if run_rtl_sim is None:
+            self.run_rtl_sim = strategy in ("rtl", "hybrid")
+        else:
+            self.run_rtl_sim = run_rtl_sim
 
     # ------------------------------------------------------------------
     # program.md
@@ -686,10 +693,10 @@ class DigitalAutoresearchRunner:
             runner.modify_config(key, value, force=True)
 
         # Determine the LibreLane stop step
-        if self.stop_after in STAGE_TO_LIBRELANE:
+        if self.stop_after is not None and self.stop_after in STAGE_TO_LIBRELANE:
             _, to_step = STAGE_TO_LIBRELANE[self.stop_after]
         else:
-            to_step = None  # full flow
+            to_step = None  # full flow (including RCX, STA post, DRC, LVS, GDS)
 
         tag = f"eval_{eval_num:03d}"
         flow_result = runner.run_flow(tag=tag, to=to_step)
@@ -872,7 +879,7 @@ class DigitalAutoresearchRunner:
             self.budget,
             start_eval,
             end_eval,
-            self.stop_after.name,
+            self.stop_after.name if self.stop_after else "FULL",
             self.strategy,
         )
 
@@ -1006,6 +1013,41 @@ class DigitalAutoresearchRunner:
 
                     # Update RTL hash after applying changes
                     rtl_hash = snapshot_mgr.content_hash(self.design.rtl_sources())
+
+            # ----------------------------------------------------------
+            # RTL simulation gate (rtl/hybrid, if testbench exists)
+            # ----------------------------------------------------------
+            if (
+                self.strategy in ("rtl", "hybrid")
+                and self.run_rtl_sim
+                and self.design.testbench() is not None
+                and not self.use_mock_metrics
+            ):
+                from eda_agents.core.stages.rtl_sim_runner import RtlSimRunner
+                from eda_agents.core.tool_environment import LocalToolEnvironment
+
+                sim_result = RtlSimRunner(
+                    design=self.design, env=LocalToolEnvironment()
+                ).run()
+                if not sim_result.success:
+                    sim_err = sim_result.error or "simulation failed"
+                    entry = {
+                        "eval": eval_num, "params": params,
+                        "success": False,
+                        "error": f"RTL sim failed: {sim_err}",
+                        "fom": 0.0, "valid": False,
+                        "violations": ["sim_fail"],
+                        "status": "sim_fail",
+                        "rtl_rationale": rtl_rationale,
+                    }
+                    history.append(entry)
+                    tsv_logger.append_row(entry)
+                    program_store.update_learning(
+                        f"Eval #{eval_num}: sim fail -- {rtl_rationale}"
+                    )
+                    if snapshot_mgr:
+                        snapshot_mgr.restore_best(self.design.rtl_sources())
+                    continue
 
             # ----------------------------------------------------------
             # Evaluate (LibreLane flow)

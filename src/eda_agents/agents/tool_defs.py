@@ -1427,6 +1427,25 @@ Phase 2 - LINT:
   Run: verilator --lint-only -sv {work_dir}/src/<design_name>.v
   Fix ALL errors and warnings. Re-lint until clean.
 
+Phase 2.5 - WRITE TESTBENCH AND SIMULATE:
+  Create {work_dir}/tb/tb_<design_name>.v with a basic testbench:
+  - Instantiate the DUT with all ports connected
+  - Apply reset sequence (assert rst_n=0 for 5 cycles, then release)
+  - Drive representative input patterns covering normal operation
+  - Use $display to print key outputs and verify against expected values
+  - End with $display("PASS") or $display("FAIL") and $finish
+  - Use `timescale 1ns/1ps
+
+  Run:
+    mkdir -p {work_dir}/tb
+    iverilog -o {work_dir}/tb/sim.out -sv \\
+      {work_dir}/src/<design_name>.v {work_dir}/tb/tb_<design_name>.v
+    vvp {work_dir}/tb/sim.out
+
+  The simulation MUST pass before proceeding. Fix RTL or testbench if it
+  fails. This testbench will be reused later to verify that RTL
+  optimizations preserve functional correctness.
+
 Phase 3 - GENERATE LIBRELANE CONFIG:
   Create {work_dir}/config.yaml with the following template, filling in
   the design-specific fields:

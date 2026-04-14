@@ -23,7 +23,7 @@ from pathlib import Path
 
 import yaml
 
-from eda_agents.core.digital_design import DigitalDesign
+from eda_agents.core.digital_design import DigitalDesign, TestbenchSpec
 from eda_agents.core.flow_metrics import FlowMetrics
 
 logger = logging.getLogger(__name__)
@@ -202,6 +202,27 @@ class GenericDesign(DigitalDesign):
             p = self._config_path.parent / vf
             sources.append(p)
         return sources
+
+    def testbench(self) -> TestbenchSpec | None:
+        """Auto-detect testbench in project directory.
+
+        Looks for ``tb/tb_*.v`` or ``testbench/*.v`` patterns.
+        Returns an iverilog-based TestbenchSpec if found, None otherwise.
+        """
+        project = self._config_path.parent
+        # Check common testbench locations
+        for pattern in ["tb/tb_*.v", "testbench/*.v", "tb/*.v"]:
+            matches = sorted(project.glob(pattern))
+            if matches:
+                # Build iverilog target: compile RTL + testbench
+                rtl_files = " ".join(str(s) for s in self.rtl_sources())
+                tb_files = " ".join(str(m) for m in matches)
+                return TestbenchSpec(
+                    driver="iverilog",
+                    target=f"{rtl_files} {tb_files}",
+                    work_dir_relative=".",
+                )
+        return None
 
     def validate_clone(self) -> list[str]:
         problems: list[str] = []

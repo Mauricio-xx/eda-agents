@@ -100,7 +100,7 @@ class TestDigitalAutoresearchConfig:
     def test_default_params(self, design):
         runner = DigitalAutoresearchRunner(design=design)
         assert runner.budget == 5
-        assert runner.stop_after == FlowStage.ROUTE
+        assert runner.stop_after is None  # full flow by default
         assert runner.dedup is True
 
     def test_custom_params(self, design):
