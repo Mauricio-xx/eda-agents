@@ -302,7 +302,19 @@ _SPEC_POWER_MAX_UW = 200.0
 
 
 class SARADC8BitBehavioralTopology(SystemTopology):
-    """8-bit SAR ADC with XSPICE comparator in place of the StrongARM.
+    """SAR ADC behavioural variant, AnalogAcademy "8-bit" — *7-bit-effective*.
+
+    Inherits the AnalogAcademy convention from
+    :class:`SARADCTopology`: the "8-bit" label is the D bus width,
+    the actual resolution is 7 bits because the FSM iterates 7 times
+    and the CDAC dummy shares the LSB switch. This variant only
+    swaps the StrongARM comparator for the XSPICE
+    ``ea_comparator_ideal``; everything else (CDAC, SAR FSM, sampling
+    switches) is reused verbatim from the parent topology, so the
+    resolution ceiling is identical. Use it as an upper bound on
+    ENOB/SNDR for the 8-bit path; for true 11-bit see
+    :mod:`eda_agents.topologies.sar_adc_11bit`. The naming-cleanup
+    backlog is tracked in ``docs/skills/sar_adc/TODO_naming.md``.
 
     Blocks:
       - comparator: ``ea_comparator_ideal`` XSPICE primitive.

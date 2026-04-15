@@ -13,6 +13,18 @@ Supports any PDK via PdkConfig (defaults to IHP SG13G2).
 System FoM: Walden FoM = 2^ENOB * f_s / P_total
 
 Reference: IHP-AnalogAcademy Module 3 - 8-bit SAR ADC
+
+WARNING — naming caveat (inherited from the AnalogAcademy reference):
+  the "8-bit" name refers to the D bus width, not the resolution. The
+  upstream SAR FSM (`sar_logic.v`) only iterates 7 times so D[7] stays
+  zero, and the upstream CDAC reuses the LSB switch for the dummy cap
+  (8 caps, 7 distinct controls). Effective resolution is therefore
+  ~7 bits, not 8. This convention is preserved verbatim because the
+  topology is silicon-traceable to AnalogAcademy; the eda-agents
+  11-bit topology (:mod:`eda_agents.topologies.sar_adc_11bit`)
+  deliberately breaks with this convention and is a true 11-bit
+  converter. See ``docs/skills/sar_adc/TODO_naming.md`` for the
+  rename / cleanup tracking note.
 """
 
 from __future__ import annotations
@@ -54,7 +66,16 @@ _SINE_AMP = 0.25           # V (per side)
 
 
 class SARADCTopology(SystemTopology):
-    """8-bit SAR ADC.
+    """SAR ADC, AnalogAcademy "8-bit" topology — *effectively 7-bit*.
+
+    The "8-bit" name comes from upstream and refers to the D output
+    bus width, not the resolution. The bundled SAR FSM iterates 7
+    times and the CDAC dummy cap shares the LSB switch, so the
+    converter has 7 distinct binary weights. Use the 11-bit topology
+    in :mod:`eda_agents.topologies.sar_adc_11bit` when you need a
+    true N-bit converter (its CDAC ties the dummy permanently to vcm
+    so all N binary weights stay distinct). See
+    ``docs/skills/sar_adc/TODO_naming.md`` for the rename plan.
 
     System design space (8D):
       - comp_W_input_um, comp_L_input_um: comparator input pair (2D)
