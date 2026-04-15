@@ -80,20 +80,50 @@ def test_generate_netlist_shape(topo_stubbed, tmp_path):
         assert f"D{i}_d" in text, f"missing D{i}_d"
         assert f"B{i}_d" in text, f"missing B{i}_d"
         assert f"BN{i}_d" in text, f"missing BN{i}_d"
-    # 12 caps per side (11 decision + 1 dummy sharing the LSB switch).
+    # 12 caps per side: 11 binary-weighted (B0..B10) + 1 dummy.
     assert text.count("XC_cdac_p_") == 12
     assert text.count("XC_cdac_n_") == 12
+    # The dummy cap is tied permanently to vcm (NOT switched by any B).
+    # If this regresses to "share LSB with a B switch" the converter
+    # collapses to 10-bit-effective with B9 == B10 missing-codes.
+    assert "XC_cdac_p_11 cdac_top_p vcm" in text
+    assert "XC_cdac_n_11 cdac_top_n vcm" in text
     # SAR FSM Adut instance routes through d_cosim with our stubbed .so.
     assert "d_cosim" in text
     # Design_reference banner in the header.
     assert "NOT silicon-validated" in text
-    # Every bus pin must be a distinct label — no aliasing onto B9/BN9
-    # the way the pre-fix revision did (that collapsed 3 caps onto B9).
-    b_switches = [line for line in text.splitlines() if line.startswith("S_vdd_p_")]
-    b_labels = {line.split()[3] for line in b_switches}
-    # Expected labels: BN0..BN10 used as VDD-side selectors on the pos
-    # CDAC. The dummy cap reuses BN10, so we get 11 unique labels.
-    assert b_labels == {f"BN{i}" for i in range(11)}, b_labels
+
+
+def test_cdac_is_true_11bit(topo_stubbed, tmp_path):
+    """Per-bit switched weight must be a clean binary ladder.
+
+    Walks every S_vdd_p_<i> switch, joins it back to its capacitor's
+    `m=` value, sums per BN label. A correct 11-bit converter has
+    BN0=1024, BN1=512, ..., BN10=1 with no doubling at the LSB.
+    """
+    import re
+
+    t = topo_stubbed
+    cir = t.generate_system_netlist(t.default_params(), tmp_path / "deck")
+    text = cir.read_text()
+    totals: dict[str, int] = {}
+    for line in text.splitlines():
+        m = re.match(r"S_vdd_p_(\d+)\s+\S+\s+vdd\s+(BN\d+)", line)
+        if not m:
+            continue
+        cap_idx = int(m.group(1))
+        bn = m.group(2)
+        cap_line = next(
+            ln for ln in text.splitlines()
+            if ln.startswith(f"XC_cdac_p_{cap_idx} ")
+        )
+        weight = int(re.search(r"m=(\d+)", cap_line).group(1))
+        totals[bn] = totals.get(bn, 0) + weight
+    expected = {f"BN{i}": 1 << (10 - i) for i in range(11)}
+    assert totals == expected, totals
+    # Total switched weight = 2^11 - 1 (binary array); the dummy adds
+    # the remaining 1 unit to balance the array against the input.
+    assert sum(totals.values()) == (1 << 11) - 1
 
 
 def test_validity_flags_small_input_pair():

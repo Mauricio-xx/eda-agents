@@ -16,8 +16,8 @@ output code.
 | `clk_comp`           | Comparator clock: HIGH = reset, LOW = evaluate.            |
 | `clk_algo`           | Free-running algorithm clock produced by the NAND (`comp_outp`, `comp_outn`). Not fed to the SAR FSM directly; left in the deck for observability. |
 | `comp_outp`, `comp_outn` | Comparator outputs; routed through `adc_bridge` to the SAR digital domain. |
-| `B[i]`, `BN[i]`      | Switch controls for the CDAC bottom plates.                |
-| `D[i]`               | Accumulated decision bits (post-`dac_bridge`).             |
+| `B[i]`, `BN[i]`      | Switch controls for the CDAC bottom plates. The 11-bit topology uses i = 0..10 for distinct decisions; the 8-bit AA-derived path uses i = 0..6 with the LSB switch shared by the dummy cap (legacy convention). |
+| `D[i]`               | Accumulated decision bits (post-`dac_bridge`). For the 11-bit FSM the MSB lands at D[0] (first iteration) and the LSB at D[10] (eleventh iteration); `extract_enob` weights bits[i] by `2^(10-i)` accordingly. |
 | `dac_clk`            | Reconstruction clock (last instant of a conversion).       |
 
 ## Mixed-signal bridges

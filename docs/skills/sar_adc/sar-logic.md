@@ -12,11 +12,15 @@ Two modules ship in-tree:
 
 - `sar_logic.v` (8 bit, from IHP-AnalogAcademy). Inputs: `clk`, `Op`,
   `En`, `Om`, `rst`. Outputs: `B[6:0]`, `BN[6:0]`, `D[7:0]`. The FSM
-  accepts a decision only when `Op XOR Om` is asserted (i.e., the
-  comparator has resolved).
+  iterates 7 times (counter < 7) — "8-bit" refers to the D bus
+  width, the *effective* resolution is 7 bits because the LSB cap
+  shares its switch with the dummy in the CDAC array.
 - `sar_logic_11bit.v` (design reference, **new for S7**, written from
-  scratch). Same inputs; outputs grow to `B[9:0]`, `BN[9:0]`,
-  `D[10:0]`. Ten resolution cycles instead of seven.
+  scratch). Same inputs; outputs grow to `B[10:0]`, `BN[10:0]`,
+  `D[10:0]`. Eleven resolution cycles (counter < 11) — *true*
+  11-bit, no LSB doubling. See `core-architecture.md` § "A note on
+  the dummy cap" for why the 11-bit topology breaks with the AA
+  legacy convention.
 
 Both modules read comparator decisions on `posedge clk` where `clk` is
 `clk_comp` routed through an `adc_bridge`. The SAR expects `clk_comp`
@@ -25,12 +29,13 @@ are already stable when the decision lands.
 
 ## Cycle count and period budget
 
-The 11-bit flow runs at 1 MHz with `T_algo = 1/22 * f_s` and
-`T_algo_PW = 1/44 * f_s`. That gives ten 45 ns evaluate windows inside
-each 1 µs period. `check_system_validity` enforces a metastability
-bound: a crude `tau_regen ~ 20 ps / (W_latch_p/8)` heuristic must fit
-within ~40 % of `T_algo_PW`. Agents that push `W_latch_p` below 2 µm
-should expect a FAIL on the metastability gate.
+The 11-bit flow runs at 1 MHz with `T_algo = T / 24` and
+`T_algo_PW = T / 48`. That gives eleven 20.8 ns evaluate windows
+inside each 1 µs period (sample/hold + 11 resolution + slack).
+`check_system_validity` enforces a metastability bound: a crude
+`tau_regen ~ 20 ps / (W_latch_p/8)` heuristic must fit within ~40 %
+of `T_algo_PW`. Agents that push `W_latch_p` below 2 µm should
+expect a FAIL on the metastability gate.
 
 ## Output layout and ENOB extraction
 
@@ -39,13 +44,22 @@ trace for ENOB extraction. Columns alternate `(time, value)` per
 variable, which is why `extract_enob` reads column 1 onwards for the
 bits and the last two columns for `vin_diff` / `dac_clk`.
 
-The code reconstruction follows the natural MSB-first accumulation
-built by the Verilog: `D[counter]` is set to `Op` on iteration
-`counter`, so reading column index `1 + i` gives the bit weight `2^i`.
-The 8-bit flow currently halts with `D[7]` kept 0 (the FSM only writes
-7 decision bits), and the 11-bit flow mirrors that convention at
-`D[10]`; both `extract_enob` implementations sum `bits[i] * (1 << i)`
-up to the declared bit width.
+The code reconstruction follows the **MSB-first accumulation** built
+by both Verilogs: `D[counter]` is set to `Op` on iteration `counter`,
+and counter starts at 0. So D[0] holds the **first** decision (the
+MSB) and the last bit lands at D[N-1].
+
+- 8-bit `extract_enob`: weights `d_bits[i] * (64 >> i)` for `i` in
+  `range(7)` — D[0] = MSB (weight 64), D[6] = LSB (weight 1), D[7]
+  unused. The "8-bit" name is the bus width; the resolution is 7.
+- 11-bit `extract_enob`: weights `bits[i] * (1 << (10 - i))` for `i`
+  in `range(11)` — D[0] = MSB (weight 1024), D[10] = LSB (weight 1).
+  All 11 bits carry distinct weights; this is a true 11-bit decode.
+
+The unit test `test_extract_enob_bit_weighting` writes a synthetic
+`bit_data.txt` with D[0] = 1 and the rest 0, then asserts the decoded
+code is exactly 2^10 — pinning the MSB-first convention against
+silent regression.
 
 ## Replacing the module
 

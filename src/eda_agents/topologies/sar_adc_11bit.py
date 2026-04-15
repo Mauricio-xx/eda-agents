@@ -85,6 +85,19 @@ _SINE_AMP = 0.25           # V (per side, differential)
 class SARADC11BitTopology(SystemTopology):
     """11-bit binary-weighted SAR ADC system topology (design_reference).
 
+    **True 11-bit** structure (in deliberate contrast to the 8-bit
+    AnalogAcademy parent topology, which is 7-bit-effective despite
+    its "8-bit" label):
+
+      - 11 distinct SAR resolution iterations (counter 0..10 in
+        :mod:`eda_agents.data.sar_logic_11bit`); B0..B10 / BN0..BN10
+        are 11 independent decision bits.
+      - 11 binary-weighted CMIM caps: weights 2^10 .. 2^0, each
+        controlled by exactly one B/BN pair.
+      - 1 termination "dummy" cap of weight 1 tied permanently to vcm
+        so the array sums to 2^11 = 2048 unit caps. The dummy never
+        switches; the LSB (B10) carries weight 1 and ONLY weight 1.
+
     Design space (8-D system knobs):
 
       - 6 StrongARM comparator knobs (delegated to
@@ -93,17 +106,19 @@ class SARADC11BitTopology(SystemTopology):
           ``comp_W_tail_um``,  ``comp_L_tail_um``,
           ``comp_W_latch_p_um``, ``comp_W_latch_n_um``.
       - ``cdac_C_unit_fF`` — unit cap of the binary-weighted CMIM array.
-        MSB = 1024 * C_unit, LSB = 1 * C_unit, plus one dummy.
       - ``bias_V`` — comparator tail bias voltage.
 
-    The converter is clocked at 1 MHz with 10 resolution cycles per
+    The converter is clocked at 1 MHz with 11 resolution cycles per
     conversion (plus sample/hold), tuned so the Verilator SAR FSM has
     room for metastability-safety even at the low end of comparator
     sizing. FoM is the Walden FoM via :mod:`eda_agents.tools.adc_metrics`
     identical to the 8-bit variant.
 
     **Design reference only**: not silicon-validated. Treat it as a
-    vehicle for agent-driven architecture exploration.
+    vehicle for agent-driven architecture exploration. The
+    `test_cdac_is_true_11bit` regression test enforces the binary
+    ladder so the converter can never silently regress to the AA-style
+    10-effective-bit shape.
     """
 
     DESIGN_REFERENCE = True
@@ -336,15 +351,21 @@ class SARADC11BitTopology(SystemTopology):
             ]
         )
 
-        # 11-bit binary array: weights 1024..1 plus a dummy equal to LSB.
-        # The SAR FSM produces 11 distinct decision bits B0..B10 (B0 =
-        # MSB, because counter=0 writes the MSB first); the 12th cap
-        # (dummy, weight 1) shares B10 with the LSB cap.
-        weights = [1024, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 1]
-        labels = [f"B{i}" for i in range(11)] + ["B10"]
-        labels_n = [f"BN{i}" for i in range(11)] + ["BN10"]
-        # Positive side: BN -> VDD (+), B -> GND (-); match 8-bit polarity.
-        for i, (w, lab, labn) in enumerate(zip(weights, labels_n, labels)):
+        # True 11-bit binary array:
+        #   - 11 binary caps with weights 2^10 .. 2^0 controlled by
+        #     B0..B10 (B0 = MSB, because the SAR FSM writes the
+        #     first / MSB decision into B[0] / D[0]).
+        #   - 1 dummy "termination" cap of weight 1, tied permanently
+        #     to vcm so the array sums to 2^11 = 2048 unit caps. The
+        #     dummy never switches: if it shared B10 with the LSB
+        #     binary cap (the 8-bit AnalogAcademy convention) we would
+        #     double the LSB weight and degrade the converter to
+        #     10-bit-effective with B9 == B10 missing-codes.
+        binary_weights = [1 << (10 - i) for i in range(11)]  # 1024..1
+        labels = [f"B{i}" for i in range(11)]
+        labels_n = [f"BN{i}" for i in range(11)]
+        # Positive side: BN -> VDD (+), B -> GND (-); matches 8-bit polarity.
+        for i, (w, lab, labn) in enumerate(zip(binary_weights, labels_n, labels)):
             bot = f"cdac_bot_p_{i}"
             lines.append(f"* Cap {i} (weight={w}C)")
             lines.append(f"S_samp_bp_{i} {bot} vcm clk_samp 0 sw_samp ON")
@@ -356,9 +377,16 @@ class SARADC11BitTopology(SystemTopology):
                 f"w={cap_wl:.4e} l={cap_wl:.4e} m={w}"
             )
             lines.append("")
+        # Termination dummy: bottom plate fixed at vcm, weight 1.
+        lines.append("* Cap 11 (dummy, weight=1C, tied to vcm)")
+        lines.append(
+            f"XC_cdac_p_11 cdac_top_p vcm {cap_model} "
+            f"w={cap_wl:.4e} l={cap_wl:.4e} m=1"
+        )
+        lines.append("")
 
         lines.append("* Negative C-DAC (top plate = cdac_top_n)")
-        for i, (w, lab, labn) in enumerate(zip(weights, labels, labels_n)):
+        for i, (w, lab, labn) in enumerate(zip(binary_weights, labels, labels_n)):
             bot = f"cdac_bot_n_{i}"
             lines.append(f"S_samp_bn_{i} {bot} vcm clk_samp 0 sw_samp ON")
             lines.append(f"S_vdd_n_{i} {bot} vdd {lab} 0 sw_cdac ON")
@@ -369,6 +397,12 @@ class SARADC11BitTopology(SystemTopology):
                 f"w={cap_wl:.4e} l={cap_wl:.4e} m={w}"
             )
             lines.append("")
+        lines.append("* Cap 11 (dummy, weight=1C, tied to vcm)")
+        lines.append(
+            f"XC_cdac_n_11 cdac_top_n vcm {cap_model} "
+            f"w={cap_wl:.4e} l={cap_wl:.4e} m=1"
+        )
+        lines.append("")
 
         lines.extend(
             [
@@ -605,10 +639,11 @@ class SARADC11BitTopology(SystemTopology):
 
     def prompt_description(self) -> str:
         return (
-            f"11-bit SAR ADC on {self.pdk.display_name}. Design reference "
-            "template (not silicon-validated). StrongARM dynamic comparator "
-            "drives a binary-weighted CMIM CDAC (1024..1 + dummy). SAR FSM "
-            "runs on Verilator via d_cosim for a 10-cycle conversion. "
+            f"True 11-bit SAR ADC on {self.pdk.display_name}. Design "
+            "reference template (not silicon-validated). StrongARM dynamic "
+            "comparator drives a binary-weighted CMIM CDAC (11 binary caps "
+            "1024..1 + 1 dummy tied to vcm). SAR FSM runs on Verilator via "
+            "d_cosim for an 11-cycle conversion (counter 0..10). "
             "Targets: 1 MHz sample rate, 6+ ENOB with margin for PVT."
         )
 

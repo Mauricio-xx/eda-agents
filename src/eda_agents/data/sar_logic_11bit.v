@@ -1,17 +1,23 @@
-// 11-bit SAR logic, design_reference.
+// True 11-bit SAR logic, design_reference.
 //
-// Resolves 11 bits over 11 `clk` posedges while `En` is high and
-// `(Op ^ Om)` asserts (a valid comparator decision). The MSB is
+// Resolves 11 distinct bits over 11 `clk` posedges while `En` is high
+// and `(Op ^ Om)` asserts (a valid comparator decision). The MSB is
 // written to D[0] on the first iteration and the LSB to D[10] on the
-// last; extract_enob in sar_adc_11bit.py reads this back as
+// eleventh; extract_enob in sar_adc_11bit.py reads this back as
 //   code = sum(D[i] << (10 - i)).
 // That "first decision lands at D[0]" convention matches the 8-bit
-// sar_logic.v behaviour; it is the one the extract_enob helpers on
-// both SAR topologies share.
+// sar_logic.v behaviour; the difference is that the 8-bit module
+// only iterates 7 times (its CDAC has 7 distinct binary caps + a
+// dummy that shares the LSB switch, so it is 7-bit-effective despite
+// its name). The 11-bit module iterates the full 11 times because
+// the SARADC11BitTopology CDAC ties its dummy permanently to vcm and
+// keeps all 11 binary weights distinct.
 //
-// Counter width is 5 bits (0..10) so a single roll doesn't overflow.
+// Counter width is 5 bits (0..11) so a single roll doesn't overflow.
 // Written for eda-agents S7 SAR 11-bit design_reference; not
-// silicon-validated. Reviewers: see docs/skills/sar_adc/sar-logic.md.
+// silicon-validated. Reviewers: see docs/skills/sar_adc/sar-logic.md
+// and docs/skills/sar_adc/core-architecture.md (§ "A note on the
+// dummy cap").
 
 module sar_logic_11bit (
     input wire clk,
