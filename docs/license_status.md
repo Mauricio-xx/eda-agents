@@ -33,18 +33,22 @@ For every repo without a LICENSE file:
 This rule stays in force until each upstream repo publishes a LICENSE
 file or responds to a licensing-clarification issue.
 
-## Issues to open (pending user approval)
+## Issues to open (deferred)
 
-Before creating issues on these external repos, the wording needs user
-sign-off. Draft text is stored at the bottom of this document. Once
-issues are filed, replace these placeholders with real URLs.
+Decision (Sesión 0, 2026-04-15): filing upstream issues is **deferred**.
+The "reimplement, do not copy" rule is enough to proceed with the
+roadmap. Revisit if a specific repo becomes a blocker later.
 
-- [ ] https://github.com/Arcadia-1/gmoverid-skill/issues/??? — license clarification
-- [ ] https://github.com/Arcadia-1/veriloga-skills/issues/??? — license clarification
-- [ ] https://github.com/Arcadia-1/behavioral-veriloga-eval/issues/??? — license clarification
-- [ ] https://github.com/Arcadia-1/sar-adc-skills/issues/??? — license clarification
-- [ ] https://github.com/Arcadia-1/analog-agents/issues/??? — license clarification
-- [ ] https://github.com/Arcadia-1/virtuoso-bridge-lite/issues/??? — license clarification
+Draft text for the issues is kept below for reuse when the time comes.
+
+Candidate repos:
+
+- https://github.com/Arcadia-1/gmoverid-skill
+- https://github.com/Arcadia-1/veriloga-skills
+- https://github.com/Arcadia-1/behavioral-veriloga-eval
+- https://github.com/Arcadia-1/sar-adc-skills
+- https://github.com/Arcadia-1/analog-agents
+- https://github.com/Arcadia-1/virtuoso-bridge-lite
 
 ## Issue draft (English, to be sent to each repo)
 
