@@ -75,6 +75,7 @@ class TestRegistryCore:
             "analog.corner_validator",
             "analog.orchestrator",
             "analog.adc_metrics",
+            "analog.gmid_sizing",
             "digital.project_manager",
             "digital.verification",
             "digital.synthesis",

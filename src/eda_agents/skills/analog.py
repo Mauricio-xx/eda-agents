@@ -206,3 +206,86 @@ register_skill(
         prompt_fn=_adc_metrics_prompt,
     )
 )
+
+
+def _gmid_sizing_prompt(topology: "CircuitTopology | None" = None) -> str:
+    circuit = ""
+    if topology is not None:
+        circuit = (
+            f"\nActive circuit: {topology.topology_name()}\n"
+            f"Description: {topology.prompt_description()}\n"
+        )
+    return f"""You are doing gm/ID methodology sizing for a MOSFET block.
+{circuit}
+Use ``eda_agents.core.gmid_lookup.GmIdLookup`` as the single source of
+truth for device characteristics. It reads the pre-computed ``.npz``
+LUT shipped with the active PDK (IHP SG13G2 via ihp-gmid-kit or
+GF180MCU via scripts/generate_gf180_luts.py). No PTM, no BSIM hand-
+fits: the LUT is the ground truth.
+
+Canonical sizing calls (all return the same dict schema):
+
+  - ``lut.size(gmid, mos_type, L_um, Vds, Vbs, Id=, W=, gm=)``
+      Pick an operating point by (gm/ID, L) and pin one of Id, W, or gm.
+
+  - ``lut.size_from_ft(ft_target_hz, mos_type, L_um, Vds, Vbs, Id=|W=)``
+      Find the highest gm/ID that still meets a transit-frequency
+      target at the given L, then size to Id or W. Fails loud if the
+      target is unreachable.
+
+  - ``lut.size_from_gmro(gmro_target, mos_type, L_um, Vds, Vbs, Id=|W=)``
+      Same, but the constraint is minimum intrinsic gain (gm * ro).
+
+  - ``lut.operating_range(mos_type)``
+      Inspect the envelope of the LUT slice: gm/ID range, ID density
+      range (A/m), L bounds, Vgs/Vds axes. Call this first to scope
+      what is physically realisable before you target a spec.
+
+Return dict schema (keys always present):
+
+  - ``W_um``      transistor width [um]
+  - ``L_um``      channel length [um]
+  - ``Id_uA``     bias current [uA]
+  - ``gm_uS``     transconductance [uS]
+  - ``gds_uS``    output conductance [uS]
+  - ``ft_Hz``     transit frequency [Hz] (None if LUT lacks Cgg)
+  - ``vgs_V``     interpolated gate-source bias
+  - ``vds_V``     LUT-gridded drain-source bias (nearest to request)
+  - ``vbs_V``     LUT-gridded body-source bias (nearest to request)
+  - ``gmid``      requested gm/ID (or best-achievable for from_ft/gmro)
+  - ``gmro``      intrinsic gain at the operating point
+  - ``vth_V``     median Vth for the slice
+  - ``mos_type``  "nmos" or "pmos"
+
+Design heuristics to act on:
+  - Low gm/ID (< 10): strong inversion, fastest devices, small W,
+    lower intrinsic gain. Use for RF, output stages.
+  - Medium gm/ID (~12-18): moderate inversion, balanced gain / speed.
+    Default starting point for OTA input pairs at 1-2 um L.
+  - High gm/ID (> 20): weak inversion, highest efficiency and gain
+    but poor fT. Use for slow bias networks, low-noise references.
+  - If ``size_from_ft`` returns gm/ID ~ minimum of the LUT range,
+    reduce L (smaller L -> higher fT) or relax fT.
+  - If ``size_from_gmro`` raises, increase L: gm*ro scales with L at
+    fixed gm/ID. Do NOT drop gm/ID; that reduces gain too.
+  - If ``operating_range`` reports ``id_density_max`` well below the
+    Id/W you need, your target current is too high for the slice;
+    either raise W or re-check the supply budget.
+
+Never roll your own gm/ID tables from raw SPICE. Ask for a new LUT
+via ``scripts/generate_gmid_lut.py --pdk <pdk> --device <dev>`` if the
+existing LUT doesn't cover your L/Vbs."""
+
+
+register_skill(
+    Skill(
+        name="analog.gmid_sizing",
+        description=(
+            "gm/ID methodology sizing via GmIdLookup (size, "
+            "size_from_ft, size_from_gmro, operating_range). Describes "
+            "the canonical sizing dict schema and the tradeoffs to "
+            "exploit for each method. Signature: (topology=None)."
+        ),
+        prompt_fn=_gmid_sizing_prompt,
+    )
+)
