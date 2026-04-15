@@ -74,6 +74,10 @@ class SystolicMacDftDesign(DigitalDesign):
     def check_validity(self, metrics: FlowMetrics) -> tuple[bool, list[str]]:
         return metrics.validity_check()
 
+    def pdk_config(self):
+        from eda_agents.core.pdk import GF180MCU_D
+        return GF180MCU_D
+
     # ------------------------------------------------------------------
     # Prompt metadata
     # ------------------------------------------------------------------

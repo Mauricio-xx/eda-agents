@@ -28,6 +28,19 @@ pip install eda-agents[adk]
 pip install -e ".[dev]"
 ```
 
+The repo vendors upstream LibreLane project templates under `external/`
+as git submodules (used for drift detection, not at runtime). For a
+full development clone:
+
+```bash
+git clone --recurse-submodules <repo-url>
+# or, if already cloned:
+git submodule update --init --recursive
+```
+
+See [`docs/librelane_templates.md`](docs/librelane_templates.md) for
+the template architecture and upstream-bump workflow.
+
 ### Requirements
 
 - Python >= 3.11

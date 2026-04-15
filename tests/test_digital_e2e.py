@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-EXAMPLE_09 = Path(__file__).resolve().parents[1] / "examples" / "09_rtl2gds_gf180.py"
-EXAMPLE_10 = Path(__file__).resolve().parents[1] / "examples" / "10_digital_autoresearch_gf180.py"
+EXAMPLE_09 = Path(__file__).resolve().parents[1] / "examples" / "09_rtl2gds_digital.py"
+EXAMPLE_10 = Path(__file__).resolve().parents[1] / "examples" / "10_digital_autoresearch.py"
 PYTHON = sys.executable
 
 
@@ -38,6 +38,20 @@ class TestExample09DryRun:
         )
         assert result.returncode == 0, f"stderr: {result.stderr}"
         assert "PASS" in result.stdout
+
+    @pytest.mark.parametrize("pdk", ["gf180mcu", "ihp_sg13g2"])
+    def test_dry_run_spec_mode_per_pdk(self, pdk):
+        """--spec dry-run works for both PDKs and emits correct PDK banner."""
+        result = subprocess.run(
+            [PYTHON, str(EXAMPLE_09),
+             "--dry-run", "--spec", "4-bit counter",
+             "--pdk", pdk,
+             "--pdk-root", "/tmp/fake"],
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert "PASS" in result.stdout
+        assert f"PDK:       {pdk}" in result.stdout
 
     def test_dry_run_adk(self):
         """ADK dry-run completes in under 10s."""

@@ -49,6 +49,9 @@ def _make_design():
     design.librelane_config.return_value = Path("/project/config.yaml")
     design.pdk_root.return_value = Path("/pdk")
 
+    from eda_agents.core.pdk import GF180MCU_D
+    design.pdk_config.return_value = GF180MCU_D
+
     # FoM: valid designs get positive FoM
     def compute_fom(metrics):
         if metrics.wns_worst_ns is not None and metrics.wns_worst_ns >= 0:

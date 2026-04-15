@@ -113,6 +113,7 @@ class LibreLaneRunner:
         python_cmd: str | None = None,
         shell_wrapper: str | None = None,
         env_extra: dict[str, str] | None = None,
+        extra_flags: tuple[str, ...] | list[str] | None = None,
     ):
         self.project_dir = Path(project_dir).resolve()
         self.config_file = config_file
@@ -121,6 +122,7 @@ class LibreLaneRunner:
         self.env_extra = env_extra or {}
         self.timeout_s = timeout_s
         self.shell_wrapper = shell_wrapper
+        self.extra_flags = list(extra_flags) if extra_flags else []
         if shell_wrapper:
             # When using a shell wrapper, default python to "python3"
             self.python_cmd = python_cmd or "python3"
@@ -257,6 +259,8 @@ class LibreLaneRunner:
             inner_parts.extend(["--to", to])
         if overwrite:
             inner_parts.append("--overwrite")
+        if self.extra_flags:
+            inner_parts.extend(self.extra_flags)
 
         env = os.environ.copy()
         if self.pdk_root:

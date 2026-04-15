@@ -64,6 +64,35 @@ from eda_agents.core.stages.physical_slice_runner import STAGE_TO_LIBRELANE
 
 logger = logging.getLogger(__name__)
 
+
+def detect_nix_eda_tool_dirs() -> list[str]:
+    """Scan /nix/store for LibreLane-compatible EDA tool binaries.
+
+    LibreLane v3 requires yosys >= 0.60 and recent OpenROAD. System
+    packages on Ubuntu are often too old. When a Nix installation is
+    present on this machine, prefer its bin directories.
+
+    Returns the first matching bin directory per tool, in the order
+    yosys -> openroad -> magic -> netgen -> klayout. The caller is
+    responsible for deciding how to prepend these to PATH (or pass them
+    verbatim into a subprocess env). Returns an empty list on systems
+    without Nix or without these tools.
+    """
+    import glob
+
+    nix_dirs: list[str] = []
+    for pattern in [
+        "/nix/store/*-yosys-with-plugins-0.6*/bin",
+        "/nix/store/*-openroad-202[56]*/bin",
+        "/nix/store/*-magic-*/bin",
+        "/nix/store/*-netgen-*/bin",
+        "/nix/store/*-klayout-*/bin",
+    ]:
+        candidates = sorted(glob.glob(pattern), reverse=True)
+        if candidates:
+            nix_dirs.append(candidates[0])
+    return nix_dirs
+
 # Digital measurement columns for TSV logging
 _DIGITAL_MEASUREMENT_COLS = [
     "wns_worst_ns",
@@ -159,9 +188,12 @@ class DigitalAutoresearchRunner:
             elif isinstance(values, tuple) and len(values) == 2:
                 space_lines.append(f"- {name}: [{values[0]}, {values[1]}]")
 
+        from eda_agents.core.pdk import resolve_pdk as _resolve_pdk
+        _pdk = self.design.pdk_config() or _resolve_pdk()
+
         return generate_program_content(
             domain_name=self.design.project_name(),
-            pdk_display_name="GF180MCU",
+            pdk_display_name=_pdk.display_name,
             fom_description=self.design.fom_description(),
             specs_description=self.design.specs_description(),
             design_vars_description=self.design.design_vars_description(),
@@ -321,23 +353,9 @@ class DigitalAutoresearchRunner:
         System packages may be outdated. Auto-detect and prepend
         nix-store tool directories when available.
         """
-        import glob
         import os as _os
 
-        nix_dirs: list[str] = []
-
-        # Collect nix bin dirs for key tools
-        for pattern in [
-            "/nix/store/*-yosys-with-plugins-0.6*/bin",
-            "/nix/store/*-openroad-202[56]*/bin",
-            "/nix/store/*-magic-*/bin",
-            "/nix/store/*-netgen-*/bin",
-            "/nix/store/*-klayout-*/bin",
-        ]:
-            candidates = sorted(glob.glob(pattern), reverse=True)
-            if candidates:
-                nix_dirs.append(candidates[0])
-
+        nix_dirs = detect_nix_eda_tool_dirs()
         if nix_dirs:
             current_path = env_extra.get("PATH", _os.environ.get("PATH", ""))
             nix_prefix = ":".join(nix_dirs)
@@ -659,15 +677,30 @@ class DigitalAutoresearchRunner:
             return self._evaluate_mock(params, eval_num)
 
         from eda_agents.core.librelane_runner import LibreLaneRunner
+        from eda_agents.core.pdk import resolve_pdk
 
         # Apply config overrides
         config_path = self.design.librelane_config()
 
-        # Detect PDK variant from config (GF180 needs PDK=gf180mcuD in env)
-        env_extra: dict[str, str] = {}
+        # Resolve PDK from design (GenericDesign binds it) or env fallback.
+        # Never rely on inherited PDK/PDK_ROOT -- we inject both explicitly
+        # to avoid the layer-conflict bug seen when a GF180 run picked up
+        # an inherited PDK=ihp-sg13g2 from the parent shell.
+        pdk_cfg = self.design.pdk_config() or resolve_pdk()
         pdk_root_str = str(self.design.pdk_root() or "")
-        if "gf180mcu" in pdk_root_str.lower():
-            env_extra["PDK"] = "gf180mcuD"
+
+        env_extra: dict[str, str] = {
+            "PDK": pdk_cfg.librelane_pdk_name,
+        }
+        if pdk_root_str:
+            env_extra["PDK_ROOT"] = pdk_root_str
+
+        logger.info(
+            "[eval %s] PDK=%s PDK_ROOT=%s (design=%s)",
+            eval_num, env_extra["PDK"],
+            env_extra.get("PDK_ROOT", "<unset>"),
+            self.design.project_name(),
+        )
 
         # Ensure nix-provided yosys (0.62+) is on PATH if system yosys is old
         self._prepend_nix_tools(env_extra)
@@ -679,6 +712,7 @@ class DigitalAutoresearchRunner:
             timeout_s=1800,
             shell_wrapper=self.design.shell_wrapper(),
             env_extra=env_extra,
+            extra_flags=pdk_cfg.librelane_extra_flags,
         )
 
         # Write exploration params to config
@@ -727,11 +761,47 @@ class DigitalAutoresearchRunner:
                 "status": "crash",
             }
 
+        # Gate-level simulation gates (signoff-blocking). Post-synth
+        # runs first — a functionally broken netlist never reaches PnR
+        # scoring. Post-PnR with SDF annotation runs next; SDF warnings
+        # are non-blocking (counted in metrics), functional FAIL / no
+        # PASS marker is. Skipped silently when the design has no
+        # iverilog testbench or the PDK has no stdcell model glob.
+        gl_synth = self._run_gl_sim(run_dir, eval_num, pdk_cfg, mode="post_synth")
+        if gl_synth is not None and not gl_synth["success"]:
+            return {
+                "eval": eval_num,
+                "params": params,
+                "success": False,
+                "error": gl_synth["error"],
+                "fom": 0.0,
+                "valid": False,
+                "violations": [],
+                "status": "gl_sim_post_synth_fail",
+                "run_dir": str(run_dir),
+                "gl_sim_log_tail": gl_synth["log_tail"],
+            }
+
+        gl_pnr = self._run_gl_sim(run_dir, eval_num, pdk_cfg, mode="post_pnr")
+        if gl_pnr is not None and not gl_pnr["success"]:
+            return {
+                "eval": eval_num,
+                "params": params,
+                "success": False,
+                "error": gl_pnr["error"],
+                "fom": 0.0,
+                "valid": False,
+                "violations": [],
+                "status": "gl_sim_post_pnr_fail",
+                "run_dir": str(run_dir),
+                "gl_sim_log_tail": gl_pnr["log_tail"],
+            }
+
         metrics = FlowMetrics.from_librelane_run_dir(run_dir)
         fom = self.design.compute_fom(metrics)
         valid, violations = self.design.check_validity(metrics)
 
-        return {
+        result: dict = {
             "eval": eval_num,
             "params": params,
             "success": True,
@@ -746,6 +816,84 @@ class DigitalAutoresearchRunner:
             "run_dir": str(run_dir),
             "run_time_s": flow_result.run_time_s,
         }
+        if gl_synth is not None:
+            result["gl_sim_post_synth_ok"] = gl_synth["success"]
+            result["gl_sim_post_synth_time_s"] = gl_synth["run_time_s"]
+        if gl_pnr is not None:
+            result["gl_sim_post_pnr_ok"] = gl_pnr["success"]
+            result["gl_sim_post_pnr_time_s"] = gl_pnr["run_time_s"]
+            result["gl_sim_sdf_warnings"] = gl_pnr.get("sdf_warnings", 0)
+        return result
+
+    def _run_gl_sim(
+        self,
+        run_dir: Path,
+        eval_num: int,
+        pdk_cfg,
+        *,
+        mode: str,
+    ) -> dict | None:
+        """Run post-synth or post-PnR GL sim against a LibreLane run dir.
+
+        ``mode`` selects :meth:`GlSimRunner.run_post_synth` (``"post_synth"``)
+        or :meth:`GlSimRunner.run_post_pnr` (``"post_pnr"``). Returns a
+        dict with ``success``/``error``/``log_tail``/``run_time_s`` (and
+        ``sdf_warnings`` for ``post_pnr``), or ``None`` when GL sim is
+        not applicable (no testbench, no stdcell glob, no PDK root).
+        """
+        tb = self.design.testbench()
+        if tb is None or tb.driver != "iverilog":
+            return None
+        if not pdk_cfg.stdcell_verilog_models_glob and not self.design.gl_sim_cells_glob():
+            logger.info(
+                "[eval %s] GL sim (%s) skipped: no stdcell_verilog_models_glob "
+                "for PDK %s",
+                eval_num, mode, pdk_cfg.name,
+            )
+            return None
+
+        from eda_agents.core.pdk import resolve_pdk_root
+        from eda_agents.core.stages.gl_sim_runner import GlSimRunner
+        from eda_agents.core.tool_environment import LocalToolEnvironment
+
+        try:
+            pdk_root = resolve_pdk_root(
+                pdk_cfg,
+                explicit_root=(
+                    str(self.design.pdk_root()) if self.design.pdk_root() else None
+                ),
+            )
+        except ValueError as exc:
+            logger.warning(
+                "[eval %s] GL sim (%s) skipped: %s", eval_num, mode, exc
+            )
+            return None
+
+        runner = GlSimRunner(
+            design=self.design,
+            env=LocalToolEnvironment(),
+            run_dir=run_dir,
+            pdk_config=pdk_cfg,
+            pdk_root=pdk_root,
+        )
+        if mode == "post_synth":
+            stage_result = runner.run_post_synth()
+        elif mode == "post_pnr":
+            stage_result = runner.run_post_pnr()
+        else:
+            raise ValueError(f"Unknown GL sim mode {mode!r}")
+
+        out: dict = {
+            "success": stage_result.success,
+            "error": stage_result.error or "",
+            "log_tail": stage_result.log_tail,
+            "run_time_s": stage_result.run_time_s,
+        }
+        if mode == "post_pnr":
+            out["sdf_warnings"] = int(
+                stage_result.metrics_delta.get("gl_sim_sdf_warnings", 0)
+            )
+        return out
 
     def _evaluate_mock(self, params: dict, eval_num: int) -> dict:
         """Load metrics from a JSON fixture instead of running LibreLane."""

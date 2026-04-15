@@ -75,6 +75,10 @@ def _make_design() -> DigitalDesign:
         def rtl_sources(self):
             return [Path("/tmp/test-cc-design/src/top.v")]
 
+        def pdk_config(self):
+            from eda_agents.core.pdk import GF180MCU_D
+            return GF180MCU_D
+
     return _TestDesign()
 
 

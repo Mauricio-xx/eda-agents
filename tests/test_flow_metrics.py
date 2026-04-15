@@ -21,7 +21,8 @@ class TestFlowStage:
         assert "ROUTE" in names
         assert "SIGNOFF_DRC" in names
         assert "PRECHECK" in names
-        assert len(names) == 14
+        assert "GL_SIM_POST_PNR" in names
+        assert len(names) == 15
 
 
 class TestStageResult:

@@ -25,6 +25,7 @@ import yaml
 
 from eda_agents.core.digital_design import DigitalDesign, TestbenchSpec
 from eda_agents.core.flow_metrics import FlowMetrics
+from eda_agents.core.pdk import PdkConfig, resolve_pdk
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,7 @@ class GenericDesign(DigitalDesign):
         design_space_overrides: dict[str, list | tuple] | None = None,
         fom_weights: dict[str, float] | None = None,
         shell_wrapper: str | None = ...,  # sentinel: None = no wrapper
+        pdk_config: PdkConfig | str | None = None,
     ):
         self._config_path = Path(config_path).resolve()
         self._pdk_root = Path(pdk_root) if pdk_root else None
@@ -74,6 +76,7 @@ class GenericDesign(DigitalDesign):
             "timing_w": 1.0, "area_w": 0.5, "power_w": 0.3,
             **(fom_weights or {}),
         }
+        self._pdk = resolve_pdk(pdk_config)
 
         # Read and cache the config
         self._config = self._read_config()
@@ -122,7 +125,7 @@ class GenericDesign(DigitalDesign):
         die_str = f"{die[2]:.0f}x{die[3]:.0f} um" if len(die) >= 4 else "auto-sized"
         vfiles = self._config.get("VERILOG_FILES", "")
         return (
-            f"Digital design '{name}' targeting GF180MCU. "
+            f"Digital design '{name}' targeting {self._pdk.display_name}. "
             f"Clock period: {clock} ns. Die area: {die_str}. "
             f"Verilog: {vfiles}."
         )
@@ -183,6 +186,9 @@ class GenericDesign(DigitalDesign):
     def pdk_root(self) -> Path | None:
         return self._pdk_root
 
+    def pdk_config(self) -> PdkConfig:
+        return self._pdk
+
     def shell_wrapper(self) -> str | None:
         return self._shell_wrapper
 
@@ -242,7 +248,8 @@ class GenericDesign(DigitalDesign):
         name = self._config.get("DESIGN_NAME", "unknown")
         clock = self._config.get("CLOCK_PERIOD", "?")
         return (
-            f"Digital design '{name}' on GF180MCU, clock period {clock} ns. "
+            f"Digital design '{name}' on {self._pdk.display_name}, "
+            f"clock period {clock} ns. "
             f"Config: {self._config_path}. "
             f"Auto-derived design object (GenericDesign) -- no Phase 0 "
             f"characterization available. Default tuning ranges used."

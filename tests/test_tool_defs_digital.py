@@ -67,6 +67,10 @@ def _make_design() -> DigitalDesign:
         def rtl_sources(self):
             return [Path("/work/designs/prompt-test/src/top.v")]
 
+        def pdk_config(self):
+            from eda_agents.core.pdk import GF180MCU_D
+            return GF180MCU_D
+
     return _D()
 
 
@@ -84,6 +88,14 @@ class TestBuildDigitalRtl2gdsPrompt:
         prompt = build_digital_rtl2gds_prompt(_make_design())
         assert "CRITICAL ENVIRONMENT RULE" in prompt
         assert "PDK=gf180mcuD" in prompt
+
+    def test_ihp_override_via_pdk_config_arg(self):
+        """Explicit pdk_config arg overrides the design's own PDK."""
+        prompt = build_digital_rtl2gds_prompt(
+            _make_design(), pdk_config="ihp_sg13g2"
+        )
+        assert "PDK=ihp-sg13g2" in prompt
+        assert "PDK=gf180mcuD" not in prompt
 
     def test_contains_workflow_phases(self):
         prompt = build_digital_rtl2gds_prompt(_make_design())

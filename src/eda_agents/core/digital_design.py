@@ -20,9 +20,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from eda_agents.core.flow_metrics import FlowMetrics
+
+if TYPE_CHECKING:
+    from eda_agents.core.pdk import PdkConfig
 
 
 @dataclass
@@ -177,6 +180,35 @@ class DigitalDesign(ABC):
         should return the per-project PDK path here.
         """
         return None
+
+    def pdk_config(self) -> PdkConfig | None:
+        """PDK config bound to this design, or None to resolve from env.
+
+        When a design knows which PDK it targets (e.g. GenericDesign
+        constructed with ``pdk_config="ihp_sg13g2"``), override this to
+        expose that config. Callers fall back to ``resolve_pdk()`` when
+        this returns None.
+        """
+        return None
+
+    def gl_sim_cells_glob(self) -> str | None:
+        """Glob (pdk_root-relative) for stdcell Verilog models, or None.
+
+        Override to point the GlSimRunner at non-default cell libraries
+        (e.g. a high-density variant). Default ``None`` falls back to
+        ``PdkConfig.stdcell_verilog_models_glob``.
+        """
+        return None
+
+    def gl_sim_dut_instance_path(self) -> str:
+        """Hierarchical path to the DUT instance inside the testbench.
+
+        Used by GlSimRunner to point ``$sdf_annotate`` at the right
+        module. The default assumes the agent follows the prompt
+        convention (``module tb; <design> dut (...);``), i.e.
+        ``"tb.dut"``.
+        """
+        return "tb.dut"
 
     def shell_wrapper(self) -> str | None:
         """Shell command prefix for environments like nix-shell.

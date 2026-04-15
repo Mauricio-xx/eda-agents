@@ -1,28 +1,29 @@
 #!/usr/bin/env python3
-"""Digital RTL-to-GDS flow for GF180MCU designs.
+"""Digital RTL-to-GDS flow for both GF180MCU and IHP SG13G2.
 
-Three entry modes from most to least friction:
+Select the PDK with --pdk {gf180mcu,ihp_sg13g2} (default: EDA_AGENTS_PDK
+env var, falling back to gf180mcu). Three entry modes:
 
   Mode 1 - Expert (named design with Python wrapper):
-    python examples/09_rtl2gds_gf180.py \\
+    python examples/09_rtl2gds_digital.py \\
       --design fazyrv_hachure --backend cc_cli --allow-dangerous
 
   Mode 2 - Bring your config (no Python class needed):
-    python examples/09_rtl2gds_gf180.py \\
+    python examples/09_rtl2gds_digital.py --pdk ihp_sg13g2 \\
       --config /path/to/project/config.yaml \\
-      --pdk-root /path/to/gf180mcu \\
+      --pdk-root /home/montanares/git/IHP-Open-PDK \\
       --backend cc_cli --allow-dangerous
 
   Mode 3 - From spec (idea to GDS, CC CLI only):
-    python examples/09_rtl2gds_gf180.py \\
+    python examples/09_rtl2gds_digital.py --pdk ihp_sg13g2 \\
       --spec "4-bit synchronous counter with enable and async reset" \\
-      --pdk-root /path/to/gf180mcu \\
+      --pdk-root /home/montanares/git/IHP-Open-PDK \\
       --backend cc_cli --allow-dangerous \\
       --work-dir /tmp/my_counter
 
   Dry run (any mode, no LLM calls, <5s):
-    python examples/09_rtl2gds_gf180.py --dry-run
-    python examples/09_rtl2gds_gf180.py --dry-run --spec "counter"
+    python examples/09_rtl2gds_digital.py --dry-run
+    python examples/09_rtl2gds_digital.py --dry-run --pdk ihp_sg13g2 --spec "counter"
 
 Requires:
     pip install eda-agents[adk]          (for ADK backend)
@@ -89,6 +90,7 @@ def load_design_from_config(
     config_path: str,
     pdk_root: str | None,
     fom_weights: dict[str, float] | None = None,
+    pdk: str | None = None,
 ):
     """Mode 2: Create a GenericDesign from a LibreLane config file."""
     from eda_agents.core.designs.generic import GenericDesign
@@ -97,6 +99,7 @@ def load_design_from_config(
         config_path=config_path,
         pdk_root=pdk_root,
         fom_weights=fom_weights,
+        pdk_config=pdk,
     )
 
 
@@ -106,7 +109,9 @@ def resolve_design(args):
         return None  # Mode 3 doesn't use a DigitalDesign object
     fom_weights = parse_fom_weights(getattr(args, "fom_weights", None))
     if args.config:
-        return load_design_from_config(args.config, args.pdk_root, fom_weights)
+        return load_design_from_config(
+            args.config, args.pdk_root, fom_weights, pdk=args.pdk,
+        )
     return load_design_named(args.design, macro=args.macro)
 
 
@@ -160,6 +165,7 @@ async def run_from_spec(args):
     print("=" * 60)
     print(f"  Spec:      {args.spec}")
     print(f"  Work dir:  {work_dir}")
+    print(f"  PDK:       {args.pdk}")
     print(f"  PDK root:  {args.pdk_root}")
     print("  Backend:   cc_cli (forced for --spec)")
 
@@ -167,6 +173,8 @@ async def run_from_spec(args):
         spec=args.spec,
         work_dir=str(work_dir),
         pdk_root=args.pdk_root,
+        pdk_config=args.pdk,
+        librelane_python=args.librelane_python,
     )
 
     if args.dry_run:
@@ -194,7 +202,7 @@ async def run_from_spec(args):
         work_dir=work_dir,
         allow_dangerous=args.allow_dangerous,
         cli_path=args.cli_path,
-        timeout_s=3600,
+        timeout_s=args.timeout,
         max_budget_usd=args.max_budget,
     )
 
@@ -221,6 +229,19 @@ async def run_from_spec(args):
         for line in lines[-30:]:
             print(f"    {line}")
 
+    # Post-flow gate-level sim check against the artefacts the agent
+    # left behind. Skipped only when --skip-gl-sim is set; otherwise a
+    # failing gate exits non-zero so c5/c6 acceptance runs surface the
+    # regression immediately.
+    gl_sim_report: dict | None = None
+    if result.success and not args.skip_gl_sim:
+        gl_sim_report = _post_flow_gl_sim_check(
+            work_dir=work_dir,
+            pdk_key=args.pdk,
+            pdk_root=args.pdk_root,
+        )
+        _print_gl_sim_report(gl_sim_report)
+
     # Save results
     results_file = work_dir / "from_spec_results.json"
     results_file.write_text(json.dumps({
@@ -231,8 +252,138 @@ async def run_from_spec(args):
         "cost_usd": result.total_cost_usd,
         "error": result.error,
         "result_text": result.result_text[-2000:] if result.result_text else "",
-    }, indent=2))
+        "gl_sim": gl_sim_report,
+    }, indent=2, default=str))
     print(f"\n  Results saved: {results_file}")
+
+    if gl_sim_report and not gl_sim_report.get("all_passed", False):
+        sys.exit(1)
+
+
+def _post_flow_gl_sim_check(
+    *,
+    work_dir: Path,
+    pdk_key: str,
+    pdk_root: str,
+) -> dict:
+    """Run post-synth + post-PnR GL sim against the agent's run dir.
+
+    Reads ``{work_dir}/config.yaml`` for DESIGN_NAME, locates the most
+    recent ``{work_dir}/runs/RUN_*/`` directory, reconstructs a minimal
+    DigitalDesign pointing at the agent's testbench, and invokes
+    :class:`GlSimRunner` twice. Returns a dict with per-stage success +
+    error + run-time for inclusion in the result JSON; gate failures
+    propagate to the caller's exit code.
+    """
+    import yaml
+    from eda_agents.core.digital_design import DigitalDesign, TestbenchSpec
+    from eda_agents.core.pdk import get_pdk
+    from eda_agents.core.stages.gl_sim_runner import GlSimRunner
+    from eda_agents.core.tool_environment import LocalToolEnvironment
+
+    pdk_config = get_pdk(pdk_key)
+
+    config_path = work_dir / "config.yaml"
+    if not config_path.is_file():
+        return {
+            "all_passed": False,
+            "error": f"config.yaml not found at {config_path}",
+        }
+    cfg = yaml.safe_load(config_path.read_text()) or {}
+    design_name = cfg.get("DESIGN_NAME")
+    if not design_name:
+        return {
+            "all_passed": False,
+            "error": "DESIGN_NAME missing from config.yaml",
+        }
+
+    runs_root = work_dir / "runs"
+    runs = sorted(runs_root.glob("RUN_*"), key=lambda p: p.stat().st_mtime)
+    if not runs:
+        return {
+            "all_passed": False,
+            "error": f"No LibreLane run directories under {runs_root}",
+        }
+    run_dir = runs[-1]
+
+    tb_path = work_dir / "tb" / f"tb_{design_name}.v"
+    if not tb_path.is_file():
+        return {
+            "all_passed": False,
+            "error": f"Testbench not found at {tb_path}",
+        }
+
+    class _AgentDesign(DigitalDesign):  # noqa: D401 — ad-hoc stub
+        """Minimal DigitalDesign reconstructed from agent artefacts."""
+
+        def project_name(self) -> str: return design_name
+        def specification(self) -> str: return ""
+        def design_space(self): return {}
+        def flow_config_overrides(self): return {}
+        def project_dir(self) -> Path: return work_dir
+        def librelane_config(self) -> Path: return config_path
+        def compute_fom(self, metrics) -> float: return 0.0  # noqa: ARG002
+        def check_validity(self, metrics):  # noqa: ARG002
+            return True, []
+        def prompt_description(self) -> str: return ""
+        def design_vars_description(self) -> str: return ""
+        def specs_description(self) -> str: return ""
+        def fom_description(self) -> str: return ""
+        def reference_description(self) -> str: return ""
+        def testbench(self):
+            return TestbenchSpec(
+                driver="iverilog",
+                target=str(tb_path.relative_to(work_dir)),
+            )
+
+    design = _AgentDesign()
+    runner = GlSimRunner(
+        design=design,
+        env=LocalToolEnvironment(),
+        run_dir=run_dir,
+        pdk_config=pdk_config,
+        pdk_root=pdk_root,
+        design_name=design_name,
+    )
+
+    synth_res = runner.run_post_synth()
+    pnr_res = runner.run_post_pnr()
+
+    return {
+        "all_passed": synth_res.success and pnr_res.success,
+        "run_dir": str(run_dir),
+        "post_synth": {
+            "success": synth_res.success,
+            "error": synth_res.error,
+            "run_time_s": synth_res.run_time_s,
+        },
+        "post_pnr": {
+            "success": pnr_res.success,
+            "error": pnr_res.error,
+            "run_time_s": pnr_res.run_time_s,
+            "sdf_warnings": pnr_res.metrics_delta.get("gl_sim_sdf_warnings", 0),
+        },
+    }
+
+
+def _print_gl_sim_report(report: dict) -> None:
+    print("\n" + "=" * 60)
+    print("Gate-level simulation gates")
+    print("=" * 60)
+    if "error" in report and "run_dir" not in report:
+        print(f"  SKIPPED: {report['error']}")
+        return
+    ps = report["post_synth"]
+    pp = report["post_pnr"]
+    status = lambda ok: "PASS" if ok else "FAIL"  # noqa: E731
+    print(f"  Run dir:        {report['run_dir']}")
+    print(f"  Post-synth:     {status(ps['success'])}  ({ps['run_time_s']:.1f}s)")
+    if not ps["success"]:
+        print(f"    error: {ps['error']}")
+    print(f"  Post-PnR (SDF): {status(pp['success'])}  ({pp['run_time_s']:.1f}s)")
+    if not pp["success"]:
+        print(f"    error: {pp['error']}")
+    print(f"  SDF warnings:   {pp['sdf_warnings']}")
 
 
 # ---------------------------------------------------------------------------
@@ -401,7 +552,7 @@ async def run_full(args):
 
 async def main():
     parser = argparse.ArgumentParser(
-        description="Digital RTL-to-GDS flow for GF180MCU (3 entry modes)"
+        description="Digital RTL-to-GDS flow for GF180MCU or IHP SG13G2 (3 entry modes)"
     )
 
     # Entry mode (mutually exclusive)
@@ -423,8 +574,18 @@ async def main():
     )
 
     parser.add_argument(
+        "--pdk", default=os.environ.get("EDA_AGENTS_PDK", "gf180mcu"),
+        choices=["gf180mcu", "ihp_sg13g2"],
+        help="Target PDK (default: EDA_AGENTS_PDK env var or gf180mcu)",
+    )
+    parser.add_argument(
         "--pdk-root", default=None,
         help="Explicit PDK_ROOT path (required for --config and --spec)",
+    )
+    parser.add_argument(
+        "--librelane-python", default="python3",
+        help="Python interpreter that can run `python3 -m librelane` "
+             "(e.g. /home/.../librelane/.venv/bin/python). Only used by --spec.",
     )
     parser.add_argument(
         "--fom-weights", default=None,
@@ -457,6 +618,11 @@ async def main():
         help="Max budget in USD for CC CLI backend",
     )
     parser.add_argument(
+        "--timeout", type=int, default=3600,
+        help="CC CLI subprocess timeout in seconds (default: 3600 = 1h). "
+             "Increase for long IHP runs where magic streamout can take >1h.",
+    )
+    parser.add_argument(
         "--allow-dangerous", action="store_true",
         help="Enable --dangerously-skip-permissions for CC CLI "
              "(also requires EDA_AGENTS_ALLOW_DANGEROUS=1)",
@@ -468,6 +634,12 @@ async def main():
     parser.add_argument(
         "--dry-run", action="store_true",
         help="Validate setup without running LLM agents",
+    )
+    parser.add_argument(
+        "--skip-gl-sim", action="store_true",
+        help="Skip the post-flow gate-level simulation gate "
+             "(--spec mode only). Defaults to running both post-synth "
+             "and post-PnR GL sim after the agent completes.",
     )
     parser.add_argument(
         "--force", action="store_true",
