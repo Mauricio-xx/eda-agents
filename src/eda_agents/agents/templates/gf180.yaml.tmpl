@@ -20,6 +20,10 @@ VDD_NETS:
 GND_NETS:
   - VSS
 
+# Prefer KLayout-generated GDS for signoff (matches
+# wafer-space/gf180mcu-project-template upstream).
+PRIMARY_GDSII_STREAMOUT_TOOL: klayout
+
 # ESD & Layer Rules (GF180MCU standard)
 DIODE_ON_PORTS: in
 RT_MAX_LAYER: Metal4
