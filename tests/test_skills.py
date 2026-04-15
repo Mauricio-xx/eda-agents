@@ -76,6 +76,7 @@ class TestRegistryCore:
             "analog.orchestrator",
             "analog.adc_metrics",
             "analog.gmid_sizing",
+            "analog.behavioral_primitives",
             "digital.project_manager",
             "digital.verification",
             "digital.synthesis",

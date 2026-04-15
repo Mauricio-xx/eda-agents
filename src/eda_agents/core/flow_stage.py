@@ -37,6 +37,7 @@ class FlowStage(Enum):
     GL_SIM_POST_PNR = auto()    # post-route GL sim with SDF annotation
     PRECHECK = auto()
     VERILOGA_COMPILE = auto()   # Verilog-A -> OSDI compilation (openvaf)
+    XSPICE_COMPILE = auto()     # XSPICE code model (.cm) compilation (cmpp + cc)
 
 
 @dataclass

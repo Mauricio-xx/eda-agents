@@ -66,6 +66,22 @@ class SpiceRunner:
         (e.g. user models compiled from Verilog-A via openvaf). Pass
         the same list through to ``netlist_osdi_lines(pdk,
         extra_osdi=runner.extra_osdi)`` when building the netlist.
+    extra_codemodel : iterable of str or Path, optional
+        Extra XSPICE code-model shared objects (``.cm``) to load before
+        the netlist is parsed. Paths are emitted as ``codemodel <abs>``
+        lines in the transient cwd ``.spiceinit`` alongside any extra
+        OSDI entries. Do not list ngspice's bundled ``.cm`` files here —
+        they are autoloaded at startup and duplicate registration
+        segfaults.
+    preload_pdk_osdi : bool, optional
+        When True (and the PDK publishes OSDI files) the transient
+        ``.spiceinit`` also emits ``osdi`` lines for every PDK OSDI.
+        Use this for fully self-contained decks that cannot rely on a
+        home-directory ``.spiceinit`` to auto-load the PDK models (for
+        example when the deck mixes PSP103 transistors with
+        user-compiled Verilog-A OSDIs or XSPICE ``.cm``s). Default
+        False — the runner keeps the pre-existing behaviour that lets
+        the host ``~/.spiceinit`` handle PDK OSDI load.
     """
 
     def __init__(
@@ -75,6 +91,8 @@ class SpiceRunner:
         corner: str | None = None,
         timeout_s: int = 120,
         extra_osdi: "list[str | Path] | tuple[str | Path, ...] | None" = None,
+        extra_codemodel: "list[str | Path] | tuple[str | Path, ...] | None" = None,
+        preload_pdk_osdi: bool = False,
     ):
         self.pdk = resolve_pdk(pdk)
         root_str = resolve_pdk_root(
@@ -91,6 +109,10 @@ class SpiceRunner:
         self._extra_osdi: tuple[Path, ...] = tuple(
             Path(p).resolve() for p in (extra_osdi or ())
         )
+        self._extra_codemodel: tuple[Path, ...] = tuple(
+            Path(p).resolve() for p in (extra_codemodel or ())
+        )
+        self._preload_pdk_osdi = bool(preload_pdk_osdi)
 
     @property
     def model_lib(self) -> Path:
@@ -113,6 +135,12 @@ class SpiceRunner:
         """User-supplied OSDI libraries loaded on top of the PDK set."""
         return self._extra_osdi
 
+    @property
+    def extra_codemodel(self) -> tuple[Path, ...]:
+        """User-supplied XSPICE code-model ``.cm`` files pre-loaded via
+        the cwd ``.spiceinit`` shim."""
+        return self._extra_codemodel
+
     def validate_pdk(self) -> list[str]:
         """Check that PDK files exist. Returns list of missing paths."""
         missing = []
@@ -133,26 +161,41 @@ class SpiceRunner:
         return env
 
     def _install_extra_osdi_spiceinit(self, work_dir: Path) -> Path | None:
-        """Write a cwd ``.spiceinit`` that pre-loads extra OSDI files.
+        """Write a cwd ``.spiceinit`` that pre-loads extras.
 
         ngspice sources ``./.spiceinit`` before parsing the deck, which
         is the only reliable hook for registering model types defined
         in user-compiled Verilog-A (``osdi`` inside ``.control`` fires
-        after ``.model`` lines are parsed and therefore too late).
+        after ``.model`` lines are parsed and therefore too late) and
+        XSPICE ``A`` devices (same timing constraint applies to
+        ``codemodel``).
 
         Returns the written path (caller is responsible for cleanup)
         or ``None`` when there are no extras.
         """
-        if not self._extra_osdi:
+        pdk_osdi_paths: list[Path] = []
+        if self._preload_pdk_osdi and self._osdi_dir is not None:
+            pdk_osdi_paths = [
+                (self._osdi_dir / f).resolve() for f in self.pdk.osdi_files
+            ]
+        if (
+            not self._extra_osdi
+            and not self._extra_codemodel
+            and not pdk_osdi_paths
+        ):
             return None
         target = work_dir / ".spiceinit"
         if target.exists():
             raise RuntimeError(
-                f"Cannot install extra-OSDI spiceinit: {target} already exists. "
-                "Use a dedicated working directory for SpiceRunner with extra_osdi."
+                f"Cannot install extras spiceinit: {target} already exists. "
+                "Use a dedicated working directory for SpiceRunner with "
+                "extra_osdi / extra_codemodel."
             )
-        lines = ["* eda-agents extra OSDI pre-load (auto-generated)"]
+        lines = ["* eda-agents pre-load (auto-generated)"]
+        lines.extend(f"osdi '{p}'" for p in pdk_osdi_paths)
         lines.extend(f"osdi '{p}'" for p in self._extra_osdi)
+        # codemodel does not accept quoted paths in ngspice-45+, emit raw.
+        lines.extend(f"codemodel {p}" for p in self._extra_codemodel)
         target.write_text("\n".join(lines) + "\n")
         return target
 

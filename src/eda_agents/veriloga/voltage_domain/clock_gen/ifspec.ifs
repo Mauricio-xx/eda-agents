@@ -1,0 +1,29 @@
+NAME_TABLE:
+
+Spice_Model_Name:      ea_clock_gen
+C_Function_Name:       ucm_ea_clock_gen
+Description:           "Free-running voltage clock with configurable period / duty / swing"
+
+
+PORT_TABLE:
+
+Port_Name:             out
+Description:           "clock output"
+Direction:             out
+Default_Type:          v
+Allowed_Types:         [v]
+Vector:                no
+Vector_Bounds:         -
+Null_Allowed:          no
+
+
+PARAMETER_TABLE:
+
+Parameter_Name:        period_s         duty             v_high           v_low            delay_s
+Description:           "period (s)"     "duty (0..1)"    "high level"     "low level"      "initial delay"
+Data_Type:             real             real             real             real             real
+Default_Value:         1.0e-6           0.5              1.0              0.0              0.0
+Limits:                -                [0 1]            -                -                -
+Vector:                no               no               no               no               no
+Vector_Bounds:         -                -                -                -                -
+Null_Allowed:          yes              yes              yes              yes              yes

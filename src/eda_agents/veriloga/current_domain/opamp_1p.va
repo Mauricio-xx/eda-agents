@@ -1,0 +1,40 @@
+// Single-pole op-amp, behavioural.
+//
+// Controlled voltage source: V(out) - V(vss) = V(amp_internal),
+// where amp_internal = a0 * (V(inp) - V(inn)) passed through a single
+// pole at fp_hz. We synthesise the pole with an internal RC network
+// driven by a VCCS of trans-conductance a0/R_int, so the dominant-pole
+// time constant is R_int * C_int = 1/(2*pi*fp_hz). ``R_int`` is fixed
+// at 1 MΩ for numerical range; the capacitor is derived from fp_hz.
+//
+// Authored for eda-agents.
+`include "disciplines.vams"
+`include "constants.vams"
+
+module opamp_1p (inp, inn, out, vss);
+    inout inp, inn, out, vss;
+    electrical inp, inn, out, vss;
+    electrical internal;
+
+    parameter real a0    = 1.0e5 from (1:inf);
+    parameter real fp_hz = 1.0e3 from (0:inf);
+
+    real c_int;
+    real r_int;
+    real gm;
+
+    analog begin
+        r_int = 1.0e6;
+        c_int = 1.0 / (2.0 * `M_PI * fp_hz * r_int);
+        gm    = a0 / r_int;
+
+        // VCCS from diff input to internal node, DC gain a0.
+        I(internal, vss) <+ gm * (V(inp) - V(inn));
+        // Parallel RC to vss sets the pole.
+        I(internal, vss) <+ V(internal, vss) / r_int;
+        I(internal, vss) <+ c_int * ddt(V(internal, vss));
+
+        // Output follows internal 1:1 (unity voltage buffer, zero out R).
+        V(out, vss) <+ V(internal, vss);
+    end
+endmodule

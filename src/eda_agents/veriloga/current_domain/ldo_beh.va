@@ -1,0 +1,37 @@
+// Behavioural LDO with fixed output reference and configurable
+// PSRR / load regulation. Not intended for transient-accurate
+// start-up modelling — it presents the regulated rail to downstream
+// blocks without modelling the pass-transistor dynamics.
+//
+// Authored for eda-agents.
+`include "disciplines.vams"
+
+module ldo_beh (vin, vout, vss);
+    inout vin, vout, vss;
+    electrical vin, vout, vss;
+    electrical internal;
+
+    parameter real vref     = 1.2  from (0:inf);
+    parameter real psrr_db  = 60.0 from (0:inf);
+    parameter real rout_ohm = 0.05 from [0:inf);
+    parameter real bw_hz    = 1.0e6 from (0:inf);
+
+    real c_out;
+    real rin_gain;
+
+    analog begin
+        // PSRR expressed as fraction coupling from vin ripple to
+        // output. psrr_db = 20*log10(Avin/Avout) so coupling factor
+        // is pow(10, -psrr_db/20).
+        rin_gain = pow(10.0, -psrr_db / 20.0);
+        c_out    = 1.0 / (2.0 * 3.141592653589793 * bw_hz * 1.0);
+
+        // Internal node = vref + a small fraction of vin ripple.
+        V(internal, vss) <+ vref + rin_gain * (V(vin, vss) - vref);
+
+        // Output follows internal through an RC bandwidth limit plus
+        // series output impedance (load regulation).
+        I(vout, vss) <+ c_out * ddt(V(vout, vss) - V(internal, vss));
+        I(internal, vout) <+ (V(internal, vout)) / rout_ohm;
+    end
+endmodule

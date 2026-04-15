@@ -208,9 +208,49 @@ Nr1 a 0 m1
 .end
 ```
 
-Verilog-A stage lives at `src/eda_agents/core/stages/veriloga_compile.py`;
-user primitives will land under `src/eda_agents/veriloga/` in a later
-session.
+Verilog-A stage lives at `src/eda_agents/core/stages/veriloga_compile.py`.
+Three current-domain primitives authored in-house ship in
+`src/eda_agents/veriloga/current_domain/`: `filter_1st.va`,
+`opamp_1p.va`, `ldo_beh.va`. They are referenced by the
+`analog.behavioral_primitives` skill and exercised by
+`tests/test_veriloga_current_primitives.py -m veriloga`.
+
+## Behavioural primitives — XSPICE (voltage-domain)
+
+XSPICE code models fill the gap where pure Verilog-A cannot express
+event-driven voltage-domain behaviour (comparator edges, clock
+generators, edge-triggered latches). Sources live in
+`src/eda_agents/veriloga/voltage_domain/<primitive>/{cfunc.mod,
+ifspec.ifs}` and are compiled by
+`eda_agents.core.stages.xspice_compile.XSpiceCompiler` into a single
+`.cm` shared object loaded via `codemodel` lines injected by
+`SpiceRunner(extra_codemodel=...)`.
+
+The compiler needs an ngspice source tree with `cmpp` built and
+in-tree headers. On developer machines this is typically absent, so
+the repo ships a pinned container image:
+
+```bash
+# Builds the image on first use (ngspice-45 + openvaf 23.5.0).
+scripts/xspice_docker.sh pytest -m xspice tests/test_xspice_primitives.py
+```
+
+See `docker/README.md` for details. The `xspice` pytest marker gates
+all tests that need the toolchain, so native `pytest -m "not xspice"`
+runs stay unaffected on hosts without the compiler chain.
+
+Primitives shipped:
+
+- `ea_comparator_ideal(inp, inn, out)` with hysteresis + bounded
+  output swing.
+- `ea_clock_gen(out)` with `period_s`, `duty`, `v_high`, `v_low`,
+  `delay_s`.
+- `ea_opamp_ideal(inp, inn, out)` — behavioural single-pole op-amp.
+- `ea_edge_sampler(din, clk, q)` — rising-edge D-latch.
+
+The behavioural SAR comparator kit lives at
+`src/eda_agents/topologies/sar_adc_8bit_behavioral.py`; it's the
+Session-7 seed for the full SAR ADC behavioural variant.
 
 ## LibreLane templates
 

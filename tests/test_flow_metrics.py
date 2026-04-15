@@ -23,7 +23,8 @@ class TestFlowStage:
         assert "PRECHECK" in names
         assert "GL_SIM_POST_PNR" in names
         assert "VERILOGA_COMPILE" in names
-        assert len(names) == 16
+        assert "XSPICE_COMPILE" in names
+        assert len(names) == 17
 
 
 class TestStageResult:
