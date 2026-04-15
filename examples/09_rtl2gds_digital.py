@@ -202,7 +202,7 @@ async def run_from_spec(args):
         work_dir=work_dir,
         allow_dangerous=args.allow_dangerous,
         cli_path=args.cli_path,
-        timeout_s=3600,
+        timeout_s=args.timeout,
         max_budget_usd=args.max_budget,
     )
 
@@ -473,6 +473,11 @@ async def main():
     parser.add_argument(
         "--max-budget", type=float, default=None,
         help="Max budget in USD for CC CLI backend",
+    )
+    parser.add_argument(
+        "--timeout", type=int, default=3600,
+        help="CC CLI subprocess timeout in seconds (default: 3600 = 1h). "
+             "Increase for long IHP runs where magic streamout can take >1h.",
     )
     parser.add_argument(
         "--allow-dangerous", action="store_true",

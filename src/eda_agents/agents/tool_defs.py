@@ -1521,6 +1521,14 @@ Phase 3 - GENERATE LIBRELANE CONFIG:
 Phase 4 - RUN LIBRELANE FLOW:
   cd {work_dir} && {nix_path_prefix}PDK_ROOT={pdk_root} PDK={librelane_pdk} \\
     {librelane_python} -m librelane config.yaml --overwrite{extra_flags_suffix}
+
+  IMPORTANT: on IHP SG13G2, some steps (notably Magic.StreamOut and
+  Magic.SpiceExtraction) can take 20-60+ minutes even for trivial
+  designs -- this is known PDK+Magic slowness, not a bug in your flow.
+  When invoking the Bash tool for LibreLane, set a high timeout (e.g.
+  timeout=3600000 ms = 1h, or launch with run_in_background and poll)
+  and be patient. Do NOT kill or restart the process because it seems
+  slow; only restart if it actually errors out.
   This runs synthesis, floorplanning, placement, CTS, routing, and signoff.
   It takes 2-15 minutes depending on design size.
 

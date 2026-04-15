@@ -93,9 +93,43 @@ IHP_SG13G2_CONFIG_TEMPLATE = """\
 # IHP SG13G2 LibreLane config (auto-generated from spec, Classic flow)
 # Fill in: DESIGN_NAME, VERILOG_FILES, CLOCK_PORT, CLOCK_PERIOD
 
+# The IHP magic tech file on recent IHP-Open-PDK dev branches
+# (>685 commits past the LibreLane-qualified revision cb7daaa8) hangs on
+# Magic.StreamOut and errors out Magic.SpiceExtraction. We bypass the
+# whole Magic chain and use KLayout for streamout, DRC, and LVS -- this
+# is the signoff path recommended by the IHP-Open-PDK team itself
+# (`PRIMARY_GDSII_STREAMOUT_TOOL = klayout` in their librelane config).
 meta:
   version: 3
   flow: Classic
+  substituting_steps:
+    Magic.StreamOut: null
+    Magic.WriteLEF: null
+    Magic.SpiceExtraction: null
+    Magic.DRC: null
+    Checker.MagicDRC: null
+    Checker.IllegalOverlap: null
+    # WriteLEF hangs the same way StreamOut does; the downstream
+    # antenna-properties check needs the LEF it would have produced,
+    # so we skip that check too (signoff antenna info still comes from
+    # the in-flow OpenROAD.CheckAntennas + KLayout.DRC antenna rules).
+    Odb.CheckDesignAntennaProperties: null
+    # LVS is currently disabled on IHP: the KLayout LVS deck in the
+    # current dev IHP-Open-PDK errors out parsing the stdcell CDLs
+    # (`Can't find a value for a R, C or L device`). We produce a
+    # clean GDS + KLayout.DRC signoff without LVS until upstream
+    # resolves the deck issue. Netgen.LVS is also dropped because it
+    # depends on Magic.SpiceExtraction which we already skip.
+    Netgen.LVS: null
+    Checker.LVS: null
+
+# Belt-and-braces: also gate the Magic steps through their RUN_* vars
+# so the flow runs cleanly even when substitutions are removed.
+RUN_MAGIC_STREAMOUT: false
+RUN_MAGIC_WRITE_LEF: false
+RUN_MAGIC_DRC: false
+RUN_KLAYOUT_XOR: false  # XOR needs both streamouts; skipped since magic is off
+RUN_LVS: false          # IHP KLayout LVS deck upstream issue (see substituting_steps)
 
 DESIGN_NAME: {design_name}
 VERILOG_FILES:
