@@ -156,6 +156,27 @@ for analytical sizing) or a full `CircuitTopology` subclass. Current:
 `utils/vlnggen.py` handles Verilog compilation; `utils/detect.py`
 detects EDA project layouts.
 
+## LibreLane templates
+
+Two RTL-to-GDS config templates live at
+`src/eda_agents/agents/templates/{gf180,ihp_sg13g2}.yaml.tmpl` and are
+loaded via `importlib.resources` by
+`src/eda_agents/agents/librelane_config_templates.py`. They are
+**infrastructure, not design knobs** — mirror upstream conventions
+where applicable, do not tune them for QoR. Autoresearch optimises
+designs, never templates.
+
+The upstream project templates that inform ours are pinned as git
+submodules under `external/` (reference only, not build inputs). A
+parity script
+(`scripts/check_librelane_template_upstream.py`) enforces that
+curated verbatim fields (VDD/VSS, `meta.version`,
+`PRIMARY_GDSII_STREAMOUT_TOOL`) stay in sync when both sides define
+them, and logs informational deltas otherwise. See
+`docs/librelane_templates.md` for the full workflow and upstream-bump
+process. Contributors must `git submodule update --init --recursive`
+to run the parity test.
+
 ## Adding a new topology
 
 Implement `CircuitTopology` (`src/eda_agents/core/topology.py`) and
