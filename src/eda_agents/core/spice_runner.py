@@ -20,6 +20,18 @@ from eda_agents.core.pdk import PdkConfig, resolve_pdk, resolve_pdk_root
 # Regex for parsing .meas output lines: "name = 1.234e+05"
 _MEAS_RE = re.compile(r"=\s*([-+]?\d+\.?\d*(?:e[-+]?\d+)?)", re.IGNORECASE)
 
+# Stricter shape for a real ngspice ``.meas`` line: a single bare token,
+# whitespace on both sides of ``=``, and a numeric tail (optionally
+# followed by units / annotations). ngspice ``.meas`` output always has
+# the form ``adc                 =  5.55000e+01`` whereas info lines like
+# ``Doing analysis at temp = 27.0`` start with multiple words. Anchoring
+# at line start with a single ``\w+`` token keeps the parser from
+# vacuuming up status messages (caught while running ``examples/14``).
+_MEAS_LINE_RE = re.compile(
+    r"^([A-Za-z_]\w*)\s*=\s*([-+]?\d+\.?\d*(?:e[-+]?\d+)?)\b",
+    re.IGNORECASE,
+)
+
 
 @dataclass
 class SpiceResult:
@@ -388,33 +400,34 @@ class SpiceRunner:
         for line in stdout.splitlines():
             stripped = line.strip().lower()
 
-            # Skip lines without '=' (not measurement output)
-            if "=" not in stripped:
+            # Strict shape gate: only ``token = number`` lines count as
+            # measurements. Without this, info / status lines containing
+            # ``=`` (e.g. "Doing analysis at temp = 27.0") leak into the
+            # measurements dict — caught by examples/14 audit.
+            match = _MEAS_LINE_RE.match(stripped)
+            if not match:
                 continue
-
-            # Try to parse a measurement value
-            val = _parse_meas_value(stripped)
-            if val is None:
+            name = match.group(1)
+            try:
+                val = float(match.group(2))
+            except ValueError:
                 continue
 
             # Route to known fields
-            if stripped.startswith("adc_peak"):
+            if name.startswith("adc_peak"):
                 result.Adc_peak_dB = val
                 result.measurements["Adc_peak_dB"] = val
-            elif stripped.startswith("adc") and not stripped.startswith("adc_"):
+            elif name == "adc":
                 result.Adc_dB = val
                 result.measurements["Adc_dB"] = val
-            elif stripped.startswith("gbw"):
+            elif name == "gbw":
                 result.GBW_Hz = val
                 result.measurements["GBW_Hz"] = val
-            elif stripped.startswith("pgbw") and not stripped.startswith("pgbw_"):
+            elif name == "pgbw":
                 result.PM_deg = val
                 result.measurements["PM_deg"] = val
             else:
-                # Store any other measurement by its name
-                name = stripped.split("=")[0].strip()
-                if name:
-                    result.measurements[name] = val
+                result.measurements[name] = val
 
         return result
 
