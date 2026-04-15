@@ -1,0 +1,6 @@
+[submodule "external/ihp-sg13g2-librelane-template"]
+	path = external/ihp-sg13g2-librelane-template
+	url = https://github.com/IHP-GmbH/ihp-sg13g2-librelane-template.git
+[submodule "external/gf180mcu-project-template"]
+	path = external/gf180mcu-project-template
+	url = https://github.com/wafer-space/gf180mcu-project-template.git
