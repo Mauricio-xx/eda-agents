@@ -183,11 +183,35 @@ accidental drift.
 ### GF180: macro-only Classic
 
 - No `meta.flow` (Classic is the LibreLane default).
+- `meta.version: 3` declared explicitly, matching upstream. (Before
+  2026-04-15 we inherited the LibreLane v3 default; making it
+  explicit closes a parity-script `verbatim skip`.)
+- `PRIMARY_GDSII_STREAMOUT_TOOL: klayout`, matching upstream. Adopted
+  after the GF180 real E2E validated clean KLayout signoff; replaces
+  the prior inherited magic default.
 - No padring/macros. `PL_TARGET_DENSITY_PCT: 65` (upstream: 35 for a
   much larger chip). `DIODE_ON_PORTS: in`.
-- Uses magic for streamout today (no `PRIMARY_GDSII_STREAMOUT_TOOL`
-  override). Upstream selects klayout — adopting that is a separate
-  decision, out of scope for the template-architecture migration.
+
+## Scoped-out items (deferred by design)
+
+These are explicitly NOT goals of the template layer and will not be
+added without a scope-expansion decision:
+
+- **Chip-flow with padring on IHP.** Upstream
+  `ihp-sg13g2-librelane-template` is Chip-flow with bondpads and I/O
+  cell placement per side (`PAD_NORTH/SOUTH/EAST/WEST`). We ship
+  Classic-flow macro-only because our entry point is RTL-to-GDS for
+  pre-silicon exploration and teaching, not full-chip tape-out. The
+  informational-fields bucket in the parity script already logs the
+  `PAD_*` + `MACROS` divergences; any future chip-flow work would
+  add a second template, not retrofit this one.
+- **Hand-written `IhpSg13G2SocDesign` class.** `GenericDesign` derives
+  all 13 `DigitalDesign` methods from a LibreLane config file, so
+  there is no gap the hand-written class would fill today. If a
+  specific IHP design later needs behaviour `GenericDesign` cannot
+  express (e.g., custom FoM, per-macro flow-config tuning), a
+  purpose-built subclass can be added then — but speculatively
+  shipping one is dead code.
 
 ## Licensing
 
