@@ -16,6 +16,7 @@ venv/
 .pytest_cache/
 .mypy_cache/
 SESSION_LOG.md
+SESSION_HANDOFF.md
 data/gf180-template/
 trackd_results/
 .venv-glayout/
