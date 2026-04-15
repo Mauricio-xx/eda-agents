@@ -1475,12 +1475,30 @@ Phase 2 - LINT:
 
 Phase 2.5 - WRITE TESTBENCH AND SIMULATE:
   Create {work_dir}/tb/tb_<design_name>.v with a basic testbench:
-  - Instantiate the DUT with all ports connected
+  - Module name must be `tb`.
+  - Instantiate the DUT with the instance name `dut` (e.g.
+    `<design_name> dut (...);`). This is not cosmetic: the gate-level
+    SDF-annotation stage anchors on `tb.dut`.
   - Apply reset sequence (assert rst_n=0 for 5 cycles, then release)
+    BEFORE any correctness check runs.
   - Drive representative input patterns covering normal operation
   - Use $display to print key outputs and verify against expected values
-  - End with $display("PASS") or $display("FAIL") and $finish
+  - End with $display("PASS") or $display("FAIL") and $finish. The
+    gate-level sim stages require the "PASS" string to appear — a TB
+    that hangs in reset or finishes silently is treated as FAIL.
   - Use `timescale 1ns/1ps
+
+  Gate-level-safe constraints (THIS TESTBENCH ALSO RUNS POST-SYNTH
+  AND POST-PnR WITH SDF ANNOTATION; rules below are not optional):
+  - No absolute `#N` delays driving DUT inputs. SDF provides timing;
+    fixed `#` delays corrupt the annotated model. Use clocked
+    stimulus instead (`@(posedge clk)`).
+  - Do not compare against a known value during the first post-reset
+    clock window; registers start at `x` under gate-level and X-prop
+    will make `===`/`!==` checks false-alarm. Wait at least one full
+    clock after reset release before the first correctness check.
+  - No `initial` blocks that drive DUT inputs without going through
+    the reset sequence first.
 
   Run:
     mkdir -p {work_dir}/tb
@@ -1490,7 +1508,8 @@ Phase 2.5 - WRITE TESTBENCH AND SIMULATE:
 
   The simulation MUST pass before proceeding. Fix RTL or testbench if it
   fails. This testbench will be reused later to verify that RTL
-  optimizations preserve functional correctness.
+  optimizations preserve functional correctness AND that the post-synth
+  and post-PnR netlists still simulate correctly.
 
 Phase 3 - GENERATE LIBRELANE CONFIG:
   Create {work_dir}/config.yaml with the following template, filling in

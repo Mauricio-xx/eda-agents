@@ -761,11 +761,31 @@ class DigitalAutoresearchRunner:
                 "status": "crash",
             }
 
+        # Gate-level simulation gates (signoff-blocking). The post-synth
+        # check runs before FoM so a functionally-broken netlist is
+        # never scored as a keep. Skipped silently when the design has
+        # no iverilog testbench or the PDK has no stdcell model glob —
+        # in those cases RTL sim is the only verification layer.
+        gl_result = self._run_gl_sim_post_synth(run_dir, eval_num, pdk_cfg)
+        if gl_result is not None and not gl_result["success"]:
+            return {
+                "eval": eval_num,
+                "params": params,
+                "success": False,
+                "error": gl_result["error"],
+                "fom": 0.0,
+                "valid": False,
+                "violations": [],
+                "status": "gl_sim_post_synth_fail",
+                "run_dir": str(run_dir),
+                "gl_sim_log_tail": gl_result["log_tail"],
+            }
+
         metrics = FlowMetrics.from_librelane_run_dir(run_dir)
         fom = self.design.compute_fom(metrics)
         valid, violations = self.design.check_validity(metrics)
 
-        return {
+        result: dict = {
             "eval": eval_num,
             "params": params,
             "success": True,
@@ -779,6 +799,66 @@ class DigitalAutoresearchRunner:
             "wire_length_um": metrics.wire_length_um,
             "run_dir": str(run_dir),
             "run_time_s": flow_result.run_time_s,
+        }
+        if gl_result is not None:
+            result["gl_sim_post_synth_ok"] = gl_result["success"]
+            result["gl_sim_post_synth_time_s"] = gl_result["run_time_s"]
+        return result
+
+    def _run_gl_sim_post_synth(
+        self,
+        run_dir: Path,
+        eval_num: int,
+        pdk_cfg,
+    ) -> dict | None:
+        """Run post-synth GL sim against a completed LibreLane run dir.
+
+        Returns a dict with ``success``/``error``/``log_tail``/
+        ``run_time_s`` keys, or ``None`` when GL sim is not applicable
+        (no testbench, no stdcell glob, missing iverilog). The caller
+        treats a non-None failure as signoff-blocking.
+        """
+        # Skip when the design has no iverilog testbench (GL sim via
+        # cocotb is out of scope for this milestone).
+        tb = self.design.testbench()
+        if tb is None or tb.driver != "iverilog":
+            return None
+        if not pdk_cfg.stdcell_verilog_models_glob and not self.design.gl_sim_cells_glob():
+            logger.info(
+                "[eval %s] GL sim skipped: no stdcell_verilog_models_glob "
+                "for PDK %s",
+                eval_num, pdk_cfg.name,
+            )
+            return None
+
+        from eda_agents.core.pdk import resolve_pdk_root
+        from eda_agents.core.stages.gl_sim_runner import GlSimRunner
+        from eda_agents.core.tool_environment import LocalToolEnvironment
+
+        try:
+            pdk_root = resolve_pdk_root(
+                pdk_cfg,
+                explicit_root=(
+                    str(self.design.pdk_root()) if self.design.pdk_root() else None
+                ),
+            )
+        except ValueError as exc:
+            logger.warning("[eval %s] GL sim skipped: %s", eval_num, exc)
+            return None
+
+        runner = GlSimRunner(
+            design=self.design,
+            env=LocalToolEnvironment(),
+            run_dir=run_dir,
+            pdk_config=pdk_cfg,
+            pdk_root=pdk_root,
+        )
+        stage_result = runner.run_post_synth()
+        return {
+            "success": stage_result.success,
+            "error": stage_result.error or "",
+            "log_tail": stage_result.log_tail,
+            "run_time_s": stage_result.run_time_s,
         }
 
     def _evaluate_mock(self, params: dict, eval_num: int) -> dict:

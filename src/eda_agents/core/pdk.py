@@ -92,6 +92,20 @@ class PdkConfig:
     rt_max_layer: str = "Metal4"            # GF180 default; IHP = TopMetal2
     librelane_config_template: str = "gf180"  # key consumed by get_config_template()
 
+    # ---- Gate-level simulation (GlSimRunner) ---------------------------
+    # Glob (pdk_root-relative) matching the stdcell Verilog models the
+    # runner hands to iverilog for post-synth and post-PnR GL sim. Both
+    # built-in PDKs ship models with ``specify`` blocks, so SDF
+    # annotation can anchor on top.
+    stdcell_verilog_models_glob: str = ""
+    # Reserved for PDKs that split behavioural and timing-aware models
+    # across different directories. Unused today; kept so future PDKs
+    # can override without a schema change.
+    stdcell_verilog_timing_glob: str | None = None
+    # STA corner name used to pick the default SDF file under
+    # ``<run>/final/sdf/<corner>/`` for post-PnR GL sim.
+    default_sta_corner: str = ""
+
     def has_osdi(self) -> bool:
         """Whether this PDK requires OSDI shared-library loading."""
         return bool(self.osdi_dir_rel and self.osdi_files)
@@ -175,6 +189,17 @@ IHP_SG13G2 = PdkConfig(
     default_density_pct=50,         # start conservative; tuneable per design
     rt_max_layer="TopMetal2",
     librelane_config_template="ihp_sg13g2",
+
+    # Gate-level simulation: stdcell + UDP models live here. The glob
+    # matches both sg13g2_stdcell.v and sg13g2_udp.v (the UDP file
+    # defines flip-flop primitives the stdcells reference).
+    stdcell_verilog_models_glob=(
+        "ihp-sg13g2/libs.ref/sg13g2_stdcell/verilog/*.v"
+    ),
+    # LibreLane STAPostPNR writes SDFs under final/sdf/<corner>/ where
+    # <corner> is nom_{process}_{voltage}V_{temperature}C. Typical
+    # corner is `nom_typ_1p20V_25C` for 1.2 V / 25 C.
+    default_sta_corner="nom_typ_1p20V_25C",
 )
 
 GF180MCU_D = PdkConfig(
@@ -229,6 +254,17 @@ GF180MCU_D = PdkConfig(
     default_density_pct=65,
     rt_max_layer="Metal4",
     librelane_config_template="gf180",
+
+    # Gate-level simulation: stdcell Verilog + UDP primitives. Glob
+    # matches both gf180mcu_fd_sc_mcu7t5v0.v and primitives.v.
+    stdcell_verilog_models_glob=(
+        "gf180mcuD/libs.ref/gf180mcu_fd_sc_mcu7t5v0/verilog/*.v"
+    ),
+    # Typical corner for 3v3 flow. Confirmed against the stdcell lib
+    # directory (tt_025C_3v30.lib). Actual SDF directory naming is
+    # confirmed when a real GF180 LibreLane run lands; the runner
+    # falls back to the first SDF found if this exact name is missing.
+    default_sta_corner="nom_tt_025C_3v30",
 )
 
 
