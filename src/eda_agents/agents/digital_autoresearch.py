@@ -761,24 +761,40 @@ class DigitalAutoresearchRunner:
                 "status": "crash",
             }
 
-        # Gate-level simulation gates (signoff-blocking). The post-synth
-        # check runs before FoM so a functionally-broken netlist is
-        # never scored as a keep. Skipped silently when the design has
-        # no iverilog testbench or the PDK has no stdcell model glob —
-        # in those cases RTL sim is the only verification layer.
-        gl_result = self._run_gl_sim_post_synth(run_dir, eval_num, pdk_cfg)
-        if gl_result is not None and not gl_result["success"]:
+        # Gate-level simulation gates (signoff-blocking). Post-synth
+        # runs first — a functionally broken netlist never reaches PnR
+        # scoring. Post-PnR with SDF annotation runs next; SDF warnings
+        # are non-blocking (counted in metrics), functional FAIL / no
+        # PASS marker is. Skipped silently when the design has no
+        # iverilog testbench or the PDK has no stdcell model glob.
+        gl_synth = self._run_gl_sim(run_dir, eval_num, pdk_cfg, mode="post_synth")
+        if gl_synth is not None and not gl_synth["success"]:
             return {
                 "eval": eval_num,
                 "params": params,
                 "success": False,
-                "error": gl_result["error"],
+                "error": gl_synth["error"],
                 "fom": 0.0,
                 "valid": False,
                 "violations": [],
                 "status": "gl_sim_post_synth_fail",
                 "run_dir": str(run_dir),
-                "gl_sim_log_tail": gl_result["log_tail"],
+                "gl_sim_log_tail": gl_synth["log_tail"],
+            }
+
+        gl_pnr = self._run_gl_sim(run_dir, eval_num, pdk_cfg, mode="post_pnr")
+        if gl_pnr is not None and not gl_pnr["success"]:
+            return {
+                "eval": eval_num,
+                "params": params,
+                "success": False,
+                "error": gl_pnr["error"],
+                "fom": 0.0,
+                "valid": False,
+                "violations": [],
+                "status": "gl_sim_post_pnr_fail",
+                "run_dir": str(run_dir),
+                "gl_sim_log_tail": gl_pnr["log_tail"],
             }
 
         metrics = FlowMetrics.from_librelane_run_dir(run_dir)
@@ -800,34 +816,39 @@ class DigitalAutoresearchRunner:
             "run_dir": str(run_dir),
             "run_time_s": flow_result.run_time_s,
         }
-        if gl_result is not None:
-            result["gl_sim_post_synth_ok"] = gl_result["success"]
-            result["gl_sim_post_synth_time_s"] = gl_result["run_time_s"]
+        if gl_synth is not None:
+            result["gl_sim_post_synth_ok"] = gl_synth["success"]
+            result["gl_sim_post_synth_time_s"] = gl_synth["run_time_s"]
+        if gl_pnr is not None:
+            result["gl_sim_post_pnr_ok"] = gl_pnr["success"]
+            result["gl_sim_post_pnr_time_s"] = gl_pnr["run_time_s"]
+            result["gl_sim_sdf_warnings"] = gl_pnr.get("sdf_warnings", 0)
         return result
 
-    def _run_gl_sim_post_synth(
+    def _run_gl_sim(
         self,
         run_dir: Path,
         eval_num: int,
         pdk_cfg,
+        *,
+        mode: str,
     ) -> dict | None:
-        """Run post-synth GL sim against a completed LibreLane run dir.
+        """Run post-synth or post-PnR GL sim against a LibreLane run dir.
 
-        Returns a dict with ``success``/``error``/``log_tail``/
-        ``run_time_s`` keys, or ``None`` when GL sim is not applicable
-        (no testbench, no stdcell glob, missing iverilog). The caller
-        treats a non-None failure as signoff-blocking.
+        ``mode`` selects :meth:`GlSimRunner.run_post_synth` (``"post_synth"``)
+        or :meth:`GlSimRunner.run_post_pnr` (``"post_pnr"``). Returns a
+        dict with ``success``/``error``/``log_tail``/``run_time_s`` (and
+        ``sdf_warnings`` for ``post_pnr``), or ``None`` when GL sim is
+        not applicable (no testbench, no stdcell glob, no PDK root).
         """
-        # Skip when the design has no iverilog testbench (GL sim via
-        # cocotb is out of scope for this milestone).
         tb = self.design.testbench()
         if tb is None or tb.driver != "iverilog":
             return None
         if not pdk_cfg.stdcell_verilog_models_glob and not self.design.gl_sim_cells_glob():
             logger.info(
-                "[eval %s] GL sim skipped: no stdcell_verilog_models_glob "
+                "[eval %s] GL sim (%s) skipped: no stdcell_verilog_models_glob "
                 "for PDK %s",
-                eval_num, pdk_cfg.name,
+                eval_num, mode, pdk_cfg.name,
             )
             return None
 
@@ -843,7 +864,9 @@ class DigitalAutoresearchRunner:
                 ),
             )
         except ValueError as exc:
-            logger.warning("[eval %s] GL sim skipped: %s", eval_num, exc)
+            logger.warning(
+                "[eval %s] GL sim (%s) skipped: %s", eval_num, mode, exc
+            )
             return None
 
         runner = GlSimRunner(
@@ -853,13 +876,24 @@ class DigitalAutoresearchRunner:
             pdk_config=pdk_cfg,
             pdk_root=pdk_root,
         )
-        stage_result = runner.run_post_synth()
-        return {
+        if mode == "post_synth":
+            stage_result = runner.run_post_synth()
+        elif mode == "post_pnr":
+            stage_result = runner.run_post_pnr()
+        else:
+            raise ValueError(f"Unknown GL sim mode {mode!r}")
+
+        out: dict = {
             "success": stage_result.success,
             "error": stage_result.error or "",
             "log_tail": stage_result.log_tail,
             "run_time_s": stage_result.run_time_s,
         }
+        if mode == "post_pnr":
+            out["sdf_warnings"] = int(
+                stage_result.metrics_delta.get("gl_sim_sdf_warnings", 0)
+            )
+        return out
 
     def _evaluate_mock(self, params: dict, eval_num: int) -> dict:
         """Load metrics from a JSON fixture instead of running LibreLane."""

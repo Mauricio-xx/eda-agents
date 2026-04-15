@@ -147,19 +147,75 @@ class GlSimRunner:
             t0=t0,
         )
 
-    # run_post_pnr is introduced in the SDF-annotation commit; defined
-    # here as a stub so callers that probe via hasattr get a clean
-    # NotImplementedError rather than AttributeError.
     def run_post_pnr(self, corner: str | None = None) -> StageResult:
-        """Post-PnR GL sim with SDF annotation.
+        """Post-PnR GL sim with SDF timing annotation.
 
-        Not implemented in this commit; arrives with the post-PnR SDF
-        gate. The ``corner`` parameter will select a specific SDF under
-        ``final/sdf/<corner>/``; when ``None``, the runner will fall
-        back to :attr:`PdkConfig.default_sta_corner`.
+        Compiles the post-PnR netlist at ``final/pnl/<design>.pnl.v``,
+        the stdcell models, and the agent's testbench — plus a
+        dynamically generated wrapper that issues
+        ``$sdf_annotate("<abs-sdf-path>", <dut-instance-path>)``. The
+        ``corner`` arg selects ``final/sdf/<corner>/`` explicitly; when
+        ``None``, the runner uses :attr:`PdkConfig.default_sta_corner`
+        and falls back to the first SDF directory available if the
+        named corner is missing (with a warning).
+
+        SDF annotation warnings (negative delays, unresolved specify
+        paths, incomplete timing arcs) are counted in
+        ``metrics_delta['gl_sim_sdf_warnings']`` and do NOT block;
+        only functional FAIL / missing PASS marker gates the stage.
         """
-        raise NotImplementedError(
-            "run_post_pnr requires the SDF-annotation commit"
+        t0 = time.monotonic()
+
+        netlist = self._find_post_pnr_netlist()
+        if netlist is None:
+            return self._fail(
+                FlowStage.GL_SIM_POST_PNR,
+                "Post-PnR netlist not found under "
+                f"{self.run_dir}/final/pnl/{self.design_name}.pnl.v",
+                t0,
+            )
+
+        sdf = self._find_sdf(corner)
+        if sdf is None:
+            return self._fail(
+                FlowStage.GL_SIM_POST_PNR,
+                "Post-PnR SDF not found under "
+                f"{self.run_dir}/final/sdf/ (tried corner "
+                f"{corner or self.pdk_config.default_sta_corner!r})",
+                t0,
+            )
+
+        cell_sources = self._resolve_cell_sources()
+        if not cell_sources:
+            return self._fail(
+                FlowStage.GL_SIM_POST_PNR,
+                "No stdcell Verilog models resolved: "
+                f"glob {self._cells_glob()!r} matched nothing under "
+                f"{self.pdk_root}",
+                t0,
+            )
+
+        tb_path = self._tb_path()
+        if tb_path is None:
+            return self._fail(
+                FlowStage.GL_SIM_POST_PNR,
+                "Design has no iverilog-compatible testbench",
+                t0,
+            )
+
+        work_dir = self.run_dir / "gl_sim" / "post_pnr"
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        wrapper = self._write_sdf_wrapper(work_dir, sdf)
+
+        return self._invoke(
+            stage=FlowStage.GL_SIM_POST_PNR,
+            work_dir=work_dir,
+            sources=[
+                *cell_sources, str(netlist), str(tb_path), str(wrapper),
+            ],
+            sdf_path=sdf,
+            t0=t0,
         )
 
     # ------------------------------------------------------------------
@@ -180,6 +236,75 @@ class GlSimRunner:
                 pattern, matches[-1],
             )
         return Path(matches[-1])
+
+    def _find_post_pnr_netlist(self) -> Path | None:
+        """Look for ``<run>/final/pnl/<design>.pnl.v`` (LibreLane v3)."""
+        candidate = self.run_dir / "final" / "pnl" / f"{self.design_name}.pnl.v"
+        if candidate.is_file():
+            return candidate
+        # Older LibreLane layouts put the post-PnR netlist directly under
+        # ``final/`` or ``final/verilog/gl/``; glob as a fallback.
+        for pattern in (
+            "final/verilog/gl/*.pnl.v",
+            "final/verilog/gl/*.nl.v",
+            "final/pnl/*.v",
+        ):
+            matches = sorted(glob.glob(str(self.run_dir / pattern)))
+            if matches:
+                return Path(matches[-1])
+        return None
+
+    def _find_sdf(self, corner: str | None) -> Path | None:
+        """Locate a usable SDF file under ``<run>/final/sdf/``.
+
+        Resolution order:
+        1. ``final/sdf/<corner>/<design>__<corner>.sdf`` when caller
+           passes ``corner``.
+        2. Same pattern with :attr:`PdkConfig.default_sta_corner`.
+        3. First SDF file found anywhere under ``final/sdf/`` (with a
+           warning logged so reviewers notice the fallback).
+        """
+        sdf_root = self.run_dir / "final" / "sdf"
+        if not sdf_root.is_dir():
+            return None
+
+        preferred = corner or self.pdk_config.default_sta_corner
+        if preferred:
+            named = sdf_root / preferred / f"{self.design_name}__{preferred}.sdf"
+            if named.is_file():
+                return named
+            logger.warning(
+                "Preferred SDF corner %r not found at %s; falling back",
+                preferred, named,
+            )
+
+        # Last-resort fallback: first *.sdf under final/sdf.
+        for match in sorted(sdf_root.rglob("*.sdf")):
+            if match.is_file():
+                return match
+        return None
+
+    def _write_sdf_wrapper(self, work_dir: Path, sdf: Path) -> Path:
+        """Emit a tiny module that invokes $sdf_annotate.
+
+        iverilog supports ``$sdf_annotate("<path>", <scope>)`` as a
+        system task. Wrapping it in a top-level ``initial`` avoids
+        touching the agent-authored testbench and keeps the SDF path
+        absolute (relative paths resolve against vvp's CWD, which is
+        not always the TB directory).
+        """
+        target = self.design.gl_sim_dut_instance_path() or "tb.dut"
+        wrapper = work_dir / "_sdf_annotate_wrapper.v"
+        wrapper.write_text(
+            "`timescale 1ns/1ps\n"
+            "module _sdf_annotate_wrapper;\n"
+            "    initial begin\n"
+            f'        $sdf_annotate("{sdf}", {target});\n'
+            "    end\n"
+            "endmodule\n",
+            encoding="utf-8",
+        )
+        return wrapper
 
     def _cells_glob(self) -> str:
         """Effective glob for stdcell Verilog models.

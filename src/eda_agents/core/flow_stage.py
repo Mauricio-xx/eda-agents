@@ -34,6 +34,7 @@ class FlowStage(Enum):
     SIGNOFF_DRC = auto()
     SIGNOFF_LVS = auto()
     SIGNOFF_STA = auto()
+    GL_SIM_POST_PNR = auto()    # post-route GL sim with SDF annotation
     PRECHECK = auto()
 
 
