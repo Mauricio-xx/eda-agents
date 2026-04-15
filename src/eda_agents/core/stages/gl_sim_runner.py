@@ -43,12 +43,23 @@ from eda_agents.core.tool_environment import ToolEnvironment
 
 logger = logging.getLogger(__name__)
 
-# Same pass/fail heuristic the IVerilogDriver uses for RTL sim.
-_SIM_FAIL_RE = re.compile(r"\b(FAIL|ERROR|ASSERT)\b", re.IGNORECASE)
+# Testbench pass/fail detection. The TB prints PASS / FAIL as distinct
+# lines — we match word-bounded rather than substring so that "FAIL"
+# inside e.g. "FAIL_COUNT_OK" or SDF diagnostic chatter ("SDF ERROR:")
+# does not false-alarm.
+_SIM_FAIL_RE = re.compile(
+    r"(?mi)^\s*(FAIL|ASSERTION\s+FAILED|ASSERT\s+FAILED)\b"
+)
 _SIM_PASS_RE = re.compile(r"\bPASS\b")
 
-# iverilog SDF-annotation warnings we want to count but not fatalise.
-_SDF_WARN_RE = re.compile(r"sdf (warning|error)|negative delay", re.IGNORECASE)
+# iverilog SDF-annotation diagnostics. Both "SDF ERROR:" and "SDF
+# WARNING:" are iverilog's own messages about mapping the annotated
+# file onto the model hierarchy — we count them as warnings (per the
+# user-approved policy: non-blocking, surfaced in metrics, functional
+# pass/fail is what gates).
+_SDF_WARN_RE = re.compile(
+    r"^\s*SDF\s+(ERROR|WARNING)|negative delay", re.IGNORECASE | re.MULTILINE
+)
 
 
 class GlSimRunner:
@@ -238,15 +249,32 @@ class GlSimRunner:
         return Path(matches[-1])
 
     def _find_post_pnr_netlist(self) -> Path | None:
-        """Look for ``<run>/final/pnl/<design>.pnl.v`` (LibreLane v3)."""
-        candidate = self.run_dir / "final" / "pnl" / f"{self.design_name}.pnl.v"
+        """Locate the power-stripped post-PnR netlist.
+
+        Order:
+        1. ``final/nl/<design>.nl.v`` — OpenROAD's logical netlist
+           after PnR. Matches the PDK's behavioural stdcell Verilog
+           models (no VDD/VSS ports).
+        2. ``final/verilog/gl/*.nl.v`` — older LibreLane layout.
+        3. ``final/pnl/<design>.pnl.v`` — power-annotated netlist
+           from OpenROAD. Only compiles against stdcell Verilog
+           models that declare VDD/VSS inout ports; for IHP SG13G2
+           and GF180MCU both models are power-less, so this path is
+           a last-resort fallback that will fail at elaboration if
+           reached. Reserved for future PDKs with PG-aware models.
+
+        The power-stripped version is correct for GL sim because
+        ``$sdf_annotate`` anchors on instance hierarchy, not on power
+        nets — the SDF carries gate delays tied to cell instances
+        that exist in both netlists.
+        """
+        candidate = self.run_dir / "final" / "nl" / f"{self.design_name}.nl.v"
         if candidate.is_file():
             return candidate
-        # Older LibreLane layouts put the post-PnR netlist directly under
-        # ``final/`` or ``final/verilog/gl/``; glob as a fallback.
         for pattern in (
-            "final/verilog/gl/*.pnl.v",
             "final/verilog/gl/*.nl.v",
+            "final/nl/*.v",
+            "final/pnl/*.pnl.v",
             "final/pnl/*.v",
         ):
             matches = sorted(glob.glob(str(self.run_dir / pattern)))
@@ -360,7 +388,17 @@ class GlSimRunner:
             return self._fail(stage, "iverilog not found on PATH", t0)
 
         sim_out = work_dir / "sim.out"
-        compile_cmd = ["iverilog", "-g2012", "-o", str(sim_out), *sources]
+        # ``-gspecify`` and ``-ginterconnect`` are required for
+        # ``$sdf_annotate`` to anchor on specify paths and on
+        # interconnect nets. Without them iverilog silently skips SDF
+        # annotation and emits the warning "Omitting $sdf_annotate()
+        # since specify blocks and interconnects are being omitted."
+        # The flags are harmless in post-synth mode (no SDF) — they
+        # add a few milliseconds of compile time.
+        compile_cmd = [
+            "iverilog", "-g2012", "-gspecify", "-ginterconnect",
+            "-o", str(sim_out), *sources,
+        ]
         logger.info("GlSimRunner compile: %s", " ".join(compile_cmd))
 
         try:
