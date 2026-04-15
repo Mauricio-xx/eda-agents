@@ -383,3 +383,79 @@ register_skill(
         prompt_fn=_behavioral_primitives_prompt,
     )
 )
+
+
+def _sar_adc_design_prompt(topology: "CircuitTopology | None" = None) -> str:
+    circuit = ""
+    if topology is not None:
+        circuit = (
+            f"\nActive topology: {topology.topology_name()}\n"
+            f"Description: {topology.prompt_description()}\n"
+            f"Specs: {topology.specs_description()}\n"
+        )
+    return f"""You are designing or reviewing a SAR ADC on eda-agents.
+{circuit}
+Three SystemTopology flavours ship in ``src/eda_agents/topologies/``:
+
+  - ``sar_adc_8bit.SARADCTopology`` — transistor-level StrongARM + CMIM
+    CDAC + Verilator SAR. The only silicon-traceable SAR in-tree.
+  - ``sar_adc_8bit_behavioral.SARADC8BitBehavioralTopology`` — same
+    CDAC and SAR FSM, comparator swapped for XSPICE
+    ``ea_comparator_ideal``. Use to upper-bound ENOB and to cut SPICE
+    time during sweeps.
+  - ``sar_adc_11bit.SARADC11BitTopology`` — 11-bit design_reference,
+    **not silicon-validated**. 8-D design space (6 StrongARM knobs +
+    cdac_C_unit_fF + bias_V). Schematic + ngspice + Verilator only
+    (no layout until the IHP Magic upstream blocker is resolved).
+
+Reference documentation lives under ``docs/skills/sar_adc/``:
+
+  - ``core-architecture.md`` — three-block decomposition and timing.
+  - ``comparator.md`` — StrongARM vs ideal swap, SAR-specific asks.
+  - ``bootstrap-switch.md`` — why we use ideal switches today.
+  - ``sar-logic.md`` — FSM port conventions, cycle budget,
+    metastability bounds. Covers both the 8-bit ``sar_logic.v`` and
+    the new ``data/sar_logic_11bit.v``.
+  - ``ldo.md`` — what the ideal VDD hides and how to bring an LDO in
+    when the time comes.
+  - ``integration.md`` — net-by-net description of the mixed-signal
+    top, including what's intentionally missing.
+  - ``simulation-verification.md`` — coherent sampling, corner sweeps,
+    FoM interpretation, gotchas.
+
+When you exercise any of these topologies:
+
+  1. Start with ``default_params()`` to make sure the deck simulates
+     before moving in design space.
+  2. Prefer ``extract_enob(work_dir)`` over inventing an FFT path;
+     ENOB/SNDR/SFDR/THD/SNR come from ADCToolbox (see the
+     ``analog.adc_metrics`` skill).
+  3. Respect ``check_system_validity`` violations. A non-empty list
+     means the topology is flagging a brittle design-space region,
+     even when FoM is non-zero.
+  4. Use ``SARADC8BitBehavioralTopology`` to sanity-check ENOB targets
+     before running the transistor-level 8-bit autoresearch.
+  5. Treat ``SARADC11BitTopology.DESIGN_REFERENCE`` as a tripwire: any
+     claim of production readiness on the 11-bit path must call it
+     out as design_reference, not silicon-validated.
+
+Evals for architecture reasoning live in ``evals/sar_adc_arch.json``
+(20 reimplemented prompts covering comparator/CDAC/SAR/LDO/bootstrap
+tradeoffs). Run them through the existing agent harnesses to measure
+architectural knowledge without spending SPICE budget."""
+
+
+register_skill(
+    Skill(
+        name="analog.sar_adc_design",
+        description=(
+            "SAR ADC architecture guide: navigates the 8-bit "
+            "transistor-level, 8-bit behavioural and 11-bit design_"
+            "reference topologies plus the docs/skills/sar_adc/ "
+            "catalog. Enumerates when to use each and how to "
+            "interpret ENOB / FoM / validity outputs. Signature: "
+            "(topology=None)."
+        ),
+        prompt_fn=_sar_adc_design_prompt,
+    )
+)

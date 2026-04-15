@@ -81,6 +81,7 @@ class TestRegistryCore:
             "analog.roles.architect",
             "analog.roles.designer",
             "analog.roles.verifier",
+            "analog.sar_adc_design",
             "digital.project_manager",
             "digital.verification",
             "digital.synthesis",

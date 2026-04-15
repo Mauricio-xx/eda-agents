@@ -1,0 +1,134 @@
+{
+  "schema": {
+    "version": "1",
+    "fields": {
+      "id": "Identifier, slug style",
+      "prompt": "Question posed to the agent",
+      "expected_topics": "Subset of topics the answer must cover",
+      "family": "One of: comparator, cdac, sar-logic, bootstrap, ldo, integration, tradeoffs"
+    },
+    "note": "Reimplemented for eda-agents Session 7. Authored from first principles referencing our in-tree SAR topologies (sar_adc_8bit, sar_adc_8bit_behavioral, sar_adc_11bit). Not derived verbatim from any external corpus."
+  },
+  "tasks": [
+    {
+      "id": "sar-01-comparator-kickback",
+      "family": "comparator",
+      "prompt": "Explain why enlarging the StrongARM input pair improves offset but degrades the CDAC top-plate settling, and quantify the tradeoff for an 11-bit converter at IHP VDD=1.2 V.",
+      "expected_topics": ["Pelgrom offset (A_VT / sqrt(WL))", "input capacitance loading CDAC", "settling time vs. comparator sizing", "0.5 LSB budget at 11 bits"]
+    },
+    {
+      "id": "sar-02-offset-vs-lsb",
+      "family": "comparator",
+      "prompt": "At what input-pair W*L does a StrongARM comparator cross the offset budget for a 1 V full-scale differential 11-bit SAR? Assume A_VT = 4 mV.um.",
+      "expected_topics": ["LSB = FS / 2^N", "Pelgrom inversion", "half-LSB rule"]
+    },
+    {
+      "id": "sar-03-behavioral-vs-strongarm",
+      "family": "comparator",
+      "prompt": "When should an agent prefer SARADC8BitBehavioralTopology over the transistor-level 8-bit topology for autoresearch?",
+      "expected_topics": ["SPICE budget", "upper-bound ENOB", "non-ideality attribution", "downstream validation"]
+    },
+    {
+      "id": "sar-04-cdac-binary-weight",
+      "family": "cdac",
+      "prompt": "Walk through why an 11-bit binary-weighted CDAC needs 1024:1 capacitor ratios and what mismatch this causes in a CMIM implementation.",
+      "expected_topics": ["binary weighting", "MSB/LSB ratio", "CMIM density and matching", "unit-cell common-centroid"]
+    },
+    {
+      "id": "sar-05-cdac-unit-cap-tradeoff",
+      "family": "cdac",
+      "prompt": "Larger CDAC unit capacitance reduces kT/C noise but costs power and settling. Derive when kT/C stops dominating ENOB at 11 bits and 1 MHz.",
+      "expected_topics": ["kT/C over 2^(-N) * FS^2", "settling = R_on * 2^N * C_unit", "noise vs. ENOB floor"]
+    },
+    {
+      "id": "sar-06-cdac-split-array",
+      "family": "cdac",
+      "prompt": "Describe a split-capacitor array for an 11-bit SAR and argue why or why not it beats a plain binary array in this repository's flow.",
+      "expected_topics": ["attenuation cap", "bridge mismatch sensitivity", "area vs. linearity"]
+    },
+    {
+      "id": "sar-07-sar-cycle-budget",
+      "family": "sar-logic",
+      "prompt": "The 11-bit flow uses T_algo = T / 22 at 1 MHz. Justify the factor 22 and describe what changes for a 12-bit port.",
+      "expected_topics": ["sample + 10 resolve + margin", "per-bit period", "metastability margin scaling"]
+    },
+    {
+      "id": "sar-08-metastability-ber",
+      "family": "sar-logic",
+      "prompt": "Derive a metastability BER bound given a regeneration time constant tau_regen and an evaluate pulse T_pw, and show how check_system_validity uses it.",
+      "expected_topics": ["BER ~ exp(-T_pw/tau_regen)", "latch gm ~ W_latch_p", "validator heuristic 0.4 * T_pw"]
+    },
+    {
+      "id": "sar-09-async-vs-sync-sar",
+      "family": "sar-logic",
+      "prompt": "Compare the synchronous Verilator SAR FSM shipped here with an asynchronous comparator-ready SAR. What would break if we swapped the Verilog for async logic?",
+      "expected_topics": ["clk_comp rising edge", "adc_bridge timing", "hand-shake with comparator ready"]
+    },
+    {
+      "id": "sar-10-bootstrap-why-ideal",
+      "family": "bootstrap",
+      "prompt": "Explain why the SAR topologies in this tree use ideal sampling switches and what must change before an agent can trust an HD3 claim below -70 dBc.",
+      "expected_topics": ["ideal switch constants (RON, V_T)", "Magic blocker upstream", "boot-cap sizing", "kT/C and aperture uncertainty"]
+    },
+    {
+      "id": "sar-11-bootstrap-sizing",
+      "family": "bootstrap",
+      "prompt": "For a real bootstrap NMOS switch sampling at 1 MHz with 1 V signal on a 100 fF top plate, estimate W_switch_um and C_boot_fF. Explain the assumptions.",
+      "expected_topics": ["R_on * C settling", "C_boot >> C_gs", "charge injection"]
+    },
+    {
+      "id": "sar-12-ldo-not-in-deck",
+      "family": "ldo",
+      "prompt": "Why is there no LDO in the current SAR netlist and what would its absence hide in a Walden FoM measurement?",
+      "expected_topics": ["ideal VDD source", "efficiency missing", "PSRR not modelled", "supply ripple gate limitations"]
+    },
+    {
+      "id": "sar-13-psrr-budget",
+      "family": "ldo",
+      "prompt": "Outline a PSRR budget for an LDO feeding this 11-bit SAR. Break it down by which SAR block tolerates what supply ripple.",
+      "expected_topics": ["comparator offset vs supply", "CDAC reference ripple", "sampling path PSRR", "corner sweep plan"]
+    },
+    {
+      "id": "sar-14-reference-settling",
+      "family": "integration",
+      "prompt": "The validator flags reference settling when tau > T_algo_PW / 3. Reproduce the computation and explain what R_on of the CDAC switches contributes.",
+      "expected_topics": ["tau = R_on * C_total", "C_total = 2^N * C_unit", "switch-on conductance assumption"]
+    },
+    {
+      "id": "sar-15-differential-balance",
+      "family": "integration",
+      "prompt": "Describe the differential pairing between positive and negative CDAC arrays in SARADC11BitTopology and what symmetry violations would bias the codes.",
+      "expected_topics": ["matched BN -> VDD / B -> GND", "common-mode rejection", "per-cap dummy handling"]
+    },
+    {
+      "id": "sar-16-adc-bridge-thresholds",
+      "family": "integration",
+      "prompt": "adc_bridge uses in_low=0.2, in_high=0.8 at IHP VDD=1.2 V. What changes when porting to GF180 at 3.3 V?",
+      "expected_topics": ["threshold scaling", "comparator swing", "bridge hysteresis"]
+    },
+    {
+      "id": "sar-17-coherent-sampling",
+      "family": "integration",
+      "prompt": "Why does the 11-bit topology pick M=9 and N=128 for the coherent FFT, and what breaks if you lower M to 5?",
+      "expected_topics": ["M prime coprime N", "leakage vs. coherent sampling", "spectral bin alignment"]
+    },
+    {
+      "id": "sar-18-fom-penalty",
+      "family": "tradeoffs",
+      "prompt": "compute_system_fom applies a penalty per violation in check_system_validity. Explain why the penalty is linear rather than hard-zero and when that can mislead autoresearch.",
+      "expected_topics": ["soft penalty policy", "valid flag vs. FoM > 0", "false-positive high FoM", "greedy exploration risk"]
+    },
+    {
+      "id": "sar-19-pdk-portability",
+      "family": "tradeoffs",
+      "prompt": "Identify every point in the 11-bit topology that depends on PdkConfig. If ihp-sg13cmos5l lands tomorrow, what else must be verified?",
+      "expected_topics": ["VDD scaling", "pmos_symbol / nmos_symbol", "MIM density", "Lmin_m / Wmin_m"]
+    },
+    {
+      "id": "sar-20-roadmap-11b-to-12b",
+      "family": "tradeoffs",
+      "prompt": "Sketch a concrete path from the current 11-bit design_reference to a 12-bit validated design. Identify which blocks survive unchanged and which need a rewrite.",
+      "expected_topics": ["doubling MSB cap", "comparator offset tightening", "SAR Verilog rewrite", "bootstrap switch upgrade", "LDO addition", "silicon validation plan"]
+    }
+  ]
+}
