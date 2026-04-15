@@ -158,7 +158,17 @@ IHP_SG13G2 = PdkConfig(
     instance_prefix="X",
 
     osdi_dir_rel="ihp-sg13g2/libs.tech/ngspice/osdi",
-    osdi_files=("psp103_nqs.osdi", "r3_cmc.osdi", "mosvar.osdi"),
+    # psp103.osdi registers the `psp103va` model type used by the IHP
+    # sg13_lv_nmos / sg13_lv_pmos subcircuits; psp103_nqs.osdi adds the
+    # NQS variant, r3_cmc covers resistors, mosvar covers varactors.
+    # Missing psp103.osdi causes "Unknown model type psp103va" at
+    # deck parse time — every IHP deck needs this loaded up front.
+    osdi_files=(
+        "psp103.osdi",
+        "psp103_nqs.osdi",
+        "r3_cmc.osdi",
+        "mosvar.osdi",
+    ),
 
     mim_cap_model="cap_cmim",
     mim_cap_density_fF_um2=1.5,

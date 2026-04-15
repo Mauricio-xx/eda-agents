@@ -75,18 +75,25 @@ def test_generate_netlist_shape(topo_stubbed, tmp_path):
     t = topo_stubbed
     cir = t.generate_system_netlist(t.default_params(), tmp_path / "deck")
     text = cir.read_text()
-    # Ports for the 11-bit SAR FSM: D[10:0] bits
+    # Ports for the 11-bit SAR FSM: 11 decision bits per bus.
     for i in range(11):
-        assert f"D{i}_d" in text
-    # B[9:0] / BN[9:0]
-    assert "B9_d" in text and "BN9_d" in text and "B0_d" in text
-    # 12 caps per side (11 decision + 1 dummy).
+        assert f"D{i}_d" in text, f"missing D{i}_d"
+        assert f"B{i}_d" in text, f"missing B{i}_d"
+        assert f"BN{i}_d" in text, f"missing BN{i}_d"
+    # 12 caps per side (11 decision + 1 dummy sharing the LSB switch).
     assert text.count("XC_cdac_p_") == 12
     assert text.count("XC_cdac_n_") == 12
     # SAR FSM Adut instance routes through d_cosim with our stubbed .so.
     assert "d_cosim" in text
     # Design_reference banner in the header.
     assert "NOT silicon-validated" in text
+    # Every bus pin must be a distinct label — no aliasing onto B9/BN9
+    # the way the pre-fix revision did (that collapsed 3 caps onto B9).
+    b_switches = [line for line in text.splitlines() if line.startswith("S_vdd_p_")]
+    b_labels = {line.split()[3] for line in b_switches}
+    # Expected labels: BN0..BN10 used as VDD-side selectors on the pos
+    # CDAC. The dummy cap reuses BN10, so we get 11 unique labels.
+    assert b_labels == {f"BN{i}" for i in range(11)}, b_labels
 
 
 def test_validity_flags_small_input_pair():
@@ -118,6 +125,38 @@ def test_validity_passes_for_large_comparator_and_cdac():
     # Either PASS or only non-PVT violations — the gate we are testing
     # here is that Pelgrom does NOT trigger at generous sizing.
     assert not any("PVT margin" in v for v in violations)
+
+
+def test_supply_ripple_heuristic_is_in_milliamps():
+    """Regression: the supply-ripple gate previously reported ~5.4 A
+    as ``5406 mA`` because the helper multiplied by 1e-6 twice.
+
+    Here we compute the expected peak current by hand in SI units and
+    assert the violation string falls in the same order of magnitude.
+    """
+    t = SARADC11BitTopology()
+    params = t.default_params()
+    # Force C_unit=200 fF -> definitely above envelope; keep the rest
+    # at defaults.
+    params["cdac_C_unit_fF"] = 200.0
+    result = SpiceResult(
+        success=True,
+        measurements={"enob": 7.0, "sndr_dB": 45.0, "avg_idd": -1e-5},
+    )
+    _, violations = t.check_system_validity(result, params)
+    ripple = next((v for v in violations if "CDAC peak" in v), None)
+    assert ripple is not None, violations
+    # Parse the "~X.XX mA" number back out and verify it's within a
+    # factor of 2 of the SI computation: 2048 * 200 fF * 1.2 V / T_pw.
+    import re
+    m = re.search(r"peak i~([\d.]+)", ripple)
+    assert m is not None, ripple
+    reported_mA = float(m.group(1))
+    # T_algo_PW = 1/(48 * 1e6) s
+    expected_mA = (2048 * 200e-15 * t.pdk.VDD) / (1 / (48 * 1e6)) * 1e3
+    assert 0.5 * expected_mA <= reported_mA <= 2.0 * expected_mA, (
+        reported_mA, expected_mA, ripple,
+    )
 
 
 def test_validity_flags_reference_settling_on_huge_cdac():
@@ -154,6 +193,40 @@ def test_extract_enob_missing_file(tmp_path):
     out = t.extract_enob(tmp_path)
     assert out["enob"] == 0.0
     assert "error" in out
+
+
+def test_extract_enob_bit_weighting(tmp_path):
+    """Synthetic bit_data.txt with known codes -> check MSB/LSB map.
+
+    Writes a trace where every sample latches D[0]=1 (MSB=1) with all
+    other bits zero. Each reconstructed code must be exactly 2^10,
+    so the FFT should see a DC-only signal (mean non-zero, noise ~0).
+    """
+    import numpy as np
+
+    t = SARADC11BitTopology()
+    # Build 300 rows (>= 2*128) so we produce more than _N_FFT_SAMPLES
+    # rising edges on dac_clk (which we place on every second sample).
+    n_rows = 300
+    cols: list[np.ndarray] = [np.linspace(0, 1e-3, n_rows)]  # time
+    cols.append(np.ones(n_rows))                             # D0 = MSB = 1
+    for _ in range(10):
+        cols.append(np.zeros(n_rows))                        # D1..D10 = 0
+    cols.append(np.zeros(n_rows))                            # vin_diff
+    # dac_clk: rising edge every 1 sample so we get lots of latched codes
+    dac_clk = np.zeros(n_rows)
+    dac_clk[::2] = 1.0
+    cols.append(dac_clk)
+    data = np.column_stack(cols)
+    bit_file = tmp_path / "bit_data.txt"
+    header = "time D0 D1 D2 D3 D4 D5 D6 D7 D8 D9 D10 vin_diff dac_clk"
+    np.savetxt(bit_file, data, header=header, comments="")
+
+    out = t.extract_enob(tmp_path)
+    # Every code should be 2^10 = 1024 because D[0] = MSB-weighted.
+    assert out["code_min"] == 1024, out
+    assert out["code_max"] == 1024, out
+    assert out["unique_codes"] == 1, out
 
 
 def test_prompt_metadata_mentions_design_reference():

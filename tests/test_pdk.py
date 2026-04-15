@@ -37,7 +37,9 @@ class TestPdkConfig:
 
     def test_ihp_has_osdi(self):
         assert IHP_SG13G2.has_osdi() is True
-        assert len(IHP_SG13G2.osdi_files) == 3
+        # psp103 + psp103_nqs + r3_cmc + mosvar
+        assert len(IHP_SG13G2.osdi_files) == 4
+        assert "psp103.osdi" in IHP_SG13G2.osdi_files
 
     def test_gf180_no_osdi(self):
         assert GF180MCU_D.has_osdi() is False
@@ -185,7 +187,9 @@ class TestSpiceRunnerPdk:
     def test_ihp_has_osdi_paths(self):
         from eda_agents.core.spice_runner import SpiceRunner
         runner = SpiceRunner()
-        assert len(runner.osdi_paths) == 3
+        # psp103 + psp103_nqs + r3_cmc + mosvar (psp103 added in S7
+        # to fix the "Unknown model type psp103va" deck-parse error).
+        assert len(runner.osdi_paths) == 4
 
 
 class TestTopologyPdk:

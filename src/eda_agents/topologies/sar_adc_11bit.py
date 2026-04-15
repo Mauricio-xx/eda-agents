@@ -223,11 +223,14 @@ class SARADC11BitTopology(SystemTopology):
 
         T = 1.0 / _SPEC_FS_HZ                    # period in s
         T_half = T / 2.0
-        # 10 resolution cycles per conversion (plus sample/hold).
-        T_algo = T / 22
-        T_algo_PW = T / 44
+        # Sample half-period + 11 resolution cycles with 1 slack per bit
+        # gives T_algo = T / 24 and a pulse width at half of that so the
+        # comparator rising edge falls in the middle of each evaluate
+        # phase.
+        T_algo = T / 24
+        T_algo_PW = T / 48
         DAC_delay = 0.99 * T
-        DAC_PW = T / 22
+        DAC_PW = T / 24
 
         total_sim_time = _N_FFT_SAMPLES * T
         vcm = VDD / 2.0
@@ -235,10 +238,12 @@ class SARADC11BitTopology(SystemTopology):
         vin_pos = f'"dc 0 ac 0 SIN({vcm} {_SINE_AMP} {f_in} 0 0 0)"'
         vin_neg = f'"dc 0 ac 0 SIN({vcm} {_SINE_AMP} {f_in} 0 0 180)"'
 
-        # D bus width = 11; B / BN width = 10; counter 5-bit.
+        # All three busses are 11 bits wide. The Verilator-generated
+        # d_cosim lists pins MSB-first, so node names mirror that: first
+        # pin in each bus = highest index (D10 / B10 / BN10).
         d_nodes = " ".join(f"D{i}_d" for i in range(10, -1, -1))
-        b_nodes = " ".join(f"B{i}_d" for i in range(9, -1, -1))
-        bn_nodes = " ".join(f"BN{i}_d" for i in range(9, -1, -1))
+        b_nodes = " ".join(f"B{i}_d" for i in range(10, -1, -1))
+        bn_nodes = " ".join(f"BN{i}_d" for i in range(10, -1, -1))
         d_wr = " ".join(f"D{i}" for i in range(11))
 
         comp_section = _default_strongarm_section(comp_params, self.pdk)
@@ -310,7 +315,7 @@ class SARADC11BitTopology(SystemTopology):
 
         for i in range(11):
             lines.append(f"Adac_D{i} [D{i}_d] [D{i}] dac_bridge_model")
-        for i in range(10):
+        for i in range(11):
             lines.append(f"Adac_B{i} [B{i}_d] [B{i}] dac_bridge_model")
             lines.append(f"Adac_BN{i} [BN{i}_d] [BN{i}] dac_bridge_model")
 
@@ -332,11 +337,12 @@ class SARADC11BitTopology(SystemTopology):
         )
 
         # 11-bit binary array: weights 1024..1 plus a dummy equal to LSB.
+        # The SAR FSM produces 11 distinct decision bits B0..B10 (B0 =
+        # MSB, because counter=0 writes the MSB first); the 12th cap
+        # (dummy, weight 1) shares B10 with the LSB cap.
         weights = [1024, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 1]
-        # 10 decision bits + 1 dummy; map bit index i -> B{i}, with
-        # the last (dummy) reusing the LSB switch.
-        labels = [f"B{i}" if i < 10 else "B9" for i in range(11)] + ["B9"]
-        labels_n = [f"BN{i}" if i < 10 else "BN9" for i in range(11)] + ["BN9"]
+        labels = [f"B{i}" for i in range(11)] + ["B10"]
+        labels_n = [f"BN{i}" for i in range(11)] + ["BN10"]
         # Positive side: BN -> VDD (+), B -> GND (-); match 8-bit polarity.
         for i, (w, lab, labn) in enumerate(zip(weights, labels_n, labels)):
             bot = f"cdac_bot_p_{i}"
@@ -471,21 +477,25 @@ class SARADC11BitTopology(SystemTopology):
                 f"vs. budget 0.4*T_algo_PW={0.4*T_algo_pw*1e12:.1f}ps"
             )
 
-        # Supply ripple: CDAC switching current < 1/3 of power budget.
-        C_unit_fF = system_params["cdac_C_unit_fF"]
-        # Total CDAC cap one side ~ (2^11) * C_unit
-        C_total_pF = (2**11) * C_unit_fF * 1e-3
-        q_switch_uC = C_total_pF * self.pdk.VDD * 1e-6
-        i_peak_ma = q_switch_uC / T_algo_pw  # mA equiv
-        if i_peak_ma > 2.0:
+        # Supply ripple: CDAC worst-case switching current envelope.
+        # Keep everything in SI units to avoid the foot-gun trigonometry
+        # the earlier revision had.
+        C_unit_F = system_params["cdac_C_unit_fF"] * 1e-15
+        C_total_F = (2**11) * C_unit_F           # one side, full swing
+        q_switch_C = C_total_F * self.pdk.VDD
+        i_peak_A = q_switch_C / T_algo_pw
+        i_peak_mA = i_peak_A * 1e3
+        _RIPPLE_LIMIT_mA = 2.0
+        if i_peak_mA > _RIPPLE_LIMIT_mA:
             violations.append(
-                f"Supply ripple: CDAC peak i~{i_peak_ma:.2f}mA exceeds "
-                "2 mA envelope; decap sizing will dominate"
+                f"Supply ripple: CDAC peak i~{i_peak_mA:.2f} mA exceeds "
+                f"{_RIPPLE_LIMIT_mA:.1f} mA envelope; decap sizing will "
+                "dominate"
             )
 
-        # Reference settling: tau = R_on * C_total < T_algo_PW.
+        # Reference settling: tau = R_on * C_total < T_algo_PW / 3.
         R_on = 50.0  # ohms (sw_cdac model)
-        tau_cdac_s = R_on * C_total_pF * 1e-12
+        tau_cdac_s = R_on * C_total_F
         if tau_cdac_s > T_algo_pw / 3.0:
             violations.append(
                 f"Reference settling: tau={tau_cdac_s*1e9:.2f}ns > "
@@ -509,18 +519,19 @@ class SARADC11BitTopology(SystemTopology):
         if not bit_file.exists():
             return {"enob": 0.0, "sndr_dB": 0.0, "error": "no bit_data.txt"}
         data = np.loadtxt(str(bit_file), skiprows=1)
-        if data.ndim < 2 or data.shape[1] < 13:
+        # wrdata with wr_singlescale: columns are
+        #   [time, D0, D1, ..., D10, vin_diff, dac_clk] -> 14 columns.
+        if data.ndim < 2 or data.shape[1] < 14:
             return {
                 "enob": 0.0,
                 "sndr_dB": 0.0,
-                "error": "insufficient columns",
+                "error": (
+                    f"insufficient columns (got {0 if data.ndim<2 else data.shape[1]}, "
+                    "need 14)"
+                ),
             }
-        # Columns are (t, D0..D10, vin_diff, dac_clk). wrdata emits pairs
-        # (time, value) per variable so the exact column indices depend
-        # on ngspice; the 8-bit path uses the same convention at offset
-        # 1..9 and trailing dac_clk — we mirror that.
-        D_raw = data[:, 1:12]
-        dac_clk = data[:, 13] if data.shape[1] >= 14 else data[:, -1]
+        D_raw = data[:, 1:12]          # D0..D10 inclusive
+        dac_clk = data[:, -1]          # last column always dac_clk
         threshold = 0.6
         edges: list[int] = []
         for i in range(1, len(dac_clk)):
@@ -535,11 +546,10 @@ class SARADC11BitTopology(SystemTopology):
         codes: list[int] = []
         for idx in edges[:_N_FFT_SAMPLES]:
             bits = [1 if D_raw[idx, i] > 0.6 else 0 for i in range(11)]
-            # bits[0] = LSB (column D0), so weight 2^i. The Verilog
-            # `D <= D | ({10'b0, Op} << counter)` places MSB at the
-            # counter=0 iteration but writes into D[counter]; reviewers:
-            # see data/sar_logic_11bit.v comment block for the convention.
-            code = sum(bits[i] * (1 << i) for i in range(11))
+            # The SAR FSM writes the first (MSB) decision at counter=0
+            # into D[0], the LSB at counter=10 into D[10]. So bits[0]
+            # carries weight 2^10 and bits[10] carries weight 2^0.
+            code = sum(bits[i] * (1 << (10 - i)) for i in range(11))
             codes.append(code)
         arr = np.array(codes, dtype=float)
         N = len(arr)
