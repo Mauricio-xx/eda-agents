@@ -80,6 +80,11 @@ prompts, or tool specs.
   double-loading — do not also include `cap_lib_rel` in that case.
 - `spice_runner.py` — sync + async ngspice invocation with
   measurement parsing. Builds `SpiceResult` (Adc, GBW, PM, power).
+  Accepts `extra_osdi=[paths]` for user-compiled Verilog-A models;
+  the runner writes a temporary `.spiceinit` in the work directory
+  that pre-loads those OSDIs so `.model` lines bind to them during
+  parse. The work directory must not already contain a `.spiceinit`
+  when extras are used.
 - `gmid_lookup.py` — gm/ID LUT reader used for analytical
   pre-sizing before spending SPICE budget. GF180 LUTs live under
   `data/gmid_luts/`; IHP LUTs default to the external ihp-gmid-kit
@@ -155,6 +160,57 @@ for analytical sizing) or a full `CircuitTopology` subclass. Current:
 `ExtFileParser` for Magic `.ext` parasitic-cap extraction.
 `utils/vlnggen.py` handles Verilog compilation; `utils/detect.py`
 detects EDA project layouts.
+
+## Verilog-A → OSDI → ngspice pipeline
+
+User-authored Verilog-A models are compiled to OSDI with `openvaf`
+and loaded alongside the PDK OSDI at ngspice startup:
+
+```bash
+openvaf mymodel.va     # produces mymodel.osdi next to the source
+```
+
+Wire-up from Python:
+
+```python
+from eda_agents.core.stages.veriloga_compile import VerilogACompiler
+from eda_agents.core.spice_runner import SpiceRunner
+
+result = VerilogACompiler().run("path/to/mymodel.va")
+osdi = result.artifacts["osdi"]
+runner = SpiceRunner(pdk="ihp_sg13g2", extra_osdi=[osdi])
+```
+
+ngspice cir conventions for Verilog-A-backed devices:
+
+- Instance names must begin with `N` (ngspice's OSDI instance letter).
+- The `.model` name is arbitrary; the model **type** must match the
+  Verilog-A `module` name verbatim.
+- `SpiceRunner` writes a transient `.spiceinit` in the work directory
+  that pre-registers every `extra_osdi` file before the deck is
+  parsed, then removes it after the run. Do not leave your own
+  `.spiceinit` in that directory or the runner will refuse to
+  overwrite it.
+
+Example deck skeleton (`netlist_osdi_lines(pdk, extra_osdi=...)` emits
+the `osdi ...` lines inside `.control` as an idempotent reload; the
+pre-parse registration comes from the auto-written `.spiceinit`):
+
+```spice
+.control
+  osdi '/abs/path/mymodel.osdi'
+  dc V1 0 1.0 0.05
+  meas dc i_out FIND i(V1) AT=0.5
+.endc
+V1 a 0 DC 0
+.model m1 mymodel r=1000
+Nr1 a 0 m1
+.end
+```
+
+Verilog-A stage lives at `src/eda_agents/core/stages/veriloga_compile.py`;
+user primitives will land under `src/eda_agents/veriloga/` in a later
+session.
 
 ## LibreLane templates
 

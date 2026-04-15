@@ -61,6 +61,11 @@ class SpiceRunner:
         Model corner override. If None, uses pdk.model_corner.
     timeout_s : int
         Maximum simulation time in seconds. Default 120.
+    extra_osdi : iterable of str or Path, optional
+        Extra OSDI shared libraries to load alongside the PDK ones
+        (e.g. user models compiled from Verilog-A via openvaf). Pass
+        the same list through to ``netlist_osdi_lines(pdk,
+        extra_osdi=runner.extra_osdi)`` when building the netlist.
     """
 
     def __init__(
@@ -69,6 +74,7 @@ class SpiceRunner:
         pdk_root: str | Path | None = None,
         corner: str | None = None,
         timeout_s: int = 120,
+        extra_osdi: "list[str | Path] | tuple[str | Path, ...] | None" = None,
     ):
         self.pdk = resolve_pdk(pdk)
         root_str = resolve_pdk_root(
@@ -82,6 +88,9 @@ class SpiceRunner:
         self._model_lib = Path(self.pdk.model_lib_path(root_str))
         osdi_path = self.pdk.osdi_dir_path(root_str)
         self._osdi_dir = Path(osdi_path) if osdi_path else None
+        self._extra_osdi: tuple[Path, ...] = tuple(
+            Path(p).resolve() for p in (extra_osdi or ())
+        )
 
     @property
     def model_lib(self) -> Path:
@@ -94,8 +103,15 @@ class SpiceRunner:
     @property
     def osdi_paths(self) -> list[Path]:
         if self._osdi_dir is None:
-            return []
-        return [self._osdi_dir / f for f in self.pdk.osdi_files]
+            return list(self._extra_osdi)
+        return [self._osdi_dir / f for f in self.pdk.osdi_files] + list(
+            self._extra_osdi
+        )
+
+    @property
+    def extra_osdi(self) -> tuple[Path, ...]:
+        """User-supplied OSDI libraries loaded on top of the PDK set."""
+        return self._extra_osdi
 
     def validate_pdk(self) -> list[str]:
         """Check that PDK files exist. Returns list of missing paths."""
@@ -115,6 +131,30 @@ class SpiceRunner:
         env = os.environ.copy()
         env["PDK_ROOT"] = str(self.pdk_root)
         return env
+
+    def _install_extra_osdi_spiceinit(self, work_dir: Path) -> Path | None:
+        """Write a cwd ``.spiceinit`` that pre-loads extra OSDI files.
+
+        ngspice sources ``./.spiceinit`` before parsing the deck, which
+        is the only reliable hook for registering model types defined
+        in user-compiled Verilog-A (``osdi`` inside ``.control`` fires
+        after ``.model`` lines are parsed and therefore too late).
+
+        Returns the written path (caller is responsible for cleanup)
+        or ``None`` when there are no extras.
+        """
+        if not self._extra_osdi:
+            return None
+        target = work_dir / ".spiceinit"
+        if target.exists():
+            raise RuntimeError(
+                f"Cannot install extra-OSDI spiceinit: {target} already exists. "
+                "Use a dedicated working directory for SpiceRunner with extra_osdi."
+            )
+        lines = ["* eda-agents extra OSDI pre-load (auto-generated)"]
+        lines.extend(f"osdi '{p}'" for p in self._extra_osdi)
+        target.write_text("\n".join(lines) + "\n")
+        return target
 
     def run(self, cir_path: Path, work_dir: Path | None = None) -> SpiceResult:
         """Run ngspice in batch mode synchronously.
@@ -140,24 +180,29 @@ class SpiceRunner:
         env = self._build_env()
         t0 = time.monotonic()
 
+        spiceinit_path = self._install_extra_osdi_spiceinit(work_dir)
         try:
-            proc = subprocess.run(
-                ["ngspice", "-b", str(cir_path)],
-                capture_output=True,
-                text=True,
-                timeout=self.timeout_s,
-                cwd=str(work_dir),
-                env=env,
-            )
-        except FileNotFoundError:
-            return SpiceResult(success=False, error="ngspice not found in PATH")
-        except subprocess.TimeoutExpired:
-            elapsed = time.monotonic() - t0
-            return SpiceResult(
-                success=False,
-                error=f"ngspice timed out ({self.timeout_s}s)",
-                sim_time_s=elapsed,
-            )
+            try:
+                proc = subprocess.run(
+                    ["ngspice", "-b", str(cir_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout_s,
+                    cwd=str(work_dir),
+                    env=env,
+                )
+            except FileNotFoundError:
+                return SpiceResult(success=False, error="ngspice not found in PATH")
+            except subprocess.TimeoutExpired:
+                elapsed = time.monotonic() - t0
+                return SpiceResult(
+                    success=False,
+                    error=f"ngspice timed out ({self.timeout_s}s)",
+                    sim_time_s=elapsed,
+                )
+        finally:
+            if spiceinit_path is not None and spiceinit_path.exists():
+                spiceinit_path.unlink()
 
         elapsed = time.monotonic() - t0
         stdout = proc.stdout or ""
@@ -177,7 +222,7 @@ class SpiceRunner:
         if proc.returncode == 1 and not _has_measurements(stdout):
             return SpiceResult(
                 success=False,
-                error=f"ngspice exited with code 1 (no measurements)",
+                error="ngspice exited with code 1 (no measurements)",
                 sim_time_s=elapsed,
                 stdout_tail=stdout[-3000:],
                 stderr_tail=stderr[-2000:],
@@ -208,34 +253,39 @@ class SpiceRunner:
         if not ngspice_path:
             return SpiceResult(success=False, error="ngspice not found in PATH")
 
+        spiceinit_path = self._install_extra_osdi_spiceinit(work_dir)
         try:
-            proc = await asyncio.create_subprocess_exec(
-                ngspice_path, "-b", str(cir_path),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(work_dir),
-                env=env,
-            )
-
             try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(), timeout=self.timeout_s
+                proc = await asyncio.create_subprocess_exec(
+                    ngspice_path, "-b", str(cir_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(work_dir),
+                    env=env,
                 )
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                elapsed = time.monotonic() - t0
+
+                try:
+                    stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                        proc.communicate(), timeout=self.timeout_s
+                    )
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    await proc.wait()
+                    elapsed = time.monotonic() - t0
+                    return SpiceResult(
+                        success=False,
+                        error=f"ngspice timed out ({self.timeout_s}s)",
+                        sim_time_s=elapsed,
+                    )
+
+            except FileNotFoundError:
                 return SpiceResult(
                     success=False,
-                    error=f"ngspice timed out ({self.timeout_s}s)",
-                    sim_time_s=elapsed,
+                    error=f"ngspice not found at {ngspice_path}",
                 )
-
-        except FileNotFoundError:
-            return SpiceResult(
-                success=False,
-                error=f"ngspice not found at {ngspice_path}",
-            )
+        finally:
+            if spiceinit_path is not None and spiceinit_path.exists():
+                spiceinit_path.unlink()
 
         elapsed = time.monotonic() - t0
         stdout = stdout_bytes.decode("utf-8", errors="replace")
@@ -264,7 +314,7 @@ class SpiceRunner:
         if proc.returncode == 1 and not _has_measurements(stdout):
             return SpiceResult(
                 success=False,
-                error=f"ngspice exited with code 1 (no measurements)",
+                error="ngspice exited with code 1 (no measurements)",
                 sim_time_s=elapsed,
                 stdout_tail=stdout[-3000:],
                 stderr_tail=stderr[-2000:],

@@ -36,6 +36,7 @@ class FlowStage(Enum):
     SIGNOFF_STA = auto()
     GL_SIM_POST_PNR = auto()    # post-route GL sim with SDF annotation
     PRECHECK = auto()
+    VERILOGA_COMPILE = auto()   # Verilog-A -> OSDI compilation (openvaf)
 
 
 @dataclass

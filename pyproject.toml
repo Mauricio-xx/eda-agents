@@ -63,6 +63,7 @@ markers = [
     "librelane: requires librelane + gf180mcu-project-template (deselect with -m 'not librelane')",
     "magic: requires magic + GF180MCU PDK (deselect with -m 'not magic')",
     "cc_cli: requires Claude Code CLI installed (deselect with -m 'not cc_cli')",
+    "veriloga: requires openvaf + ngspice for Verilog-A -> OSDI pipeline (deselect with -m 'not veriloga')",
 ]
 
 [tool.ruff]

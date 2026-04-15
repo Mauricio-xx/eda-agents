@@ -15,7 +15,9 @@ the active PDK via the EDA_AGENTS_PDK environment variable.
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -352,15 +354,35 @@ def netlist_lib_lines(pdk: PdkConfig) -> list[str]:
     return lines
 
 
-def netlist_osdi_lines(pdk: PdkConfig) -> list[str]:
+def netlist_osdi_lines(
+    pdk: PdkConfig,
+    extra_osdi: Iterable[str | Path] | None = None,
+) -> list[str]:
     """Build OSDI load directives for a PDK.
 
-    Returns lines for the .control block. Empty list for BSIM4 PDKs.
+    Returns lines for the ``.control`` block. Empty list for PDKs with
+    no OSDI (BSIM4) and no extras.
+
+    Parameters
+    ----------
+    pdk : PdkConfig
+        The active PDK. Its ``osdi_files`` are emitted relative to
+        ``$PDK_ROOT`` for portability.
+    extra_osdi : iterable of str or Path, optional
+        Additional OSDI libraries to load after the PDK ones (e.g.
+        user-compiled Verilog-A via ``openvaf``). These are emitted as
+        absolute paths because they typically live outside ``PDK_ROOT``.
     """
-    if not pdk.has_osdi():
-        return []
-    osdi_base = f"$PDK_ROOT/{pdk.osdi_dir_rel}"
-    return [f"  osdi '{osdi_base}/{f}'" for f in pdk.osdi_files]
+    lines: list[str] = []
+    if pdk.has_osdi():
+        osdi_base = f"$PDK_ROOT/{pdk.osdi_dir_rel}"
+        lines.extend(f"  osdi '{osdi_base}/{f}'" for f in pdk.osdi_files)
+
+    if extra_osdi:
+        for p in extra_osdi:
+            abs_path = Path(p).resolve()
+            lines.append(f"  osdi '{abs_path}'")
+    return lines
 
 
 def resolve_pdk_root(pdk: PdkConfig, explicit_root: str | None = None) -> str:
