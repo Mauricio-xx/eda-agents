@@ -229,6 +229,19 @@ async def run_from_spec(args):
         for line in lines[-30:]:
             print(f"    {line}")
 
+    # Post-flow gate-level sim check against the artefacts the agent
+    # left behind. Skipped only when --skip-gl-sim is set; otherwise a
+    # failing gate exits non-zero so c5/c6 acceptance runs surface the
+    # regression immediately.
+    gl_sim_report: dict | None = None
+    if result.success and not args.skip_gl_sim:
+        gl_sim_report = _post_flow_gl_sim_check(
+            work_dir=work_dir,
+            pdk_key=args.pdk,
+            pdk_root=args.pdk_root,
+        )
+        _print_gl_sim_report(gl_sim_report)
+
     # Save results
     results_file = work_dir / "from_spec_results.json"
     results_file.write_text(json.dumps({
@@ -239,8 +252,138 @@ async def run_from_spec(args):
         "cost_usd": result.total_cost_usd,
         "error": result.error,
         "result_text": result.result_text[-2000:] if result.result_text else "",
-    }, indent=2))
+        "gl_sim": gl_sim_report,
+    }, indent=2, default=str))
     print(f"\n  Results saved: {results_file}")
+
+    if gl_sim_report and not gl_sim_report.get("all_passed", False):
+        sys.exit(1)
+
+
+def _post_flow_gl_sim_check(
+    *,
+    work_dir: Path,
+    pdk_key: str,
+    pdk_root: str,
+) -> dict:
+    """Run post-synth + post-PnR GL sim against the agent's run dir.
+
+    Reads ``{work_dir}/config.yaml`` for DESIGN_NAME, locates the most
+    recent ``{work_dir}/runs/RUN_*/`` directory, reconstructs a minimal
+    DigitalDesign pointing at the agent's testbench, and invokes
+    :class:`GlSimRunner` twice. Returns a dict with per-stage success +
+    error + run-time for inclusion in the result JSON; gate failures
+    propagate to the caller's exit code.
+    """
+    import yaml
+    from eda_agents.core.digital_design import DigitalDesign, TestbenchSpec
+    from eda_agents.core.pdk import get_pdk
+    from eda_agents.core.stages.gl_sim_runner import GlSimRunner
+    from eda_agents.core.tool_environment import LocalToolEnvironment
+
+    pdk_config = get_pdk(pdk_key)
+
+    config_path = work_dir / "config.yaml"
+    if not config_path.is_file():
+        return {
+            "all_passed": False,
+            "error": f"config.yaml not found at {config_path}",
+        }
+    cfg = yaml.safe_load(config_path.read_text()) or {}
+    design_name = cfg.get("DESIGN_NAME")
+    if not design_name:
+        return {
+            "all_passed": False,
+            "error": "DESIGN_NAME missing from config.yaml",
+        }
+
+    runs_root = work_dir / "runs"
+    runs = sorted(runs_root.glob("RUN_*"), key=lambda p: p.stat().st_mtime)
+    if not runs:
+        return {
+            "all_passed": False,
+            "error": f"No LibreLane run directories under {runs_root}",
+        }
+    run_dir = runs[-1]
+
+    tb_path = work_dir / "tb" / f"tb_{design_name}.v"
+    if not tb_path.is_file():
+        return {
+            "all_passed": False,
+            "error": f"Testbench not found at {tb_path}",
+        }
+
+    class _AgentDesign(DigitalDesign):  # noqa: D401 — ad-hoc stub
+        """Minimal DigitalDesign reconstructed from agent artefacts."""
+
+        def project_name(self) -> str: return design_name
+        def specification(self) -> str: return ""
+        def design_space(self): return {}
+        def flow_config_overrides(self): return {}
+        def project_dir(self) -> Path: return work_dir
+        def librelane_config(self) -> Path: return config_path
+        def compute_fom(self, metrics) -> float: return 0.0  # noqa: ARG002
+        def check_validity(self, metrics):  # noqa: ARG002
+            return True, []
+        def prompt_description(self) -> str: return ""
+        def design_vars_description(self) -> str: return ""
+        def specs_description(self) -> str: return ""
+        def fom_description(self) -> str: return ""
+        def reference_description(self) -> str: return ""
+        def testbench(self):
+            return TestbenchSpec(
+                driver="iverilog",
+                target=str(tb_path.relative_to(work_dir)),
+            )
+
+    design = _AgentDesign()
+    runner = GlSimRunner(
+        design=design,
+        env=LocalToolEnvironment(),
+        run_dir=run_dir,
+        pdk_config=pdk_config,
+        pdk_root=pdk_root,
+        design_name=design_name,
+    )
+
+    synth_res = runner.run_post_synth()
+    pnr_res = runner.run_post_pnr()
+
+    return {
+        "all_passed": synth_res.success and pnr_res.success,
+        "run_dir": str(run_dir),
+        "post_synth": {
+            "success": synth_res.success,
+            "error": synth_res.error,
+            "run_time_s": synth_res.run_time_s,
+        },
+        "post_pnr": {
+            "success": pnr_res.success,
+            "error": pnr_res.error,
+            "run_time_s": pnr_res.run_time_s,
+            "sdf_warnings": pnr_res.metrics_delta.get("gl_sim_sdf_warnings", 0),
+        },
+    }
+
+
+def _print_gl_sim_report(report: dict) -> None:
+    print("\n" + "=" * 60)
+    print("Gate-level simulation gates")
+    print("=" * 60)
+    if "error" in report and "run_dir" not in report:
+        print(f"  SKIPPED: {report['error']}")
+        return
+    ps = report["post_synth"]
+    pp = report["post_pnr"]
+    status = lambda ok: "PASS" if ok else "FAIL"  # noqa: E731
+    print(f"  Run dir:        {report['run_dir']}")
+    print(f"  Post-synth:     {status(ps['success'])}  ({ps['run_time_s']:.1f}s)")
+    if not ps["success"]:
+        print(f"    error: {ps['error']}")
+    print(f"  Post-PnR (SDF): {status(pp['success'])}  ({pp['run_time_s']:.1f}s)")
+    if not pp["success"]:
+        print(f"    error: {pp['error']}")
+    print(f"  SDF warnings:   {pp['sdf_warnings']}")
 
 
 # ---------------------------------------------------------------------------
@@ -491,6 +634,12 @@ async def main():
     parser.add_argument(
         "--dry-run", action="store_true",
         help="Validate setup without running LLM agents",
+    )
+    parser.add_argument(
+        "--skip-gl-sim", action="store_true",
+        help="Skip the post-flow gate-level simulation gate "
+             "(--spec mode only). Defaults to running both post-synth "
+             "and post-PnR GL sim after the agent completes.",
     )
     parser.add_argument(
         "--force", action="store_true",
