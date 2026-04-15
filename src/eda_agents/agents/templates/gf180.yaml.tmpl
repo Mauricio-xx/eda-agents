@@ -1,8 +1,22 @@
 # GF180MCU LibreLane config (auto-generated from spec)
 # Fill in: DESIGN_NAME, VERILOG_FILES, CLOCK_PORT, CLOCK_PERIOD
 
+# Magic.StreamOut fails on current Magic/LibreLane builds with
+# ``Error: invalid command name "units"`` -- a Tcl compatibility
+# regression in the magic script path. We adopt klayout as the
+# primary streamout tool (PRIMARY_GDSII_STREAMOUT_TOOL below), so
+# Magic's streamout output is not needed for signoff. Skipping
+# Magic.StreamOut also means KLayout.XOR (which diffs the two
+# streamouts) has nothing to compare against; disable it accordingly.
 meta:
   version: 3
+  flow: Classic
+  substituting_steps:
+    Magic.StreamOut: null
+    KLayout.XOR: null
+
+RUN_MAGIC_STREAMOUT: false
+RUN_KLAYOUT_XOR: false
 
 DESIGN_NAME: {design_name}
 VERILOG_FILES:

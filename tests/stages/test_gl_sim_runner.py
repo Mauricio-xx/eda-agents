@@ -283,7 +283,42 @@ class TestRunPostPnr:
     """Post-PnR GL sim with SDF annotation. Same pass/fail contract."""
 
     def test_happy_path_emits_sdf_wrapper(self, tmp_path, pdk_config):
-        """Success case writes an $sdf_annotate wrapper file."""
+        """Success case writes an $sdf_annotate wrapper file (always)."""
+        project = tmp_path / "project"
+        (project / "tb").mkdir(parents=True)
+        (project / "tb" / "tb_dut_top.v").write_text("module tb; endmodule\n")
+
+        cell_dir = tmp_path / "fake_pdk" / pdk_config.stdcell_verilog_models_glob.rsplit("/", 1)[0]
+        cell_dir.mkdir(parents=True)
+        (cell_dir / "stub.v").write_text("// stub\n")
+
+        run_dir = _make_run_dir(tmp_path, "dut_top")
+        _add_post_pnr_artifacts(run_dir, "dut_top", pdk_config.default_sta_corner)
+
+        tb = TestbenchSpec(driver="iverilog", target="tb/tb_dut_top.v")
+        design = _make_design(project_dir=project, tb=tb)
+        env = _make_env(sim_stdout="PASS\n")
+
+        runner = GlSimRunner(
+            design=design, env=env, run_dir=run_dir,
+            pdk_config=pdk_config, pdk_root=tmp_path / "fake_pdk",
+            enable_sdf_annotation=True,
+        )
+        result = runner.run_post_pnr()
+
+        assert result.stage == FlowStage.GL_SIM_POST_PNR
+        assert result.success
+        # Wrapper file was generated and points at tb.dut (default).
+        wrapper = run_dir / "gl_sim" / "post_pnr" / "_sdf_annotate_wrapper.v"
+        assert wrapper.is_file()
+        body = wrapper.read_text()
+        assert "$sdf_annotate" in body
+        assert "tb.dut" in body
+        assert pdk_config.default_sta_corner in body
+        assert "gl_sim_sdf_warnings" in result.metrics_delta
+
+    def test_default_mode_skips_sdf_annotation(self, tmp_path, pdk_config):
+        """Default post-PnR mode is functional only — no SDF warnings."""
         project = tmp_path / "project"
         (project / "tb").mkdir(parents=True)
         (project / "tb" / "tb_dut_top.v").write_text("module tb; endmodule\n")
@@ -305,16 +340,12 @@ class TestRunPostPnr:
         )
         result = runner.run_post_pnr()
 
-        assert result.stage == FlowStage.GL_SIM_POST_PNR
         assert result.success
-        # Wrapper file was generated and points at tb.dut (default).
+        # SDF wrapper still written for discoverability.
         wrapper = run_dir / "gl_sim" / "post_pnr" / "_sdf_annotate_wrapper.v"
         assert wrapper.is_file()
-        body = wrapper.read_text()
-        assert "$sdf_annotate" in body
-        assert "tb.dut" in body
-        assert pdk_config.default_sta_corner in body
-        assert "gl_sim_sdf_warnings" in result.metrics_delta
+        # SDF warnings absent because annotation is off.
+        assert "gl_sim_sdf_warnings" not in result.metrics_delta
 
     def test_sdf_warnings_counted_non_blocking(self, tmp_path, pdk_config):
         """SDF warnings surface as metrics; functional PASS still wins."""
@@ -343,6 +374,7 @@ class TestRunPostPnr:
         runner = GlSimRunner(
             design=design, env=env, run_dir=run_dir,
             pdk_config=pdk_config, pdk_root=tmp_path / "fake_pdk",
+            enable_sdf_annotation=True,
         )
         result = runner.run_post_pnr()
 

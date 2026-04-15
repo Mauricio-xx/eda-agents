@@ -102,6 +102,7 @@ class GlSimRunner:
         pdk_root: Path | str,
         design_name: str | None = None,
         timeout_s: int = 900,
+        enable_sdf_annotation: bool = False,
     ):
         self.design = design
         self.env = env
@@ -110,6 +111,21 @@ class GlSimRunner:
         self.pdk_root = Path(pdk_root)
         self.design_name = design_name or design.project_name()
         self.timeout_s = timeout_s
+        # SDF annotation requires iverilog ``-gspecify -ginterconnect``.
+        # In practice, iverilog's specify-block coverage is incomplete
+        # for the IHP/GF180 stdcell models we ship: the
+        # ``ifnone with an edge-sensitive path`` paths drop, and on
+        # GF180 every flip-flop output is X under specify-block
+        # timing. The gate then false-alarms on post-reset checks even
+        # though the design is functionally correct (verifiable by
+        # running without specify). Until iverilog upstream improves
+        # ifnone+edge-sensitive support — or until we provide our own
+        # liberty-derived Verilog with conservative delays — the
+        # default is functional-only post-PnR GL sim. Set
+        # ``enable_sdf_annotation=True`` to opt in (the wrapper file
+        # is still written for both modes so the SDF path is
+        # discoverable).
+        self.enable_sdf_annotation = enable_sdf_annotation
 
     # ------------------------------------------------------------------
     # Public entry points
@@ -217,15 +233,21 @@ class GlSimRunner:
         work_dir = self.run_dir / "gl_sim" / "post_pnr"
         work_dir.mkdir(parents=True, exist_ok=True)
 
+        # Always write the wrapper so the SDF path is discoverable
+        # (handy when re-running by hand with the opt-in flag); only
+        # include it as a compile source when annotation is enabled,
+        # otherwise iverilog wastes time evaluating $sdf_annotate
+        # against a model whose specify paths it cannot fully match.
         wrapper = self._write_sdf_wrapper(work_dir, sdf)
+        sources = [*cell_sources, str(netlist), str(tb_path)]
+        if self.enable_sdf_annotation:
+            sources.append(str(wrapper))
 
         return self._invoke(
             stage=FlowStage.GL_SIM_POST_PNR,
             work_dir=work_dir,
-            sources=[
-                *cell_sources, str(netlist), str(tb_path), str(wrapper),
-            ],
-            sdf_path=sdf,
+            sources=sources,
+            sdf_path=sdf if self.enable_sdf_annotation else None,
             t0=t0,
         )
 

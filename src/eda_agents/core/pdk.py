@@ -260,11 +260,12 @@ GF180MCU_D = PdkConfig(
     stdcell_verilog_models_glob=(
         "gf180mcuD/libs.ref/gf180mcu_fd_sc_mcu7t5v0/verilog/*.v"
     ),
-    # Typical corner for 3v3 flow. Confirmed against the stdcell lib
-    # directory (tt_025C_3v30.lib). Actual SDF directory naming is
-    # confirmed when a real GF180 LibreLane run lands; the runner
-    # falls back to the first SDF found if this exact name is missing.
-    default_sta_corner="nom_tt_025C_3v30",
+    # Typical SDF corner directory. Confirmed against a real GF180
+    # LibreLane Classic run: ``runs/<tag>/final/sdf/`` produces nine
+    # corners (``{nom,min,max}_{tt,ss,ff}_<temp>_<voltage>``); the
+    # 5v00 typical-process flavour is what STAPostPNR labels typical
+    # for the 3v3/5v0 SCL.
+    default_sta_corner="nom_tt_025C_5v00",
 )
 
 
