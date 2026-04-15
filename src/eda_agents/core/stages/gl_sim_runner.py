@@ -393,10 +393,16 @@ class GlSimRunner:
         # interconnect nets. Without them iverilog silently skips SDF
         # annotation and emits the warning "Omitting $sdf_annotate()
         # since specify blocks and interconnects are being omitted."
-        # The flags are harmless in post-synth mode (no SDF) — they
-        # add a few milliseconds of compile time.
+        #
+        # These flags are also NOT safe in post-synth mode because
+        # they pull specify-block timing into the simulation, and the
+        # PDK stdcell models ship placeholder (0,0) delays with
+        # X-propagation semantics that turn every flip-flop output
+        # into X at time 0 — the design never escapes reset. Only
+        # enable them when we actually have an SDF to annotate.
+        sdf_flags = ["-gspecify", "-ginterconnect"] if sdf_path else []
         compile_cmd = [
-            "iverilog", "-g2012", "-gspecify", "-ginterconnect",
+            "iverilog", "-g2012", *sdf_flags,
             "-o", str(sim_out), *sources,
         ]
         logger.info("GlSimRunner compile: %s", " ".join(compile_cmd))
