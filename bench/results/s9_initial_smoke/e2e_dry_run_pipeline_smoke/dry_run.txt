@@ -1,0 +1,2 @@
+dry-run adapter: deterministic output.
+task_id=e2e_dry_run_pipeline_smoke family=end-to-end

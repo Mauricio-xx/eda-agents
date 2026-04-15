@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Mauricio-xx/eda-agents/bench/schemas/task.json",
+  "title": "eda-agents bench task",
+  "description": "One benchmark task for the eda-agents Pass@1 harness. Inspired by behavioral-veriloga-eval/schemas/task.schema.json (no LICENSE upstream — re-authored from scratch).",
+  "type": "object",
+  "required": [
+    "id",
+    "family",
+    "category",
+    "domain",
+    "difficulty",
+    "expected_backend",
+    "harness",
+    "scoring"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Stable identifier, snake_case. Should embed PDK + family + circuit when ambiguous (e.g. miller_ota_spec_to_sizing_ihp)."
+    },
+    "family": {
+      "type": "string",
+      "enum": [
+        "spec-to-topology",
+        "bugfix",
+        "tb-generation",
+        "end-to-end"
+      ]
+    },
+    "category": {
+      "type": "string",
+      "description": "Free-form circuit class (ota, comparator, sar_adc, digital_systolic, etc)."
+    },
+    "domain": {
+      "type": "string",
+      "enum": ["current", "voltage", "mixed", "digital"]
+    },
+    "pdk": {
+      "type": ["string", "null"],
+      "enum": ["ihp_sg13g2", "gf180mcu", null],
+      "description": "Active PDK or null for PDK-agnostic tasks (e.g. pure digital RTL)."
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": ["easy", "medium", "hard"]
+    },
+    "expected_backend": {
+      "type": "string",
+      "enum": [
+        "ngspice",
+        "ngspice-osdi",
+        "ngspice-xspice",
+        "verilator",
+        "librelane",
+        "dry-run"
+      ]
+    },
+    "harness": {
+      "type": "string",
+      "enum": [
+        "analog_roles",
+        "autoresearch",
+        "digital_autoresearch",
+        "callable",
+        "dry_run"
+      ],
+      "description": "Which harness adapter executes the task. dry_run is a fixed-output mock for pipeline smoke testing."
+    },
+    "topology": {
+      "type": "string",
+      "description": "Optional topology identifier consumed by the harness adapter (e.g. miller_ota, sar_adc_8bit)."
+    },
+    "inputs": {
+      "type": "object",
+      "description": "Free-form harness inputs (spec dict, broken netlist, parameter overrides...)."
+    },
+    "must_include": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Regex patterns that MUST match somewhere in the produced artifact set."
+    },
+    "must_not_include": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Regex patterns that MUST NOT match the produced artifacts."
+    },
+    "expected_metrics": {
+      "type": "object",
+      "description": "Per-metric thresholds. Keys are metric names, values are objects with optional min / max numeric bounds.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "min": {"type": "number"},
+          "max": {"type": "number"},
+          "unit": {"type": "string"}
+        }
+      }
+    },
+    "scoring": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": [
+          "compile",
+          "sim_run",
+          "audit_passed",
+          "regex_match",
+          "metrics_in_range"
+        ]
+      }
+    },
+    "weight": {
+      "type": "number",
+      "minimum": 0.0,
+      "default": 1.0
+    },
+    "timeout_s": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 600
+    },
+    "notes": {
+      "type": "string"
+    }
+  }
+}

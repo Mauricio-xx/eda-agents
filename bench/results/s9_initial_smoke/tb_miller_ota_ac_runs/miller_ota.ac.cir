@@ -1,0 +1,27 @@
+Miller OTA AC analysis - IHP SG13G2 130nm BiCMOS
+
+.lib $PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_tt
+.lib $PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/models/cornerCAP.lib cap_typ
+.include miller_ota.par
+.include miller_ota.net
+
+.control
+  set ngbehavior=hsa
+  osdi '$PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/osdi/psp103.osdi'
+  osdi '$PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/osdi/psp103_nqs.osdi'
+  osdi '$PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/osdi/r3_cmc.osdi'
+  osdi '$PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/osdi/mosvar.osdi'
+  op
+  save v(vout)
+  ac dec 41 10 100MEG
+  let AmagdB=vdb(vout)
+  let Aphdeg=180/PI*vp(vout)
+  meas ac Adc find AmagdB at=10
+  meas ac Adc_peak max AmagdB
+  meas ac GBW when AmagdB=0
+  meas ac PGBW find Aphdeg at=GBW
+  set wr_singlescale
+  set wr_vecnames
+  wrdata miller_ota.ac.dat AmagdB Aphdeg
+.endc
+.end

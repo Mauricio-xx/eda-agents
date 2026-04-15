@@ -1,0 +1,31 @@
+{
+  "artifacts": [
+    "/home/montanares/git/eda-agents-worktrees/arcadia-integration/bench/results/s9_initial_smoke/tb_miller_ota_deck_emits_ac_meas/miller_ota.ac.cir"
+  ],
+  "backend_used": "ngspice-osdi",
+  "duration_s": 0.10583662800490856,
+  "errors": [],
+  "finished": "2026-04-15T22:07:05.179306+00:00",
+  "harness_used": "callable",
+  "metrics": {
+    "Adc_dB": 32.5033,
+    "GBW_Hz": 1385226.0,
+    "PM_deg": -42.28415
+  },
+  "notes": [
+    "ngspice ok in 0.11s; measurements=['Adc_dB', 'GBW_Hz', 'PM_deg']",
+    "adapter_runtime_s=0.11"
+  ],
+  "pdk_used": "ihp_sg13g2",
+  "scores": {
+    "audit_passed": null,
+    "compile": 1.0,
+    "metrics_in_range": null,
+    "regex_match": 1.0,
+    "sim_run": 1.0,
+    "weighted_total": 1.0
+  },
+  "started": "2026-04-15T22:07:05.073462+00:00",
+  "status": "PASS",
+  "task_id": "tb_miller_ota_deck_emits_ac_meas"
+}

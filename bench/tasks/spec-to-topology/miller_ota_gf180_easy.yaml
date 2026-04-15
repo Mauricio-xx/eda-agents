@@ -1,0 +1,47 @@
+id: spec_miller_ota_gf180_easy
+family: spec-to-topology
+category: ota
+domain: voltage
+pdk: gf180mcu
+difficulty: easy
+expected_backend: ngspice
+harness: callable
+topology: miller_ota
+inputs:
+  callable: eda_agents.bench.adapters:analytical_miller_design
+  design_params:
+    gmid_input: 12.0
+    gmid_load: 10.0
+    L_input: 1.0e-6
+    L_load: 1.0e-6
+    Cc: 1.0e-12
+expected_metrics:
+  Adc_dB: {min: 25.0, unit: dB}
+  GBW_Hz: {min: 5.0e5, unit: Hz}
+scoring:
+  - compile
+  - sim_run
+  - metrics_in_range
+weight: 1.0
+timeout_s: 240
+notes: |
+  Same Miller OTA on GF180MCU. Sesión 8 surfaced this as FAIL_SIM and
+  Sesión 9 diagnosed the root cause precisely (see
+  docs/upstream_issues/miller_ota_gf180_process_params.md):
+
+    * MillerOTADesigner.ProcessParams (topologies/miller_ota.py:104)
+      is HARDCODED to IHP SG13G2 (Wmin=150 nm, Lmin=130 nm, IHP-only
+      Ispecsq / lambda / AVT). When pdk=GF180MCU_D is passed, only the
+      symbol names and library paths are swapped — the analytical math
+      keeps IHP numbers.
+    * The designer therefore produces W=170 nm transistors (legal in
+      IHP 130 nm, *illegal* in GF180 180 nm where Wmin = 220 nm).
+    * ngspice loads the nfet_03v3 subckt fine; the inner BSIM4 binner
+      cannot match W=170 nm to any nfet_03v3.<bin> (all bins require
+      W >= 220 nm) and emits "could not find a valid modelname".
+
+  Fixing this needs a real GF180 sEKV process-parameter set, which is
+  out of scope for the bench session. The task stays in the suite as a
+  regression detector: when (if) a future session ports
+  MillerOTADesigner to GF180, this YAML flips to PASS without edits.
+

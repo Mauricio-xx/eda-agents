@@ -1,0 +1,27 @@
+{
+  "artifacts": [],
+  "backend_used": "librelane",
+  "duration_s": 0.011930413544178009,
+  "errors": [
+    "GL sim task needs inputs.run_dir or EDA_AGENTS_GL_SIM_RUN_DIR; no hardened LibreLane run available"
+  ],
+  "finished": "2026-04-15T22:07:04.673151+00:00",
+  "harness_used": "callable",
+  "metrics": {},
+  "notes": [
+    "bench did not harden a fresh design \u2014 see TODO",
+    "adapter_runtime_s=0.01"
+  ],
+  "pdk_used": "gf180mcu",
+  "scores": {
+    "audit_passed": null,
+    "compile": null,
+    "metrics_in_range": null,
+    "regex_match": null,
+    "sim_run": null,
+    "weighted_total": 0.0
+  },
+  "started": "2026-04-15T22:07:04.661215+00:00",
+  "status": "FAIL_INFRA",
+  "task_id": "e2e_gl_sim_post_synth_systolic"
+}

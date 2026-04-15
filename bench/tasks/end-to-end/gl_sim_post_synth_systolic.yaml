@@ -1,0 +1,24 @@
+id: e2e_gl_sim_post_synth_systolic
+family: end-to-end
+category: digital_glsim
+domain: digital
+pdk: gf180mcu
+difficulty: hard
+expected_backend: librelane
+harness: callable
+inputs:
+  callable: eda_agents.bench.adapters:run_gl_sim_post_synth
+  # Override at invocation time:
+  #   EDA_AGENTS_GL_SIM_RUN_DIR=/path/to/librelane/runs/<tag>
+scoring:
+  - compile
+  - sim_run
+weight: 1.0
+timeout_s: 1200
+notes: |
+  Coverage task for core/stages/gl_sim_runner.py (the 505 LOC runner
+  added on main). Invokes post-synth gate-level simulation against
+  an existing hardened LibreLane run (provided via inputs.run_dir or
+  EDA_AGENTS_GL_SIM_RUN_DIR). Without a run dir the adapter returns
+  FAIL_INFRA, which the runner maps to SKIPPED — we never silently
+  fake a GL sim PASS.

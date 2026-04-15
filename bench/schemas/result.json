@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Mauricio-xx/eda-agents/bench/schemas/result.json",
+  "title": "eda-agents bench result",
+  "description": "One run record for a benchmark task. Inspired by behavioral-veriloga-eval/schemas/result.schema.json (no LICENSE upstream — re-authored).",
+  "type": "object",
+  "required": [
+    "task_id",
+    "status",
+    "scores",
+    "harness_used",
+    "duration_s"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "task_id": {"type": "string"},
+    "status": {
+      "type": "string",
+      "enum": [
+        "PASS",
+        "FAIL_COMPILE",
+        "FAIL_SIM",
+        "FAIL_AUDIT",
+        "FAIL_INFRA",
+        "ERROR",
+        "SKIPPED"
+      ]
+    },
+    "scores": {
+      "type": "object",
+      "required": ["weighted_total"],
+      "additionalProperties": false,
+      "properties": {
+        "compile": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "sim_run": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "audit_passed": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "regex_match": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "metrics_in_range": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "weighted_total": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      }
+    },
+    "harness_used": {"type": "string"},
+    "backend_used": {"type": "string"},
+    "pdk_used": {"type": ["string", "null"]},
+    "duration_s": {"type": "number", "minimum": 0.0},
+    "artifacts": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": {"type": ["number", "string", "null", "boolean"]}
+    },
+    "errors": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "notes": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "started": {"type": "string"},
+    "finished": {"type": "string"}
+  }
+}

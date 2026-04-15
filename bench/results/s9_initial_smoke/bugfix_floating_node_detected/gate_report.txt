@@ -1,0 +1,2 @@
+gate=floating_nodes passed=False
+net 'dangling' has only one connection (M1)
