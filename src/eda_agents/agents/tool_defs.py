@@ -1441,6 +1441,29 @@ def build_from_spec_prompt(
         if nix_dirs else ""
     )
 
+    # Derive a PYTHONPATH pointing at the LibreLane venv's site-packages
+    # so yosys's embedded Python can import `click` / `ys_common`. Without
+    # this, Yosys.JsonHeader fails at the first pyosys script:
+    # ``ModuleNotFoundError: No module named 'click'``.
+    import site as _site
+    import subprocess as _subprocess
+    librelane_sitepackages = ""
+    try:
+        # ``librelane_python -c "import site; ..."`` returns the venv's
+        # site-packages regardless of what the caller's active venv is.
+        out = _subprocess.check_output(
+            [librelane_python, "-c",
+             "import site; print(':'.join(site.getsitepackages()))"],
+            text=True, timeout=5,
+        ).strip()
+        librelane_sitepackages = out
+    except Exception:  # noqa: BLE001 — best-effort, fall back to parent venv
+        librelane_sitepackages = ":".join(_site.getsitepackages())
+    pythonpath_prefix = (
+        f"PYTHONPATH={librelane_sitepackages}:$PYTHONPATH "
+        if librelane_sitepackages else ""
+    )
+
     return f"""You are a digital design automation agent. Your task is to take a
 circuit specification and produce a complete RTL-to-GDS implementation
 on {cfg.display_name}, from scratch.
@@ -1538,8 +1561,16 @@ Phase 3 - GENERATE LIBRELANE CONFIG:
     - Large (10k+ cells): 500x500+ um
 
 Phase 4 - RUN LIBRELANE FLOW:
-  cd {work_dir} && {nix_path_prefix}PDK_ROOT={pdk_root} PDK={librelane_pdk} \\
+  cd {work_dir} && {pythonpath_prefix}{nix_path_prefix}PDK_ROOT={pdk_root} PDK={librelane_pdk} \\
     {librelane_python} -m librelane config.yaml --overwrite{extra_flags_suffix}
+
+  PYTHONPATH prefix (required): Yosys (from Nix) embeds its own CPython
+  interpreter which, when LibreLane invokes `yosys -y pyosys/json_header.py`,
+  imports `click` and `ys_common`. The embedded Python does not inherit
+  the active venv's site-packages automatically -- pass the LibreLane
+  venv site-packages via PYTHONPATH so the pyosys scripts can import
+  their deps. Without this, Yosys.JsonHeader fails with
+  `ModuleNotFoundError: No module named 'click'`.
 
   IMPORTANT: on IHP SG13G2, some steps (notably Magic.StreamOut and
   Magic.SpiceExtraction) can take 20-60+ minutes even for trivial
