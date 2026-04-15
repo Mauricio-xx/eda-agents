@@ -149,3 +149,60 @@ register_skill(
         prompt_fn=_orchestrator_prompt,
     )
 )
+
+
+def _adc_metrics_prompt(topology: "CircuitTopology | None" = None) -> str:
+    circuit = ""
+    if topology is not None:
+        circuit = (
+            f"\nActive circuit: {topology.topology_name()}\n"
+            f"Description: {topology.prompt_description()}\n"
+        )
+    return f"""You are analysing the dynamic performance of a data converter.
+{circuit}
+Use ``eda_agents.tools.adc_metrics.compute_adc_metrics(samples, fs, ...)``
+to turn an ADC output trace into a metrics dict. The wrapper is backed
+by ADCToolbox (MIT) and is the only supported entry point - do not
+roll your own FFT/ENOB code.
+
+The returned dict always contains the following keys (values are
+``None`` when the analysis was not computed):
+
+  - enob             Effective Number of Bits
+  - sndr_dbc         Signal-to-Noise-and-Distortion Ratio [dBc]
+  - sfdr_dbc         Spurious-Free Dynamic Range          [dBc]
+  - snr_dbc          Signal-to-Noise Ratio                [dBc]
+  - thd_dbc          Total Harmonic Distortion            [dBc]
+  - inl              INL curve (numpy array, LSB units)
+  - dnl              DNL curve (numpy array, LSB units)
+  - walden_fom_fj    Walden FoM                           [fJ/conv-step]
+  - coherent_freq_hz Closest coherent input tone to target
+
+How to act on each metric:
+  - ENOB below spec: try more samples, check coherent sampling, or
+    suspect offset/kickback; if clean signal, size the comparator
+    (or input sampling network) for lower noise.
+  - SFDR dominated by low-order harmonic: revisit linearity of the
+    sampler or C-DAC matching.
+  - INL/DNL stair-step > 0.5 LSB: check unit-cell matching in the
+    C-DAC (or quantisation mapping if full_scale is misconfigured).
+  - walden_fom_fj: report alongside ENOB and sampling rate; lower is
+    better. Use it to rank across candidate sizings.
+
+Always request ``num_bits`` and ``full_scale`` when INL/DNL matters.
+For spectrum-only analysis, set ``include_inl=False`` to skip the
+INL/DNL work and keep the call cheap."""
+
+
+register_skill(
+    Skill(
+        name="analog.adc_metrics",
+        description=(
+            "ADC dynamic/static metric analysis via ADCToolbox. Prompts "
+            "the agent on how to read the compute_adc_metrics dict and "
+            "act on ENOB/SNDR/SFDR/THD/INL/DNL. Signature: "
+            "(topology=None)."
+        ),
+        prompt_fn=_adc_metrics_prompt,
+    )
+)

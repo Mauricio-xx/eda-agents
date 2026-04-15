@@ -43,6 +43,9 @@ adk = [
 coordination = [
     "context-teleport>=0.5.0",
 ]
+adc = [
+    "adctoolbox>=0.6.4",
+]
 dev = [
     "pytest>=7.0",
     "ruff>=0.1.0",

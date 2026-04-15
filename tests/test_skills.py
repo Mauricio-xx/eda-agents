@@ -74,6 +74,7 @@ class TestRegistryCore:
             "analog.explorer",
             "analog.corner_validator",
             "analog.orchestrator",
+            "analog.adc_metrics",
             "digital.project_manager",
             "digital.verification",
             "digital.synthesis",
