@@ -29,6 +29,7 @@ from eda_agents.skills.registry import (
 # Import side-effect modules to populate the registry.
 # Grouped by domain for clarity; each module's import registers skills.
 from eda_agents.skills import analog as _analog  # noqa: F401
+from eda_agents.skills import analog_roles as _analog_roles  # noqa: F401
 from eda_agents.skills import digital as _digital  # noqa: F401
 from eda_agents.skills import flow as _flow  # noqa: F401
 from eda_agents.skills import tools as _tools  # noqa: F401
