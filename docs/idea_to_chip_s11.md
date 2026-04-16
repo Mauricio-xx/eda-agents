@@ -189,6 +189,40 @@ A real PASS therefore means:
 - `tests/test_idea_to_rtl.py` — 36 unit tests covering library + MCP
   tool + adapter.
 
+## Analog side: Fase 3 topology recommender
+
+Shipped alongside the digital pipeline, deliberately smaller in scope
+because analog topology synthesis is not a solved problem. What
+`recommend_topology` does: **map a natural-language idea to one of the
+registered topologies** (miller_ota, aa_ota, gf180_ota, strongarm_comp,
+sar_adc_{7,8,11}bit), or say "custom" with low confidence when nothing
+fits. It does not size, does not simulate, does not layout.
+
+Skill: `analog.idea_to_topology` (zero-arg, renders a classifier prompt).
+MCP tool: `recommend_topology(description, constraints, model, dry_run)`.
+
+Example (live, needs `OPENROUTER_API_KEY`):
+
+```python
+from eda_agents.mcp.server import mcp
+
+result = await mcp.call_tool("recommend_topology", {
+    "description": "clocked comparator for a SAR ADC, 10 mV input, 1 mV offset tolerance",
+    "constraints": {"td_max": 1e-9, "sigma_Vos_max": 1e-3},
+})
+# -> {'success': True, 'topology': 'strongarm_comp', 'confidence': 'high',
+#     'starter_specs': {'td_max': 1, 'sigma_Vos_max': 0.001}, 'valid_topology': True, ...}
+```
+
+When `confidence == "low"` or `topology == "custom"`, the downstream
+caller should NOT commit to a sized design — instead that's the handoff
+point for the future custom-composition arc (Claude-Code-driven loop
+over gLayout primitives + ngspice, S12+).
+
+Tests: `tests/test_recommend_topology.py` — 10 cases with OpenRouter
+mocked. Manual live smoke-tests in the repo root README are the
+high-trust validation; mocks verify schema + error paths.
+
 ## See also
 
 - `bench/results/s11_fase0_live/README.md` — first-pass evidence.
