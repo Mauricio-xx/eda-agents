@@ -1,0 +1,42 @@
+id: bugfix_strongarm_vds_inversion
+family: bugfix
+category: structural
+domain: voltage
+pdk: ihp_sg13g2
+difficulty: easy
+expected_backend: dry-run
+harness: callable
+inputs:
+  callable: eda_agents.bench.adapters:run_pre_sim_gate_on_inline_netlist
+  gate: vds_polarity
+  subckt: strongarm_broken
+  expect_violation: true
+  netlist: |
+    .subckt strongarm_broken inp inn out outn vdd vss clk
+    * Bug: M1 is an NMOS input transistor whose drain and source are
+    * swapped in the instance line. The "source" terminal (3rd) now
+    * lands on VDD, which makes Vgs = Vinp - VDD <~ 0 V and the device
+    * never turns on. A pre-sim structural gate should flag this
+    * before any SPICE cycle is spent.
+    *
+    * Correct line would be: M1 stage1 inp vss vss nfet_03v3 ...
+    M1 stage1 inp vdd vss nfet_03v3 W=8u L=200n
+    M2 stage1 clk vss vss nfet_03v3 W=18u L=300n
+    * A second, correctly wired NMOS is included so the checker has
+    * to locate the specific buggy device, not just flag "any NMOS"
+    M3 stage2 clk vss vss nfet_03v3 W=18u L=300n
+    .ends
+scoring:
+  - audit_passed
+  - regex_match
+must_include:
+  - "drain-source swap"
+notes: |
+  Closes gap #7. StrongARM-style NMOS input pair with its drain and
+  source swapped (source on VDD). The pre-sim gate check_vds_polarity
+  (new in this branch) catches the swap via the VDD-alias pattern on
+  an NMOS source without needing a DC operating point.
+
+  The netlist includes a correctly wired sibling M3 so the checker
+  has to flag the specific broken device, not just "any NMOS in the
+  subcircuit".

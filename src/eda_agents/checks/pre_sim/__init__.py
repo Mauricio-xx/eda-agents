@@ -39,6 +39,7 @@ from eda_agents.checks.pre_sim.checks import (
     check_floating_nodes,
     check_mirror_ratio,
     check_testbench_pin_match,
+    check_vds_polarity,
     run_all,
 )
 
@@ -51,6 +52,7 @@ __all__ = [
     "check_floating_nodes",
     "check_mirror_ratio",
     "check_testbench_pin_match",
+    "check_vds_polarity",
     "parse_subcircuit",
     "run_all",
 ]

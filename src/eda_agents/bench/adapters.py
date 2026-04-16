@@ -378,6 +378,7 @@ def run_pre_sim_gate_on_inline_netlist(
         check_bulk_connections,
         check_floating_nodes,
         check_mirror_ratio,
+        check_vds_polarity,
         parse_subcircuit,
     )
 
@@ -398,10 +399,8 @@ def run_pre_sim_gate_on_inline_netlist(
         "bulk_connections": check_bulk_connections,
         "mirror_ratio": check_mirror_ratio,
         "bias_source": check_bias_source,
+        "vds_polarity": check_vds_polarity,
     }
-    # vds_polarity is registered in the schema but plugged in at gap #7
-    # time; until that lands this branch returns FAIL_INFRA with a
-    # clear error instead of silently running nothing.
     fn = fn_table.get(inputs.gate)
     if fn is None:
         return AdapterResult(

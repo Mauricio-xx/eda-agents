@@ -233,11 +233,55 @@ def check_testbench_pin_match(
     )
 
 
+def check_vds_polarity(sc: Subcircuit) -> CheckResult:
+    """Flag MOSFETs whose source pin lands on the wrong supply rail.
+
+    Structural proxy for a drain-source swap: an NMOS with ``source``
+    wired directly to a VDD alias, or a PMOS with ``source`` wired
+    directly to a VSS/ground alias, almost always means the author
+    swapped the drain and source positions in the instance line.
+
+    The gate operates on static net names; it cannot catch Vds
+    inversions that only manifest from the DC operating point
+    (e.g. input-referred voltage swings driving source above drain at
+    specific bias). Those are the domain of simulation, not a
+    pre-sim structural pass. But it covers the obvious copy-paste
+    error where an NMOS drain accidentally lands on VDD while source
+    lands on an output node, a pattern bench gap #7 reproduces on a
+    StrongARM input pair.
+    """
+    vdd_aliases = {"vdd", "vdda", "vddd", "vcc", "vdd33", "vcca", "vccad"}
+    vss_aliases = {"0", "gnd", "vss", "vssa", "vssd"}
+    issues: list[str] = []
+    for dev in sc.devices:
+        if not dev.is_mosfet:
+            continue
+        src = (dev.source or "").lower()
+        if not src:
+            continue
+        if dev.kind == "nmos" and src in vdd_aliases:
+            issues.append(
+                f"{dev.name} (nmos) source '{dev.source}' on a VDD rail "
+                f"— drain-source swap suspected"
+            )
+        elif dev.kind == "pmos" and src in vss_aliases:
+            issues.append(
+                f"{dev.name} (pmos) source '{dev.source}' on a VSS/ground rail "
+                f"— drain-source swap suspected"
+            )
+    return CheckResult(
+        name="vds_polarity",
+        passed=not issues,
+        severity="error",
+        messages=tuple(issues),
+    )
+
+
 def run_all(
     sc: Subcircuit,
     declared_ratios: Mapping[tuple[str, str], float] | None = None,
 ) -> list[CheckResult]:
-    """Run the five default pre-sim gates over ``sc``.
+    """Run the default pre-sim gates over ``sc``.
 
     ``check_testbench_pin_match`` is intentionally omitted here; it
     takes a second argument (the DUT instantiation) and is expected
@@ -248,4 +292,5 @@ def run_all(
         check_bulk_connections(sc),
         check_mirror_ratio(sc, declared_ratios=declared_ratios),
         check_bias_source(sc),
+        check_vds_polarity(sc),
     ]
