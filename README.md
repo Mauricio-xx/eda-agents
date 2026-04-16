@@ -231,11 +231,17 @@ an end-to-end scenario.
 ## Known limitations / roadmap
 
 All 11 S9 in-tree gaps were closed in session S9-gap-closure on
-branch `feat/s9-gap-closure` (11 commits, see `CHANGELOG.md` for
-the full mapping). Bench summary: **16/16 PASS, Pass@1 = 100%**
-when `OPENROUTER_API_KEY` is sourced; the LLM task SKIPS cleanly
-without it. Remaining open items below are upstream blockers (not
-our bugs) and deferred follow-ons, not bench regressions.
+branch `feat/s9-gap-closure` (merged as commit `40026ac`; 11 commits
+preserved in history). The two residual "caveats honestos" from that
+session — SAR cold-cache flakiness and the never-exercised live path
+of `digital_autoresearch_adapter` — were closed end-to-end in session
+S9-residual-closure (branch `feat/s9-residual-closure`, 3 commits).
+See `CHANGELOG.md` for per-gap commit mapping. Bench surface now
+counts **17 tasks**; Pass@1 = 100% with `OPENROUTER_API_KEY` + the
+full LibreLane/GF180 tool chain sourced, and tasks SKIP honestly on
+tool-less hosts without degrading the headline number. Remaining
+open items below are upstream blockers (not our bugs) and deferred
+follow-ons, not bench regressions.
 
 ### Upstream blockers (not our bugs, but they gate us)
 
@@ -253,8 +259,12 @@ our bugs) and deferred follow-ons, not bench regressions.
 
 - **SAR calibration items 2-5** — `tau_regen` measurement, LDO wiring,
   real bootstrap switch, corner sweep. Tracked in
-  [`docs/skills/sar_adc/TODO_calibration.md`](docs/skills/sar_adc/TODO_calibration.md)
-  (item 1, the spec anchor, is RESOLVED).
+  [`docs/skills/sar_adc/TODO_calibration.md`](docs/skills/sar_adc/TODO_calibration.md).
+  Item 1 (spec anchors) was RESOLVED across two passes: S9-gap-closure
+  lowered thresholds to measured defaults; S9-residual-closure raised
+  them to 4.5 bit / 28 dB after a 12-point Latin-square sweep measured
+  the architectural ceiling at 5.64 bit, and shifted defaults to that
+  ceiling point so the bench baseline keeps margin.
 - **Deprecation shim removal** — the `sar_adc_8bit` /
   `sar_adc_8bit_behavioral` modules are thin re-exports of the
   canonical 7-bit names. They stay until external callers migrate.

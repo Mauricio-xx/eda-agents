@@ -68,20 +68,30 @@ _DEFAULT_VERILOG = (
     Path(__file__).resolve().parent.parent / "data" / "sar_logic_11bit.v"
 )
 
-# Spec targets. Calibrated in session S9-gap-closure (gap #3) against
-# the ENOB the default design point actually produces on ngspice+PSP103
-# (ENOB=4.45, SNDR=28.56 dB — see bench/tasks/end-to-end/sar11b_enob_ihp.yaml
-# notes + docs/skills/sar_adc/TODO_calibration.md). Before recalibration
-# these were ENOB >= 6.0 / SNDR >= 38 dB, aspirational anchors carried
-# over from the 8-bit AnalogAcademy reference; under those thresholds
-# every default-params evaluation failed check_validity(), so
-# autoresearch could not measure improvement against reality. The
-# aspirational 9-bit ENOB ceiling for this architecture stays as a
-# documented target in TODO_calibration.md — items 2-5 (tau_regen,
-# LDO, bootstrap, corner sweep) are what would close the gap between
-# here and there, scheduled post-gap-closure.
-_SPEC_ENOB_MIN = 4.0
-_SPEC_SNDR_MIN = 25.0      # dB (roughly 4.0 b -> 1.76 + 6*4.02)
+# Spec targets. Calibrated end-to-end across two sessions:
+#
+#   * S9-gap-closure (gap #3) first lowered these from the aspirational
+#     6.0 bit / 38 dB carried over from the 8-bit AnalogAcademy
+#     reference to 4.0 bit / 25 dB, matching the ENOB=4.45 / SNDR=28.56
+#     the old defaults produced end-to-end.
+#
+#   * S9-residual-closure (gap #6b, 2026-04-16) raised them to 4.5 bit /
+#     28 dB after a 12-point Latin-square sweep (script:
+#     scripts/characterize_sar11_ceiling.py; evidence:
+#     bench/results/sar11_ceiling_characterization/sweep.tsv) measured
+#     the architectural ceiling at ENOB=5.64 bit (W=8, L=0.15,
+#     Cu=20 fF, Vb=0.5). The rule "floor(ceiling) - 0.5" puts the new
+#     anchor at 4.5 bit with ~1.1 bit margin to the measured peak. To
+#     stay above the new floor, ``default_params`` was shifted to the
+#     measured optimum in the same commit — defaults now reflect
+#     "best known design point" instead of "safe-looking generic".
+#
+# The aspirational 9-bit ENOB ceiling for this architecture stays as
+# a documented target in docs/skills/sar_adc/TODO_calibration.md
+# (items 2-5: tau_regen, LDO, bootstrap, corner sweep). Parameter
+# tuning alone cannot close the gap between 5.64 bit and 9 bit.
+_SPEC_ENOB_MIN = 4.5
+_SPEC_SNDR_MIN = 28.0      # dB (roughly 4.5 b -> 1.76 + 6*4.37)
 _SPEC_POWER_MAX_UW = 400.0
 _SPEC_FS_HZ = 1e6
 
@@ -214,15 +224,20 @@ class SARADC11BitTopology(SystemTopology):
         }
 
     def default_params(self) -> dict[str, float]:
+        # Shifted in S9-residual-closure (gap #6b) from W=32/L=0.2/
+        # Cu=50/Vb=0.6 (ENOB=4.45) to the sweep-measured optimum
+        # (ENOB=5.64). See the _SPEC_* comment above for provenance.
+        # Latch and tail knobs kept at their S9-gap-closure values —
+        # the sweep only swept input/CDAC/bias.
         return {
-            "comp_W_input_um": 32.0,
-            "comp_L_input_um": 0.2,
+            "comp_W_input_um": 8.0,
+            "comp_L_input_um": 0.15,
             "comp_W_tail_um": 18.0,
             "comp_L_tail_um": 0.3,
             "comp_W_latch_p_um": 8.0,
             "comp_W_latch_n_um": 4.0,
-            "cdac_C_unit_fF": 50.0,
-            "bias_V": 0.6,
+            "cdac_C_unit_fF": 20.0,
+            "bias_V": 0.5,
         }
 
     # -- Netlist generation --------------------------------------------

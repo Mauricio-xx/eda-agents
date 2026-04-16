@@ -1,0 +1,338 @@
+[
+  {
+    "run_id": "run_01",
+    "indices": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "params": {
+      "comp_W_input_um": 8.0,
+      "comp_L_input_um": 0.15,
+      "comp_W_tail_um": 18.0,
+      "comp_L_tail_um": 0.3,
+      "comp_W_latch_p_um": 8.0,
+      "comp_W_latch_n_um": 4.0,
+      "cdac_C_unit_fF": 20.0,
+      "bias_V": 0.5
+    },
+    "status": "OK",
+    "enob": 5.637143988375612,
+    "sndr_dB": 35.7,
+    "sfdr_dB": 42.9,
+    "thd_dB": -46.94,
+    "unique_codes": 99,
+    "code_span": 853,
+    "error": "",
+    "runtime_s": 74.0777407810092
+  },
+  {
+    "run_id": "run_02",
+    "indices": [
+      1,
+      2,
+      2,
+      2
+    ],
+    "params": {
+      "comp_W_input_um": 8.0,
+      "comp_L_input_um": 0.2,
+      "comp_W_tail_um": 18.0,
+      "comp_L_tail_um": 0.3,
+      "comp_W_latch_p_um": 8.0,
+      "comp_W_latch_n_um": 4.0,
+      "cdac_C_unit_fF": 50.0,
+      "bias_V": 0.6
+    },
+    "status": "OK",
+    "enob": 4.462492573458096,
+    "sndr_dB": 28.62,
+    "sfdr_dB": 33.85,
+    "thd_dB": -38.27,
+    "unique_codes": 97,
+    "code_span": 853,
+    "error": "",
+    "runtime_s": 74.54694490414113
+  },
+  {
+    "run_id": "run_03",
+    "indices": [
+      1,
+      3,
+      3,
+      3
+    ],
+    "params": {
+      "comp_W_input_um": 8.0,
+      "comp_L_input_um": 0.5,
+      "comp_W_tail_um": 18.0,
+      "comp_L_tail_um": 0.3,
+      "comp_W_latch_p_um": 8.0,
+      "comp_W_latch_n_um": 4.0,
+      "cdac_C_unit_fF": 150.0,
+      "bias_V": 0.9
+    },
+    "status": "OK",
+    "enob": 0.0,
+    "sndr_dB": -Infinity,
+    "sfdr_dB": NaN,
+    "thd_dB": Infinity,
+    "unique_codes": 1,
+    "code_span": 0,
+    "error": "",
+    "runtime_s": 35.20862669125199
+  },
+  {
+    "run_id": "run_04",
+    "indices": [
+      2,
+      1,
+      2,
+      3
+    ],
+    "params": {
+      "comp_W_input_um": 32.0,
+      "comp_L_input_um": 0.15,
+      "comp_W_tail_um": 18.0,
+      "comp_L_tail_um": 0.3,
+      "comp_W_latch_p_um": 8.0,
+      "comp_W_latch_n_um": 4.0,
+      "cdac_C_unit_fF": 50.0,
+      "bias_V": 0.9
+    },
+    "status": "OK",
+    "enob": 0.0,
+    "sndr_dB": -Infinity,
+    "sfdr_dB": NaN,
+    "thd_dB": Infinity,
+    "unique_codes": 1,
+    "code_span": 0,
+    "error": "",
+    "runtime_s": 34.683529424481094
+  },
+  {
+    "run_id": "run_05",
+    "indices": [
+      2,
+      2,
+      3,
+      1
+    ],
+    "params": {
+      "comp_W_input_um": 32.0,
+      "comp_L_input_um": 0.2,
+      "comp_W_tail_um": 18.0,
+      "comp_L_tail_um": 0.3,
+      "comp_W_latch_p_um": 8.0,
+      "comp_W_latch_n_um": 4.0,
+      "cdac_C_unit_fF": 150.0,
+      "bias_V": 0.5
+    },
+    "status": "OK",
+    "enob": 3.9201866568437067,
+    "sndr_dB": 25.36,
+    "sfdr_dB": 31.05,
+    "thd_dB": -28.3,
+    "unique_codes": 76,
+    "code_span": 767,
+    "error": "",
+    "runtime_s": 76.82680524233729
+  },
+  {
+    "run_id": "run_06",
+    "indices": [
+      2,
+      3,
+      1,
+      2
+    ],
+    "params": {
+      "comp_W_input_um": 32.0,
+      "comp_L_input_um": 0.5,
+      "comp_W_tail_um": 18.0,
+      "comp_L_tail_um": 0.3,
+      "comp_W_latch_p_um": 8.0,
+      "comp_W_latch_n_um": 4.0,
+      "cdac_C_unit_fF": 20.0,
+      "bias_V": 0.6
+    },
+    "status": "OK",
+    "enob": 5.596764741692517,
+    "sndr_dB": 35.45,
+    "sfdr_dB": 43.16,
+    "thd_dB": -46.02,
+    "unique_codes": 107,
+    "code_span": 855,
+    "error": "",
+    "runtime_s": 78.66069341916591
+  },
+  {
+    "run_id": "run_07",
+    "indices": [
+      3,
+      1,
+      3,
+      2
+    ],
+    "params": {
+      "comp_W_input_um": 50.0,
+      "comp_L_input_um": 0.15,
+      "comp_W_tail_um": 18.0,
+      "comp_L_tail_um": 0.3,
+      "comp_W_latch_p_um": 8.0,
+      "comp_W_latch_n_um": 4.0,
+      "cdac_C_unit_fF": 150.0,
+      "bias_V": 0.6
+    },
+    "status": "OK",
+    "enob": 3.9201866568437067,
+    "sndr_dB": 25.36,
+    "sfdr_dB": 31.05,
+    "thd_dB": -28.3,
+    "unique_codes": 76,
+    "code_span": 767,
+    "error": "",
+    "runtime_s": 79.28128382656723
+  },
+  {
+    "run_id": "run_08",
+    "indices": [
+      3,
+      2,
+      1,
+      3
+    ],
+    "params": {
+      "comp_W_input_um": 50.0,
+      "comp_L_input_um": 0.2,
+      "comp_W_tail_um": 18.0,
+      "comp_L_tail_um": 0.3,
+      "comp_W_latch_p_um": 8.0,
+      "comp_W_latch_n_um": 4.0,
+      "cdac_C_unit_fF": 20.0,
+      "bias_V": 0.9
+    },
+    "status": "OK",
+    "enob": 0.0,
+    "sndr_dB": -Infinity,
+    "sfdr_dB": NaN,
+    "thd_dB": Infinity,
+    "unique_codes": 1,
+    "code_span": 0,
+    "error": "",
+    "runtime_s": 33.62542644981295
+  },
+  {
+    "run_id": "run_09",
+    "indices": [
+      3,
+      3,
+      2,
+      1
+    ],
+    "params": {
+      "comp_W_input_um": 50.0,
+      "comp_L_input_um": 0.5,
+      "comp_W_tail_um": 18.0,
+      "comp_L_tail_um": 0.3,
+      "comp_W_latch_p_um": 8.0,
+      "comp_W_latch_n_um": 4.0,
+      "cdac_C_unit_fF": 50.0,
+      "bias_V": 0.5
+    },
+    "status": "OK",
+    "enob": 4.445266848806881,
+    "sndr_dB": 28.52,
+    "sfdr_dB": 33.84,
+    "thd_dB": -38.13,
+    "unique_codes": 98,
+    "code_span": 855,
+    "error": "",
+    "runtime_s": 77.46982698515058
+  },
+  {
+    "run_id": "run_10",
+    "indices": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "params": {
+      "comp_W_input_um": 8.0,
+      "comp_L_input_um": 0.15,
+      "comp_W_tail_um": 18.0,
+      "comp_L_tail_um": 0.3,
+      "comp_W_latch_p_um": 8.0,
+      "comp_W_latch_n_um": 4.0,
+      "cdac_C_unit_fF": 20.0,
+      "bias_V": 0.5
+    },
+    "status": "OK",
+    "enob": 5.637143988375612,
+    "sndr_dB": 35.7,
+    "sfdr_dB": 42.9,
+    "thd_dB": -46.94,
+    "unique_codes": 99,
+    "code_span": 853,
+    "error": "",
+    "runtime_s": 70.91170273907483
+  },
+  {
+    "run_id": "run_11",
+    "indices": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "params": {
+      "comp_W_input_um": 50.0,
+      "comp_L_input_um": 0.5,
+      "comp_W_tail_um": 18.0,
+      "comp_L_tail_um": 0.3,
+      "comp_W_latch_p_um": 8.0,
+      "comp_W_latch_n_um": 4.0,
+      "cdac_C_unit_fF": 150.0,
+      "bias_V": 0.9
+    },
+    "status": "OK",
+    "enob": 0.0,
+    "sndr_dB": -Infinity,
+    "sfdr_dB": NaN,
+    "thd_dB": Infinity,
+    "unique_codes": 1,
+    "code_span": 0,
+    "error": "",
+    "runtime_s": 32.255489910021424
+  },
+  {
+    "run_id": "run_12",
+    "indices": [
+      2,
+      2,
+      2,
+      2
+    ],
+    "params": {
+      "comp_W_input_um": 32.0,
+      "comp_L_input_um": 0.2,
+      "comp_W_tail_um": 18.0,
+      "comp_L_tail_um": 0.3,
+      "comp_W_latch_p_um": 8.0,
+      "comp_W_latch_n_um": 4.0,
+      "cdac_C_unit_fF": 50.0,
+      "bias_V": 0.6
+    },
+    "status": "OK",
+    "enob": 4.454004412658261,
+    "sndr_dB": 28.57,
+    "sfdr_dB": 33.89,
+    "thd_dB": -38.15,
+    "unique_codes": 99,
+    "code_span": 855,
+    "error": "",
+    "runtime_s": 77.43427350278944
+  }
+]

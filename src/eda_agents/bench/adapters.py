@@ -336,14 +336,36 @@ def digital_autoresearch_adapter(task: BenchTask, work_dir: Path) -> AdapterResu
     )
 
     work_dir.mkdir(parents=True, exist_ok=True)
+
+    # Live mode mutates design_dir/config.yaml via
+    # LibreLaneRunner.modify_config (per eval). Snapshot the file
+    # before running and restore it afterwards so repeated live runs
+    # don't drift the committed design baseline between invocations.
+    # Mock mode doesn't touch LibreLane, so the snapshot is a no-op
+    # there but cheap enough to do unconditionally.
+    config_snapshot = config_path.read_bytes()
+    auto_res = None
+    run_error: Exception | None = None
     try:
         auto_res = asyncio.run(runner.run(work_dir))
     except Exception as exc:  # noqa: BLE001
+        run_error = exc
+    finally:
+        # Only write back when the file actually drifted — keeps
+        # mtime stable for offline runs.
+        if config_path.read_bytes() != config_snapshot:
+            config_path.write_bytes(config_snapshot)
+
+    if run_error is not None:
         return AdapterResult(
             status=BenchStatus.FAIL_INFRA,
             backend_used="librelane",
-            errors=[f"DigitalAutoresearchRunner failed: {type(exc).__name__}: {exc}"],
+            errors=[
+                f"DigitalAutoresearchRunner failed: "
+                f"{type(run_error).__name__}: {run_error}"
+            ],
         )
+    assert auto_res is not None
 
     metrics: dict[str, Any] = {
         "iterations_kept": float(auto_res.kept),
