@@ -1,0 +1,86 @@
+id: e2e_idea_to_digital_fft4_gf180_live
+family: end-to-end
+category: digital
+domain: digital
+pdk: gf180mcu
+difficulty: hard
+expected_backend: librelane
+harness: callable
+topology: fft4
+inputs:
+  callable: eda_agents.bench.adapters:run_idea_to_digital_chip
+  description: |
+    4-point radix-2 decimation-in-time FFT for 8-bit REAL inputs,
+    producing 4 complex outputs. Fully combinational core, wrapped
+    in a flop-registered top so LibreLane STA has a clock domain.
+
+    Top-level module name: `fft4`.
+
+    Interfaces:
+      - clk: clock (rising-edge).
+      - rst_n: active-low async reset.
+      - in0[7:0], in1[7:0], in2[7:0], in3[7:0]: four 8-bit signed
+        real input samples (two's complement).
+      - out0_re[9:0], out0_im[9:0],
+        out1_re[9:0], out1_im[9:0],
+        out2_re[9:0], out2_im[9:0],
+        out3_re[9:0], out3_im[9:0]: four complex FFT outputs, each
+        split into 10-bit signed real + 10-bit signed imaginary parts.
+      - valid_out: 1 when the registered output corresponds to the
+        inputs sampled on the previous cycle. Drop low during reset.
+
+    Math (with trivial 4-point twiddles W4^k in {1, -j, -1, j}):
+
+      X[0] = (x[0] + x[1] + x[2] + x[3]) +j*0
+      X[1] = (x[0] - x[2])              +j*(x[3] - x[1])
+      X[2] = (x[0] - x[1] + x[2] - x[3]) +j*0
+      X[3] = (x[0] - x[2])              +j*(x[1] - x[3])
+
+      Keep the implementation pure adds + two's-complement subtracts.
+      DO NOT generate multipliers — all twiddles are {1, -1, j, -j},
+      so multiplication by a twiddle is a sign flip or swap of real
+      and imaginary parts. If the agent emits multiplier instances,
+      it has misunderstood the problem.
+
+    Testbench requirements:
+      - Wrap inside a synthesisable top module `fft4` that registers
+        inputs and outputs (single-cycle latency). This is what
+        LibreLane hardens.
+      - Exercise at least five vectors including:
+          (a) x = {0, 0, 0, 0}
+          (b) x = {127, 0, 0, 0}  (impulse; X[k]=127 for all k)
+          (c) x = {1, 1, 1, 1}    (DC)
+          (d) x = {1, 0, -1, 0}
+          (e) x = {100, 50, -50, -100}
+      - Print "PASS" only when every vector matched its expected
+        complex output (within 0 tolerance — integer arithmetic).
+      - Gate-level-safe: no # delays driving DUT inputs; stimulus
+        on posedge clk; wait one full clock after reset before the
+        first correctness check.
+  design_name: fft4
+  pdk: gf180mcu
+  complexity: complex
+  dry_run: false
+  skip_gl_sim: false
+  allow_dangerous: true
+  max_budget_usd: 10.0
+  timeout_s: 5400
+  librelane_python: /home/montanares/git/librelane/.venv/bin/python
+expected_metrics:
+  gds_exists: {min: 1, unit: bool}
+  gl_post_synth_ok: {min: 1, unit: bool}
+  gl_post_pnr_ok: {min: 1, unit: bool}
+scoring:
+  - compile
+  - sim_run
+  - metrics_in_range
+weight: 4.0
+timeout_s: 5400
+notes: |
+  S11 Fase 2 extra LIVE probe. DSP-regular design, complementary
+  signal to the accumulator CPU (compute-centric). A PASS here
+  confirms single-shot + retry scales cleanly across design
+  shapes (not just toy counters / ALUs).
+
+  Env requirements same as other live tasks: Claude CLI,
+  EDA_AGENTS_ALLOW_DANGEROUS=1, GF180 PDK, LibreLane venv.

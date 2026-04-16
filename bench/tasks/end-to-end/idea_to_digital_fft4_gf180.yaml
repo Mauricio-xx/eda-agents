@@ -1,0 +1,82 @@
+id: e2e_idea_to_digital_fft4_gf180
+family: end-to-end
+category: digital
+domain: digital
+pdk: gf180mcu
+difficulty: medium
+expected_backend: dry-run
+harness: callable
+topology: fft4
+inputs:
+  callable: eda_agents.bench.adapters:run_idea_to_digital_chip
+  description: |
+    4-point radix-2 decimation-in-time FFT for 8-bit REAL inputs,
+    producing 4 complex outputs. Fully combinational core, wrapped
+    in a flop-registered top so LibreLane STA has a clock domain.
+
+    Top-level module name: `fft4`.
+
+    Interfaces:
+      - clk: clock (rising-edge).
+      - rst_n: active-low async reset.
+      - in0[7:0], in1[7:0], in2[7:0], in3[7:0]: four 8-bit signed
+        real input samples (two's complement).
+      - out0_re[9:0], out0_im[9:0],
+        out1_re[9:0], out1_im[9:0],
+        out2_re[9:0], out2_im[9:0],
+        out3_re[9:0], out3_im[9:0]: four complex FFT outputs, each
+        split into 10-bit signed real + 10-bit signed imaginary parts.
+        (10-bit accommodates worst-case growth: max |X[k]| <= 4 * 127
+        < 2^9, so one sign bit + 9 magnitude bits is enough.)
+      - valid_out: 1 when the registered output corresponds to the
+        inputs sampled on the previous cycle. Drop low during reset.
+
+    Math:
+      The 4-point DFT with trivial twiddle factors (W4^0 = 1,
+      W4^1 = -j, W4^2 = -1, W4^3 = j) is:
+
+        X[0] = x[0] + x[1] + x[2] + x[3]
+        X[1] = x[0] - j*x[1] - x[2] + j*x[3]
+               = (x[0] - x[2]) + j*(x[3] - x[1])
+        X[2] = x[0] - x[1] + x[2] - x[3]
+        X[3] = x[0] + j*x[1] - x[2] - j*x[3]
+               = (x[0] - x[2]) - j*(x[3] - x[1])
+
+      No multipliers are needed because all twiddles are {1, -1, j, -j}.
+      This is important: keep the implementation pure adds + signed
+      two's-complement subtracts. DO NOT generate a multiplier macro
+      — the whole point of a 4-point FFT is that twiddles are free.
+
+    Testbench requirements:
+      - Drive a few deterministic input vectors and check outputs
+        against the golden formulas above. Coverage must include:
+          (a) x = {0, 0, 0, 0}             (all zero -> X = {0, 0, 0, 0})
+          (b) x = {127, 0, 0, 0}           (impulse -> X[k] = 127 for all k)
+          (c) x = {1, 1, 1, 1}             (DC -> X[0]=4, rest=0)
+          (d) x = {1, 0, -1, 0}            (alternating, picks up DC-0 band)
+          (e) x = {100, 50, -50, -100}     (ramp-like, all 4 outputs non-zero)
+      - Gate-level-safe: no # delays driving DUT inputs, stimulus on
+        posedge clk, one-cycle pipeline between input and output.
+      - Print "PASS" only when every vector matched its expected
+        complex output (within 0 tolerance — integer arithmetic).
+        Print "FAIL" with the failing vector + expected/actual.
+  design_name: fft4
+  pdk: gf180mcu
+  complexity: complex
+  dry_run: true
+expected_metrics:
+  prompt_length: {min: 3000, unit: chars}
+scoring:
+  - compile
+  - metrics_in_range
+weight: 2.0
+timeout_s: 120
+notes: |
+  S11 Fase 2 extra probe (dry). FFT is the second complex-tier
+  target in the plan. If dry passes and live passes, Fase 2 closes
+  cleanly across both compute (CPU) and dataflow (FFT) shapes —
+  a strong signal for single-shot + retry scaling beyond ~2k cells.
+
+  Trivial twiddle factors keep this deliberately multiplier-free;
+  the prompt explicitly forbids multipliers so the agent cannot
+  inflate cell count with an unnecessary macro.
