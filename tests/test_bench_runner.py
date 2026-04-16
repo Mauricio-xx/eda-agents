@@ -130,6 +130,27 @@ def test_callable_adapter_missing_callable(tmp_path):
     assert res.status is BenchStatus.FAIL_INFRA
 
 
+def test_digital_autoresearch_stub_returns_skipped_with_explicit_note(tmp_path):
+    task = _dry_task(
+        id="digital_autoresearch_stub_smoke",
+        family="end-to-end",
+        domain="digital",
+        pdk="gf180mcu",
+        expected_backend="librelane",
+        harness="digital_autoresearch",
+        scoring=["compile"],
+    )
+    res = run_task(task, tmp_path)
+    assert res.status is BenchStatus.SKIPPED
+    assert res.backend_used == "librelane"
+    assert any("NOT_IMPLEMENTED" in n for n in res.notes), res.notes
+    # Scheduled-for-gap-closure context must be present, not a generic stub.
+    assert any("gap-closure" in n.lower() for n in res.notes), res.notes
+    note_file = tmp_path / "NOT_IMPLEMENTED.txt"
+    assert note_file.is_file()
+    assert "NOT_IMPLEMENTED" in note_file.read_text()
+
+
 def test_pre_sim_gate_detects_violation_via_callable(tmp_path):
     task = _bugfix_task()
     res = run_task(task, tmp_path)

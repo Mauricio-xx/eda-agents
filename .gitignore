@@ -20,3 +20,11 @@ SESSION_HANDOFF.md
 data/gf180-template/
 trackd_results/
 .venv-glayout/
+
+# Bench runs: only the frozen S9 baseline and a curated README are tracked.
+bench/results/*
+!bench/results/README.md
+!bench/results/s9_initial_smoke/
+!bench/results/s9_initial_smoke/**
+# Re-assert non-baseline hygiene inside the baseline (ngspice scratch).
+bench/results/s9_initial_smoke/**/*.dat

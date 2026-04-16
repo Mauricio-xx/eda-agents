@@ -154,6 +154,43 @@ def analog_roles_adapter(task: BenchTask, work_dir: Path) -> AdapterResult:
 
 
 # ---------------------------------------------------------------------------
+# digital_autoresearch — stub until the gap-closure session lands a real one
+# ---------------------------------------------------------------------------
+
+
+_DIGITAL_AUTORESEARCH_NOT_IMPLEMENTED = (
+    "NOT_IMPLEMENTED: digital_autoresearch adapter is a stub. "
+    "The RTL-to-GDS greedy exploration (examples/10_digital_autoresearch.py) "
+    "is not yet wired into the bench runner. Scheduled for the post-merge "
+    "S9-gap-closure session (tier 2). Returns SKIPPED, not FAIL_INFRA, so "
+    "the summary accounts for it as deliberately unimplemented."
+)
+
+
+def digital_autoresearch_adapter(task: BenchTask, work_dir: Path) -> AdapterResult:
+    """Placeholder adapter for digital autoresearch tasks.
+
+    Tasks whose harness is ``digital_autoresearch`` resolve here today.
+    The adapter returns :class:`BenchStatus.SKIPPED` with an explicit
+    ``NOT_IMPLEMENTED`` note rather than :class:`BenchStatus.FAIL_INFRA`
+    so the summary does not conflate "no hardened run available" with
+    "this feature is not built yet". The real implementation will land
+    in the gap-closure session next.
+    """
+    work_dir.mkdir(parents=True, exist_ok=True)
+    note_path = work_dir / "NOT_IMPLEMENTED.txt"
+    note_path.write_text(_DIGITAL_AUTORESEARCH_NOT_IMPLEMENTED + "\n")
+    return AdapterResult(
+        status=BenchStatus.SKIPPED,
+        backend_used="librelane",
+        artifacts=[str(note_path)],
+        notes=[_DIGITAL_AUTORESEARCH_NOT_IMPLEMENTED],
+        compile_ok=None,
+        sim_ok=None,
+    )
+
+
+# ---------------------------------------------------------------------------
 # callable dispatch — task YAMLs reference dotted paths to helpers
 # ---------------------------------------------------------------------------
 
@@ -454,6 +491,7 @@ HARNESS_DISPATCH: dict[str, Callable[[BenchTask, Path], AdapterResult]] = {
     "dry_run": dry_run_adapter,
     "analog_roles": analog_roles_adapter,
     "callable": callable_adapter,
+    "digital_autoresearch": digital_autoresearch_adapter,
 }
 
 
@@ -481,6 +519,7 @@ __all__ = [
     "analog_roles_adapter",
     "analytical_miller_design",
     "callable_adapter",
+    "digital_autoresearch_adapter",
     "dry_run_adapter",
     "resolve_callable",
     "run_gl_sim_post_synth",
