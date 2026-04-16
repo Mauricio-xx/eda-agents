@@ -201,6 +201,32 @@ class TestPromptGeneration:
         assert "JSON" in prompt
         assert "## Goal" in prompt
 
+    def test_system_prompt_skills_precede_program(
+        self, runner, tmp_path, monkeypatch
+    ):
+        """S10c contract: skill text appears before program.md content."""
+        monkeypatch.delenv("EDA_AGENTS_INJECT_SKILLS", raising=False)
+        program_path = runner._init_program(tmp_path)
+        program_content = runner._read_program(program_path)
+        prompt = runner._system_prompt(program_content)
+        # GF180 topology declares ["analog.gmid_sizing"] in S10b. The
+        # rendered skill body contains the phrase "gm/ID methodology".
+        skill_idx = prompt.find("gm/ID methodology")
+        goal_idx = prompt.find("## Goal")
+        assert skill_idx >= 0, "skill body missing from injected prompt"
+        assert goal_idx > skill_idx, "skill must be rendered before program.md"
+
+    def test_system_prompt_escape_hatch(self, runner, tmp_path, monkeypatch):
+        """EDA_AGENTS_INJECT_SKILLS=0 restores the pre-S10c prompt."""
+        monkeypatch.setenv("EDA_AGENTS_INJECT_SKILLS", "0")
+        program_path = runner._init_program(tmp_path)
+        program_content = runner._read_program(program_path)
+        prompt = runner._system_prompt(program_content)
+        assert "gm/ID methodology" not in prompt
+        # Program content must still be present.
+        assert "## Goal" in prompt
+        assert "JSON" in prompt
+
     def test_proposal_prompt_no_history(self, runner):
         prompt = runner._build_proposal_prompt([], None, 1)
         assert "1/" in prompt

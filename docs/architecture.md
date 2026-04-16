@@ -236,6 +236,36 @@ KLayout / Magic / OpenROAD) instead of Virtuoso / Spectre.
    a stable CLI surface (`eda-bridge`). The `examples/14_bridge_e2e.py`
    demo exercises the full IHP path.
 
+## Skill injection contract (S10c)
+
+Autoresearch and Claude Code CLI runners prepend a rendered block of
+methodology skills to the system prompt before the run-local
+`program.md` content. The pipeline is:
+
+1. Each topology or design declares its skills via
+   `relevant_skills() -> list[str | (str, dict)]` (added in S10b, see
+   `CircuitTopology`, `SystemTopology`, and `DigitalDesign`).
+2. `skills.registry.render_relevant_skills(entries, context)` looks up
+   every entry in the skill registry and concatenates the rendered
+   bodies with `\n\n---\n\n` separators. A soft 12k-token cap emits a
+   warning on overflow; the prompt is still returned whole.
+3. The injection happens in four prompt construction sites:
+   - `AutoresearchRunner._system_prompt` (analog SPICE).
+   - `DigitalAutoresearchRunner._system_prompt` (digital LibreLane).
+   - `build_cc_spice_system_prompt` in `agents/tool_defs.py` (analog
+     Claude Code CLI).
+   - `build_digital_rtl2gds_prompt` in `agents/tool_defs.py` (digital
+     Claude Code CLI, used by `DigitalClaudeCodeRunner`).
+4. **Order is fixed**: skills → program.md / agent preamble →
+   response-format suffix. Skills carry atemporal methodology;
+   `program.md` carries run-local strategy and accumulated learnings.
+   Do not conflate them — a skill should never talk about "the current
+   best" and `program.md` should never redefine gm/ID from scratch.
+
+Escape hatch: setting `EDA_AGENTS_INJECT_SKILLS=0` reverts every
+injection site to the pre-S10c prompt. Use it to A/B bench behaviour
+or to unblock a session if a newly added skill regresses Pass@1.
+
 ## Pointers for deeper reading
 
 - **Plan master**: `~/.claude/plans/concurrent-beaming-bear.md`.

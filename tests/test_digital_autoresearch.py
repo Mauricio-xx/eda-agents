@@ -213,6 +213,28 @@ class TestPromptGeneration:
         assert "JSON" in prompt
         assert "PL_TARGET_DENSITY_PCT" in prompt
 
+    def test_system_prompt_skills_precede_program(self, design, monkeypatch):
+        """S10c contract: skill text appears before program.md content."""
+        monkeypatch.delenv("EDA_AGENTS_INJECT_SKILLS", raising=False)
+        design.relevant_skills.return_value = ["digital.synthesis"]
+        runner = DigitalAutoresearchRunner(design=design)
+        prompt = runner._system_prompt("## Goal\nTest")
+        # digital.synthesis skill body opens with "You are a synthesis engineer".
+        skill_marker = "You are a synthesis engineer"
+        skill_idx = prompt.find(skill_marker)
+        goal_idx = prompt.find("## Goal")
+        assert skill_idx >= 0, "digital.synthesis body missing"
+        assert goal_idx > skill_idx, "skill must be rendered before program.md"
+
+    def test_system_prompt_escape_hatch(self, design, monkeypatch):
+        """EDA_AGENTS_INJECT_SKILLS=0 restores the pre-S10c prompt."""
+        monkeypatch.setenv("EDA_AGENTS_INJECT_SKILLS", "0")
+        design.relevant_skills.return_value = ["digital.synthesis"]
+        runner = DigitalAutoresearchRunner(design=design)
+        prompt = runner._system_prompt("## Goal\nTest")
+        assert "You are a synthesis engineer" not in prompt
+        assert "## Goal" in prompt
+
     def test_proposal_prompt_no_history(self, design):
         runner = DigitalAutoresearchRunner(design=design)
         prompt = runner._build_proposal_prompt([], None, 1)
