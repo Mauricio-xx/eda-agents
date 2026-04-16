@@ -111,6 +111,22 @@ bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/tb/
 bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live.json
 bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/.claude/
 bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/.venv/
+# S11 Fase 1 live evidence (ALU 8-bit on GF180). Same allowlist shape.
+!bench/results/s11_fase1_alu_live/
+!bench/results/s11_fase1_alu_live/README.md
+!bench/results/s11_fase1_alu_live/summary.json
+!bench/results/s11_fase1_alu_live/report.md
+!bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/
+!bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/idea_to_chip_result.json
+!bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/config.yaml
+bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/runs/
+bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/src/
+bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/tb/
+bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live.json
+bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/.claude/
+bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/.venv/
+bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/*.log
+bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/*.error.log
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat

@@ -1307,6 +1307,17 @@ Phase 4 - RUN LIBRELANE FLOW:
   This runs synthesis, floorplanning, placement, CTS, routing, and signoff.
   It takes 2-15 minutes depending on design size.
 
+  LOG INSPECTION DISCIPLINE:
+  After the LibreLane command exits (whether it ran in the foreground
+  with a long timeout, or you used run_in_background and it completed),
+  use `cat`, `head`, `tail -n <N>` (WITHOUT -f / -F), or `grep` on the
+  final log files to summarise results. NEVER run `tail -f` or `tail -F`
+  on a file whose writer has already exited: the tail will wait forever
+  for more output that is never coming, stalling your final report.
+  If you want to monitor a running LibreLane process, start the tail
+  BEFORE the bash call exits; after completion, stop the tail and
+  inspect the file at rest.
+
 Phase 5 - CHECK RESULTS:
   After the flow completes, check:
   a) Look for the runs/ directory. Find the latest run.

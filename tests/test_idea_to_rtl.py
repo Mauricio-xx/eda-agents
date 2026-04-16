@@ -160,6 +160,103 @@ class TestGenerateRtlDraftDry:
         assert result.success is True
 
 
+class TestGenerateRtlDraftLivePaths:
+    """Live-mode paths with ClaudeCodeHarness mocked (no CLI launched)."""
+
+    def _patch_harness(self, monkeypatch, *, success: bool, result_text: str = "OK"):
+        """Replace ClaudeCodeHarness.run with a deterministic fake."""
+        from eda_agents.agents import idea_to_rtl as mod
+
+        class _FakeHarness:
+            def __init__(self, *args, **kwargs):
+                self.success = success
+                self.result_text = result_text
+
+            async def run(self):
+                from eda_agents.agents.claude_code_harness import HarnessResult
+
+                return HarnessResult(
+                    success=self.success,
+                    result_text=self.result_text,
+                    duration_ms=1.0,
+                    num_turns=2,
+                    total_cost_usd=0.01,
+                    session_id="fake-session",
+                    error=None if self.success else "fake failure",
+                )
+
+        monkeypatch.setattr(mod, "ClaudeCodeHarness", _FakeHarness)
+
+    async def test_success_without_flow_skips_gl_sim_cleanly(self, tmp_path, monkeypatch):
+        # No config.yaml / runs/ created -> GL sim returns all_passed=False,
+        # and result.all_passed is False because gl_sim dict is present.
+        self._patch_harness(monkeypatch, success=True, result_text="DONE")
+        result = await generate_rtl_draft(
+            description="4-bit counter",
+            design_name="counter4",
+            work_dir=tmp_path / "work",
+            pdk="gf180mcu",
+            pdk_root="/tmp/fake_pdk",
+        )
+        assert result.success is True  # the harness call succeeded
+        assert result.all_passed is False  # but GL sim surfaced missing config
+        assert result.gl_sim is not None
+        assert result.gl_sim["all_passed"] is False
+
+    async def test_failure_path_still_populates_artifacts(self, tmp_path, monkeypatch):
+        self._patch_harness(monkeypatch, success=False, result_text="FAIL")
+        # Pre-populate a config.yaml so _populate_artifact_paths finds it
+        # even on failure.
+        work = tmp_path / "work"
+        work.mkdir()
+        (work / "config.yaml").write_text(
+            "DESIGN_NAME: counter4\nVERILOG_FILES:\n  - dir::src/counter4.v\n"
+        )
+        result = await generate_rtl_draft(
+            description="x",
+            design_name="counter4",
+            work_dir=work,
+            pdk="gf180mcu",
+            pdk_root="/tmp/fake_pdk",
+        )
+        assert result.success is False
+        assert result.all_passed is False
+        assert result.config_path is not None  # artifact discovery still ran
+        assert result.gl_sim is None  # GL sim skipped on failure
+
+    async def test_skip_gl_sim_bypasses_check(self, tmp_path, monkeypatch):
+        self._patch_harness(monkeypatch, success=True)
+        result = await generate_rtl_draft(
+            description="x",
+            design_name="counter4",
+            work_dir=tmp_path / "work",
+            pdk="gf180mcu",
+            pdk_root="/tmp/fake_pdk",
+            skip_gl_sim=True,
+        )
+        assert result.success is True
+        assert result.gl_sim is None
+        # With gl_sim=None AND skip_gl_sim, all_passed follows success.
+        assert result.all_passed is True
+
+    async def test_config_design_name_overrides_caller(self, tmp_path, monkeypatch):
+        self._patch_harness(monkeypatch, success=True)
+        work = tmp_path / "work"
+        work.mkdir()
+        # The agent wrote a different DESIGN_NAME than what the caller passed.
+        (work / "config.yaml").write_text("DESIGN_NAME: widget\n")
+        result = await generate_rtl_draft(
+            description="x",
+            design_name="counter4",  # caller said counter4
+            work_dir=work,
+            pdk="gf180mcu",
+            pdk_root="/tmp/fake_pdk",
+            skip_gl_sim=True,
+        )
+        # The library trusts the config's DESIGN_NAME over the caller's hint.
+        assert result.design_name == "widget"
+
+
 # ---------------------------------------------------------------------------
 # Artifact path population
 # ---------------------------------------------------------------------------

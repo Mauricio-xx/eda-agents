@@ -182,6 +182,16 @@ class TestFromSpecPrompt:
         )
         assert "SIGNOFF CLEAN" in prompt
 
+    def test_prompt_warns_against_tail_f(self):
+        # Regression: S11 ALU live hung when Claude started `tail -F` after
+        # LibreLane had already exited. The prompt must explicitly warn.
+        prompt = build_from_spec_prompt(
+            spec="counter", work_dir="/tmp/x", pdk_root="/pdk",
+            pdk_config="gf180mcu",
+        )
+        assert "LOG INSPECTION DISCIPLINE" in prompt
+        assert "tail -f" in prompt or "tail -F" in prompt
+
 
 class TestFromSpecDryRun:
     @pytest.mark.parametrize("pdk", ["gf180mcu", "ihp_sg13g2"])

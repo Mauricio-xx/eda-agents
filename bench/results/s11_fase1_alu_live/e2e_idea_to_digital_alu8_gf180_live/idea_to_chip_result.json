@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "all_passed": true,
+  "work_dir": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live",
+  "design_name": "alu8",
+  "prompt_length": 11834,
+  "wall_time_s": 762.8237845497206,
+  "num_turns": 1,
+  "cost_usd": 3.13940575,
+  "result_text_tail": "Monitor ended (LibreLane already completed). Flow is done; final report stands above. DONE",
+  "error": null,
+  "config_path": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/config.yaml",
+  "gds_path": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/runs/RUN_2026-04-16_23-22-40/final/gds/alu8.gds",
+  "run_dir": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/runs/RUN_2026-04-16_23-22-40",
+  "gl_sim": {
+    "all_passed": true,
+    "run_dir": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/runs/RUN_2026-04-16_23-22-40",
+    "post_synth": {
+      "success": true,
+      "error": null,
+      "run_time_s": 0.17938252817839384
+    },
+    "post_pnr": {
+      "success": true,
+      "error": null,
+      "run_time_s": 0.23686110135167837,
+      "sdf_warnings": 0
+    }
+  }
+}
