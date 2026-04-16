@@ -818,61 +818,7 @@ def _parse_llm_json(text: str) -> dict[str, float]:
     return data
 
 
-def _call_openrouter(
-    *,
-    model: str,
-    system_prompt: str,
-    user_prompt: str,
-    max_tokens: int,
-    temperature: float,
-) -> tuple[str, int]:
-    """Single chat-completion call through OpenRouter's OpenAI-compatible API.
-
-    Returns ``(content, total_tokens)`` where ``total_tokens`` is 0 when
-    the backend did not populate ``response.usage``. Raises
-    ``RuntimeError`` (not openai.XxxError / httpx.HTTPStatusError /
-    ImportError) so the adapter can funnel every infra-level failure
-    into one ``FAIL_INFRA`` branch.
-    """
-    import os
-
-    try:
-        from openai import OpenAI
-    except ImportError as exc:  # pragma: no cover — dep is in base install
-        raise RuntimeError(f"openai not available: {exc}") from exc
-
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY not set")
-
-    # OpenRouter accepts model ids with or without the "openrouter/" prefix
-    # depending on the caller; strip it for the direct API call.
-    model_id = model.removeprefix("openrouter/") if model.startswith("openrouter/") else model
-
-    try:
-        client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=api_key,
-        )
-        resp = client.chat.completions.create(
-            model=model_id,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-        total_tokens = 0
-        usage = getattr(resp, "usage", None)
-        if usage is not None:
-            total_tokens = int(getattr(usage, "total_tokens", 0) or 0)
-        return resp.choices[0].message.content or "", total_tokens
-    except Exception as exc:  # noqa: BLE001 — funnel to RuntimeError
-        raise RuntimeError(
-            f"OpenRouter call failed (model={model_id!r}): "
-            f"{type(exc).__name__}: {exc}"
-        ) from exc
+from eda_agents.agents.openrouter_client import call_openrouter as _call_openrouter
 
 
 def llm_spec_to_sizing_adapter(

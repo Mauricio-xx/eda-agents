@@ -1,6 +1,6 @@
 """FastMCP server exposing eda-agents semantic tools.
 
-Four tools are registered:
+Five tools are registered:
 
 * ``render_skill`` — render a named skill's prompt, optionally bound
   to a topology.
@@ -12,6 +12,10 @@ Four tools are registered:
   (S11 Fase 0) via Claude Code CLI + LibreLane + post-flow gate-level
   simulation. Async, long-running; callers should pass a work_dir and
   a pdk_root.
+* ``recommend_topology`` — map a natural-language analog idea to one
+  of the registered topologies (S11 Fase 3) via OpenRouter + the
+  ``analog.idea_to_topology`` skill. Returns structured JSON with
+  topology, rationale, starter specs and a confidence flag.
 
 The server defaults to the stdio transport used by MCP-aware clients
 (Claude Code, Cursor, Zed). HTTP transports are opt-in and bind to
@@ -22,6 +26,7 @@ The server defaults to the stdio transport used by MCP-aware clients
 from __future__ import annotations
 
 import inspect
+import json
 import logging
 import tempfile
 from pathlib import Path
@@ -32,11 +37,12 @@ from fastmcp import FastMCP
 from eda_agents.agents.handler import SpiceEvaluationHandler
 from eda_agents.agents.idea_to_rtl import generate_rtl_draft as _generate_rtl_draft
 from eda_agents.agents.idea_to_rtl import result_to_dict as _result_to_dict
+from eda_agents.agents.openrouter_client import call_openrouter as _call_openrouter
 from eda_agents.core.spice_runner import SpiceRunner
 from eda_agents.skills import Skill
 from eda_agents.skills.registry import get_skill
 from eda_agents.skills.registry import list_skills as _list_skills
-from eda_agents.topologies import get_topology_by_name
+from eda_agents.topologies import get_topology_by_name, list_topology_names
 
 logger = logging.getLogger(__name__)
 
@@ -273,6 +279,137 @@ async def generate_rtl_draft(
             "error": f"{type(exc).__name__}: {exc}",
         }
     return _result_to_dict(result)
+
+
+@mcp.tool()
+def recommend_topology(
+    description: str,
+    constraints: dict[str, Any] | None = None,
+    model: str = "google/gemini-2.5-flash",
+    temperature: float = 0.0,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Map a NL analog idea to a registered topology (S11 Fase 3).
+
+    Renders the ``analog.idea_to_topology`` skill as system prompt,
+    packs the caller's description + optional constraints dict into a
+    user prompt, asks OpenRouter (Gemini Flash by default), and parses
+    the JSON response back into a structured dict.
+
+    Parameters
+    ----------
+    description:
+        Natural-language description of the desired analog block
+        (e.g. "low-noise 1 kHz amplifier for a biomedical sensor,
+        60 dB gain, 45 deg phase margin").
+    constraints:
+        Optional dict of numeric specs / PDK hints to prepend verbatim
+        to the user message. Keys that look like specs (Adc, GBW, PM,
+        power_uW, ENOB, fs_Hz) are most useful — the skill prompts
+        the LLM to emit starter_specs in the same shape.
+    model:
+        OpenRouter model id. Defaults to ``google/gemini-2.5-flash``.
+    temperature:
+        Sampling temperature (default 0.0 for deterministic
+        classification).
+    dry_run:
+        When True, render the prompt and validate the topology
+        registry without calling the LLM. Returns
+        ``{"success": true, "dry_run": true, ...}`` with the
+        rendered prompt length — useful for MCP clients that just
+        want to probe the tool shape.
+
+    Returns
+    -------
+    dict
+        On success: ``{"success": true, "topology": str,
+        "rationale": str, "starter_specs": dict, "confidence": str,
+        "notes": str, "model": str, "total_tokens": int,
+        "valid_topology": bool}``. ``valid_topology`` is False when
+        the LLM returned a name that isn't in the registry and isn't
+        the string "custom" — the caller decides whether to retry.
+
+        On failure: ``{"success": false, "error": str}``. Typical
+        failures: OPENROUTER_API_KEY missing, upstream HTTP error,
+        JSON parse failure.
+    """
+    try:
+        skill = get_skill("analog.idea_to_topology")
+    except KeyError as exc:
+        return {"success": False, "error": f"skill not registered: {exc}"}
+
+    system_prompt = skill.render()
+
+    user_lines = [f"Description:\n{description.strip()}"]
+    if constraints:
+        user_lines.append("Numeric constraints:")
+        for k, v in constraints.items():
+            user_lines.append(f"  - {k} = {v}")
+    user_lines.append("Return ONLY the JSON object as specified.")
+    user_prompt = "\n\n".join(user_lines)
+
+    if dry_run:
+        return {
+            "success": True,
+            "dry_run": True,
+            "model": model,
+            "prompt_length": len(system_prompt) + len(user_prompt),
+            "known_topologies": list_topology_names(),
+        }
+
+    try:
+        raw, total_tokens = _call_openrouter(
+            model=model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=1024,
+            temperature=temperature,
+        )
+    except RuntimeError as exc:
+        return {"success": False, "error": str(exc)}
+
+    # Parse JSON from the response, tolerating markdown fences.
+    first = raw.find("{")
+    last = raw.rfind("}")
+    if first < 0 or last < 0 or last <= first:
+        return {
+            "success": False,
+            "error": (
+                f"LLM did not return a JSON object "
+                f"(first 200 chars: {raw[:200]!r})"
+            ),
+            "raw": raw[-2000:],
+        }
+    try:
+        payload = json.loads(raw[first : last + 1])
+    except json.JSONDecodeError as exc:
+        return {
+            "success": False,
+            "error": f"LLM JSON parse failed: {exc}",
+            "raw": raw[-2000:],
+        }
+    if not isinstance(payload, dict):
+        return {
+            "success": False,
+            "error": f"LLM JSON was not an object, got {type(payload).__name__}",
+            "raw": raw[-2000:],
+        }
+
+    topology = str(payload.get("topology", "")).strip() or "custom"
+    known = set(list_topology_names())
+    valid_topology = topology in known or topology == "custom"
+
+    return {
+        "success": True,
+        "topology": topology,
+        "rationale": str(payload.get("rationale", "")),
+        "starter_specs": payload.get("starter_specs", {}) or {},
+        "confidence": str(payload.get("confidence", "low")),
+        "notes": str(payload.get("notes", "")),
+        "valid_topology": valid_topology,
+        "model": model,
+        "total_tokens": total_tokens,
+    }
 
 
 def run_server(
