@@ -223,6 +223,49 @@ Tests: `tests/test_recommend_topology.py` — 10 cases with OpenRouter
 mocked. Manual live smoke-tests in the repo root README are the
 high-trust validation; mocks verify schema + error paths.
 
+## Analog side: Fase 4 layout dispatch
+
+`scripts/glayout_driver.py` was generalised to route `spec['pdk']` to
+either `gf180_mapped_pdk` or `sg13g2_mapped_pdk` (and the
+Sky130 alias, unused today). It now dispatches six components:
+
+- **Primitives**: `nmos`, `pmos`, `mimcap`.
+- **Composites**: `diff_pair`, `current_mirror`, `fvf` (flipped
+  voltage follower). All LVS-clean on SG13G2 per the upstream
+  `feature/sg13g2-pdk-support` fork.
+
+`opamp_twostage` stays GF180-only until the SG13G2 upstream port
+lands. The driver fails fast with a clear message rather than
+crashing mid-build. The `GLayoutRunner` also now parses the
+driver's stdout JSON before checking exit code, so structured errors
+("PDK not importable", "opamp_twostage is gf180mcu-only") survive
+to the caller.
+
+New MCP tool `generate_analog_layout(pdk, component, params,
+output_dir, glayout_venv, timeout_s)` wraps all of this in an async
+subprocess call:
+
+```python
+result = await mcp.call_tool("generate_analog_layout", {
+    "pdk": "ihp_sg13g2",
+    "component": "diff_pair",
+    "params": {"width": 5.0, "length": 1.0, "fingers": 4},
+    "output_dir": "/tmp/my_dpair",
+    "glayout_venv": "/home/.../.venv-glayout",
+})
+# -> {success, gds_path, netlist_path, top_cell, run_time_s, error}
+```
+
+Live evidence: tests/test_glayout_runner.py::TestGenerateAnalogLayoutMCP
+exercises the tool end-to-end against real SG13G2, producing a GDS
+in ~7 seconds.
+
+Setup prerequisite: the `.venv-glayout` must have the gLayout fork
+installed (see `setup_glayout_venv.md` or run
+`/path/to/.venv-glayout/bin/pip install --no-deps -e
+/home/montanares/personal_exp/gLayout`). The stock gLayout 0.1.1 on
+PyPI lacks SG13G2.
+
 ## See also
 
 - `bench/results/s11_fase0_live/README.md` — first-pass evidence.

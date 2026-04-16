@@ -1,6 +1,6 @@
 """FastMCP server exposing eda-agents semantic tools.
 
-Five tools are registered:
+Six tools are registered:
 
 * ``render_skill`` — render a named skill's prompt, optionally bound
   to a topology.
@@ -16,6 +16,10 @@ Five tools are registered:
   of the registered topologies (S11 Fase 3) via OpenRouter + the
   ``analog.idea_to_topology`` skill. Returns structured JSON with
   topology, rationale, starter specs and a confidence flag.
+* ``generate_analog_layout`` — drive the gLayout runner to emit a
+  GDS for a primitive or composite on GF180 or SG13G2 (S11 Fase 4).
+  Reuses ``GLayoutRunner`` so the heavy lifting is in a separate
+  venv and blocks only through the subprocess.
 
 The server defaults to the stdio transport used by MCP-aware clients
 (Claude Code, Cursor, Zed). HTTP transports are opt-in and bind to
@@ -410,6 +414,77 @@ def recommend_topology(
         "model": model,
         "total_tokens": total_tokens,
     }
+
+
+@mcp.tool()
+async def generate_analog_layout(
+    pdk: str,
+    component: str,
+    params: dict[str, Any],
+    output_dir: str,
+    glayout_venv: str | None = None,
+    timeout_s: int = 600,
+) -> dict[str, Any]:
+    """Generate an analog layout via the gLayout runner (S11 Fase 4).
+
+    Parameters
+    ----------
+    pdk:
+        PDK key — ``gf180mcu`` or ``ihp_sg13g2``.
+    component:
+        Canonical component name. Supported on both PDKs:
+        ``nmos``, ``pmos``, ``mimcap``, ``diff_pair``,
+        ``current_mirror``, ``fvf``. ``opamp_twostage`` is GF180-only
+        today (the SG13G2 port is WIP upstream).
+    params:
+        Dimensions + counts passed through to the gLayout generator.
+        Typical keys: ``width`` (um), ``length`` (um), ``fingers``,
+        plus composite-specific keys (``multipliers``, ``type`` for
+        current mirrors, the opamp's nested dimension tuples).
+    output_dir:
+        Absolute directory where the GDS + netlist land.
+    glayout_venv:
+        Path to ``.venv-glayout``. When ``None``, falls back to the
+        eda-agents default relative path; callers whose cwd is a
+        worktree without the venv should pass an absolute path.
+    timeout_s:
+        Hard timeout for the subprocess (default 10 min).
+
+    Returns
+    -------
+    dict
+        ``{"success": bool, "gds_path": str | None, "netlist_path":
+        str | None, "top_cell": str, "component": str,
+        "run_time_s": float, "error": str | None}``.
+    """
+    # Import lazily so the MCP server stays importable even if
+    # GLayoutRunner adds heavy deps later.
+    from eda_agents.core.glayout_runner import GLayoutRunner
+
+    # The async wrapper offloads the blocking subprocess to a thread.
+    def _run_blocking() -> dict[str, Any]:
+        runner_kwargs = {"timeout_s": timeout_s, "pdk": pdk}
+        if glayout_venv:
+            runner_kwargs["glayout_venv"] = glayout_venv
+        runner = GLayoutRunner(**runner_kwargs)
+        result = runner.generate_component(
+            component=component,
+            params=params,
+            output_dir=output_dir,
+        )
+        return {
+            "success": result.success,
+            "gds_path": result.gds_path,
+            "netlist_path": result.netlist_path,
+            "top_cell": result.top_cell,
+            "component": result.component,
+            "run_time_s": result.run_time_s,
+            "error": result.error,
+        }
+
+    import asyncio as _asyncio
+
+    return await _asyncio.to_thread(_run_blocking)
 
 
 def run_server(

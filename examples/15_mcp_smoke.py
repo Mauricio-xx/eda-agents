@@ -69,6 +69,7 @@ async def _run_smoke() -> None:
             "evaluate_topology",
             "generate_rtl_draft",
             "recommend_topology",
+            "generate_analog_layout",
         }, tool_names
 
         res = await client.call_tool("list_skills", {})
@@ -164,6 +165,30 @@ async def _run_smoke() -> None:
         print(
             f"[mcp] recommend_topology(dry): prompt_length="
             f"{payload['prompt_length']} known={len(payload['known_topologies'])}"
+        )
+
+        # S11 Fase 4: generate_analog_layout error path (unknown PDK).
+        # We intentionally pass an unregistered PDK so the driver
+        # returns a clean structured error without needing the
+        # .venv-glayout to be real. A real invocation happens in
+        # tests/test_glayout_runner.py::TestGenerateAnalogLayoutMCP.
+        res = await client.call_tool(
+            "generate_analog_layout",
+            {
+                "pdk": "does_not_exist_pdk",
+                "component": "nmos",
+                "params": {"width": 1.0},
+                "output_dir": "/tmp/mcp_smoke_fake",
+                "glayout_venv": "/home/montanares/personal_exp/eda-agents/.venv-glayout",
+            },
+        )
+        payload = res.data
+        assert isinstance(payload, dict), payload
+        assert payload["success"] is False, payload
+        assert "not importable" in payload["error"] or "PDK" in payload["error"]
+        print(
+            f"[mcp] generate_analog_layout(unknown_pdk): error surfaced OK "
+            f"({payload['error'][:80]}...)"
         )
 
 

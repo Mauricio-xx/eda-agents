@@ -219,3 +219,67 @@ class TestGLayoutPdkDispatch:
         )
         assert not result.success
         assert "not importable" in (result.error or "") or "PDK" in (result.error or "")
+
+
+try:
+    import fastmcp  # noqa: F401
+
+    _HAS_FASTMCP = True
+except ImportError:  # pragma: no cover
+    _HAS_FASTMCP = False
+
+
+@pytest.mark.glayout
+@pytest.mark.mcp
+@pytest.mark.skipif(not _HAS_FASTMCP, reason="fastmcp not installed")
+class TestGenerateAnalogLayoutMCP:
+    """S11 Fase 4: MCP tool `generate_analog_layout` end-to-end."""
+
+    @pytest.fixture(autouse=True)
+    def check_prereqs(self):
+        local = Path(".venv-glayout")
+        main = Path("/home/montanares/personal_exp/eda-agents/.venv-glayout")
+        if not local.is_dir() and not main.is_dir():
+            pytest.skip("no .venv-glayout found (tried local + main repo)")
+
+    def _venv(self) -> str:
+        local = Path(".venv-glayout")
+        return (
+            str(local)
+            if local.is_dir()
+            else "/home/montanares/personal_exp/eda-agents/.venv-glayout"
+        )
+
+    async def test_unknown_pdk_reports_error(self, tmp_path):
+        from eda_agents.mcp.server import mcp
+
+        result = await mcp.call_tool(
+            "generate_analog_layout",
+            {
+                "pdk": "sky130a",
+                "component": "nmos",
+                "params": {"width": 1.0},
+                "output_dir": str(tmp_path),
+                "glayout_venv": self._venv(),
+            },
+        )
+        data = result.structured_content
+        assert data["success"] is False
+        assert "not importable" in data["error"] or "PDK" in data["error"]
+
+    async def test_sg13g2_nmos_via_mcp(self, tmp_path):
+        from eda_agents.mcp.server import mcp
+
+        result = await mcp.call_tool(
+            "generate_analog_layout",
+            {
+                "pdk": "ihp_sg13g2",
+                "component": "nmos",
+                "params": {"width": 1.0, "length": 0.13, "fingers": 2},
+                "output_dir": str(tmp_path),
+                "glayout_venv": self._venv(),
+            },
+        )
+        data = result.structured_content
+        assert data["success"] is True, data["error"]
+        assert Path(data["gds_path"]).is_file()
