@@ -1,0 +1,14 @@
+{
+  "synth_cell_count": 42,
+  "stdcell_count": 42,
+  "die_area_um2": 3600.0,
+  "wns_worst_ns": 12.5,
+  "tns_worst_ns": 0.0,
+  "hold_wns_worst_ns": 0.3,
+  "power_total_w": 0.00005,
+  "wire_length_um": 420.0,
+  "route_drc_errors": 0,
+  "klayout_drc_count": 0,
+  "drc_clean": true,
+  "lvs_match": true
+}

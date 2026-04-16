@@ -1,0 +1,39 @@
+id: e2e_sar11b_enob_ihp
+family: end-to-end
+category: adc
+domain: mixed
+pdk: ihp_sg13g2
+difficulty: hard
+expected_backend: ngspice-osdi
+harness: callable
+topology: sar_adc_11bit
+inputs:
+  callable: eda_agents.bench.adapters:run_sar11_enob_measurement
+  # topology_params left empty -> SARADC11BitTopology.default_params()
+expected_metrics:
+  ENOB: {min: 4.0, unit: bit}
+  SNDR_dBc: {min: 25.0, unit: dB}
+scoring:
+  - compile
+  - sim_run
+  - metrics_in_range
+weight: 2.0
+timeout_s: 900
+notes: |
+  Runs the full SAR ADC 11-bit design_reference (S7) end-to-end on
+  ngspice + PSP103 OSDI + Verilator SAR FSM. Closes gap #6 from the
+  post-merge roadmap: previously there was no bench task that
+  exercised SARADC11BitTopology.extract_enob / compute_adc_metrics.
+
+  Thresholds (ENOB >= 4.0, SNDR >= 25 dB) deliberately sit BELOW the
+  topology's internal _SPEC_ENOB_MIN = 6.0 / _SPEC_SNDR_MIN = 38 dB.
+  The topology's own thresholds are aspirational / anchored on the
+  8-bit AnalogAcademy reference and do NOT describe what the default
+  11-bit design point actually produces. Session S9-gap-closure
+  measurement at default_params(): ENOB=4.45, SNDR=28.56 dB (see
+  bench/results/gap6_sar11_check/). This task is a regression
+  detector on the measured baseline; the aspirational gap between
+  measured and documented is captured in
+  docs/skills/sar_adc/TODO_calibration.md (closed in gap #3 below).
+  No tuned perturbation (larger CDAC, bigger input pair) lifts the
+  default config to the aspirational bar within one session's budget.

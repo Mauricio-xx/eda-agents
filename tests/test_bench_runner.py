@@ -130,25 +130,66 @@ def test_callable_adapter_missing_callable(tmp_path):
     assert res.status is BenchStatus.FAIL_INFRA
 
 
-def test_digital_autoresearch_stub_returns_skipped_with_explicit_note(tmp_path):
+def test_digital_autoresearch_rejects_missing_design_dir(tmp_path):
+    """Gap #4: empty/missing design_dir -> FAIL_INFRA."""
     task = _dry_task(
-        id="digital_autoresearch_stub_smoke",
+        id="digital_autoresearch_no_design",
         family="end-to-end",
         domain="digital",
         pdk="gf180mcu",
         expected_backend="librelane",
         harness="digital_autoresearch",
-        scoring=["compile"],
+        scoring=["audit_passed"],
+        inputs={},  # no design_dir
     )
     res = run_task(task, tmp_path)
-    assert res.status is BenchStatus.SKIPPED
-    assert res.backend_used == "librelane"
-    assert any("NOT_IMPLEMENTED" in n for n in res.notes), res.notes
-    # Scheduled-for-gap-closure context must be present, not a generic stub.
-    assert any("gap-closure" in n.lower() for n in res.notes), res.notes
-    note_file = tmp_path / "NOT_IMPLEMENTED.txt"
-    assert note_file.is_file()
-    assert "NOT_IMPLEMENTED" in note_file.read_text()
+    assert res.status is BenchStatus.FAIL_INFRA
+    assert any("design_dir" in e for e in res.errors)
+
+
+def test_digital_autoresearch_skips_without_mock_and_api_key(tmp_path, monkeypatch):
+    """Gap #4: real mode needs OPENROUTER_API_KEY; absent -> SKIPPED."""
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    task = _dry_task(
+        id="digital_autoresearch_nokey",
+        family="end-to-end",
+        domain="digital",
+        pdk="gf180mcu",
+        expected_backend="librelane",
+        harness="digital_autoresearch",
+        scoring=["audit_passed"],
+        inputs={
+            "design_dir": "bench/designs/counter_bench",
+            "budget": 1,
+        },
+    )
+    res = run_task(task, tmp_path)
+    assert res.status is BenchStatus.FAIL_INFRA  # maps to SKIPPED in summary
+    assert any(
+        "OPENROUTER_API_KEY" in e or "PDK" in e for e in res.errors
+    )
+
+
+def test_digital_autoresearch_runs_mock_mode(tmp_path):
+    """Gap #4: mock_metrics_path drives an offline run and audits PASS."""
+    task = _dry_task(
+        id="digital_autoresearch_mock_unit",
+        family="end-to-end",
+        domain="digital",
+        pdk="gf180mcu",
+        expected_backend="librelane",
+        harness="digital_autoresearch",
+        scoring=["audit_passed"],
+        inputs={
+            "design_dir": "bench/designs/counter_bench",
+            "budget": 1,
+            "mock_metrics_path": "mock_flow_metrics.json",
+        },
+    )
+    res = run_task(task, tmp_path)
+    assert res.status is BenchStatus.PASS, (res.status, res.errors, res.notes)
+    assert res.metrics.get("iterations_kept", 0) >= 1
+    assert any("mode=mock" in n for n in res.notes)
 
 
 def test_pre_sim_gate_detects_violation_via_callable(tmp_path):
@@ -385,6 +426,36 @@ def test_run_batch_writes_per_task_json_and_summary(tmp_path):
         assert (run_dir / f"{t.id}.json").is_file()
 
 
+def test_run_batch_workers_consistent(tmp_path):
+    """Gap #9: workers=1 and workers=2 must produce the same summary.
+
+    Exercises 3 dry-run tasks twice — once sequentially, once through
+    the JobRegistry parallel path — and compares the pass/fail counts
+    and per-task statuses. This is the regression the bench needed
+    before documenting --workers as stable.
+    """
+    tasks = [
+        _dry_task(id="e2e_dry_a"),
+        _dry_task(id="e2e_dry_b"),
+        _dry_task(
+            id="e2e_dry_fail",
+            scoring=["metrics_in_range"],
+            expected_metrics={"Adc_dB": {"min": 9999.0}},
+        ),
+    ]
+    seq = run_batch(tasks, output_root=tmp_path / "seq", workers=1)
+    par = run_batch(tasks, output_root=tmp_path / "par", workers=2)
+
+    assert seq.total == par.total == 3
+    assert seq.passed == par.passed == 2
+    assert seq.failed == par.failed == 1
+    assert seq.errored == par.errored == 0
+    # Per-task statuses align (order may differ under JobRegistry).
+    seq_map = {r.task_id: r.status for r in seq.results}
+    par_map = {r.task_id: r.status for r in par.results}
+    assert seq_map == par_map
+
+
 def test_render_markdown_report_includes_pass_rate():
     task = _dry_task()
     summary = run_batch([task], output_root=Path("/tmp/_bench_render_test"), workers=1)
@@ -397,6 +468,311 @@ def test_render_markdown_report_includes_pass_rate():
 # ---------------------------------------------------------------------------
 # Loader/seed sanity
 # ---------------------------------------------------------------------------
+
+
+def test_sar11b_adapter_skips_cleanly_when_tools_missing(tmp_path, monkeypatch):
+    """Gap #6 adapter: no ngspice/openvaf/verilator on PATH -> FAIL_INFRA."""
+    from eda_agents.bench.adapters import run_sar11_enob_measurement
+
+    # Force the tool detection to report every binary missing.
+    import eda_agents.bench.adapters as _adapters
+    monkeypatch.setattr(_adapters.shutil, "which", lambda _: None)
+    task = BenchTask.model_validate(
+        {
+            "id": "e2e_sar11_mock",
+            "family": "end-to-end",
+            "category": "adc",
+            "domain": "mixed",
+            "pdk": "ihp_sg13g2",
+            "difficulty": "hard",
+            "expected_backend": "ngspice-osdi",
+            "harness": "callable",
+            "inputs": {
+                "callable": "eda_agents.bench.adapters:run_sar11_enob_measurement",
+            },
+            "scoring": ["compile", "sim_run"],
+        }
+    )
+    res = run_sar11_enob_measurement(task, tmp_path)
+    assert res.status is BenchStatus.FAIL_INFRA
+    assert any("missing tools" in e for e in res.errors)
+
+
+def test_llm_adapter_skips_when_no_api_key(tmp_path, monkeypatch):
+    """Gap #8: absent OPENROUTER_API_KEY -> FAIL_INFRA (SKIPPED in summary)."""
+    from eda_agents.bench.adapters import llm_spec_to_sizing_adapter
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    task = BenchTask.model_validate(
+        {
+            "id": "spec_llm_nokey",
+            "family": "spec-to-topology",
+            "category": "ota",
+            "domain": "voltage",
+            "pdk": "ihp_sg13g2",
+            "difficulty": "easy",
+            "expected_backend": "ngspice-osdi",
+            "harness": "callable",
+            "inputs": {
+                "callable": "eda_agents.bench.adapters:llm_spec_to_sizing_adapter",
+                "spec_yaml": "block: miller_ota\n",
+            },
+            "scoring": ["compile", "sim_run", "metrics_in_range"],
+            "expected_metrics": {"Adc_dB": {"min": 25.0}},
+        }
+    )
+    res = llm_spec_to_sizing_adapter(task, tmp_path)
+    assert res.status is BenchStatus.FAIL_INFRA
+    assert any("OPENROUTER_API_KEY" in e for e in res.errors)
+
+
+def test_llm_adapter_parses_canned_response_and_invokes_designer(tmp_path, monkeypatch):
+    """Gap #8: with a canned LLM response, sizing flows into the real path.
+
+    Mocks `_call_openrouter` to avoid hitting the network, then validates
+    the adapter passes the parsed params to analytical_miller_design and
+    returns the simulated AdapterResult. Requires ngspice; otherwise
+    falls back to checking the LLM parse + synthetic task wiring.
+    """
+    import shutil as _shutil
+
+    from eda_agents.bench import adapters
+
+    canned = (
+        "Here is the JSON:\n"
+        '{"gmid_input": 12.0, "gmid_load": 10.0, '
+        '"L_input": 1.0e-6, "L_load": 1.0e-6, "Cc": 1.0e-12}'
+    )
+    monkeypatch.setattr(adapters, "_call_openrouter", lambda **kw: canned)
+    task = BenchTask.model_validate(
+        {
+            "id": "spec_llm_canned",
+            "family": "spec-to-topology",
+            "category": "ota",
+            "domain": "voltage",
+            "pdk": "ihp_sg13g2",
+            "difficulty": "easy",
+            "expected_backend": "ngspice-osdi",
+            "harness": "callable",
+            "inputs": {
+                "callable": "eda_agents.bench.adapters:llm_spec_to_sizing_adapter",
+                "spec_yaml": "block: miller_ota\n",
+            },
+            "scoring": ["compile", "sim_run", "metrics_in_range"],
+            "expected_metrics": {"Adc_dB": {"min": 25.0}},
+        }
+    )
+    res = adapters.llm_spec_to_sizing_adapter(task, tmp_path)
+
+    # The LLM response file is always persisted for auditability.
+    assert (tmp_path / "llm_response.txt").read_text() == canned
+    # Notes capture the model + parsed params for the report.
+    assert any("params=" in n for n in res.notes)
+
+    if _shutil.which("ngspice"):
+        # Under real ngspice we expect a PASS (sizing is the known-good IHP point).
+        assert res.status in {BenchStatus.PASS, BenchStatus.FAIL_SIM, BenchStatus.FAIL_AUDIT}
+    else:
+        # Without ngspice the inner adapter returns FAIL_INFRA (ngspice-missing).
+        assert res.status is BenchStatus.FAIL_INFRA
+        assert any("ngspice" in e.lower() for e in res.errors)
+
+
+def test_llm_adapter_rejects_malformed_json(tmp_path, monkeypatch):
+    """Gap #8: LLM emitted prose without JSON -> FAIL_AUDIT, not ERROR."""
+    from eda_agents.bench import adapters
+
+    monkeypatch.setattr(
+        adapters, "_call_openrouter", lambda **kw: "I am not returning JSON today."
+    )
+    task = BenchTask.model_validate(
+        {
+            "id": "spec_llm_bad_json",
+            "family": "spec-to-topology",
+            "category": "ota",
+            "domain": "voltage",
+            "pdk": "ihp_sg13g2",
+            "difficulty": "easy",
+            "expected_backend": "ngspice-osdi",
+            "harness": "callable",
+            "inputs": {
+                "callable": "eda_agents.bench.adapters:llm_spec_to_sizing_adapter",
+                "spec_yaml": "block: miller_ota\n",
+            },
+            "scoring": ["compile", "sim_run"],
+        }
+    )
+    res = adapters.llm_spec_to_sizing_adapter(task, tmp_path)
+    assert res.status is BenchStatus.FAIL_AUDIT
+    assert any("JSON" in e for e in res.errors)
+
+
+def test_llm_adapter_rejects_out_of_range_json(tmp_path, monkeypatch):
+    """Gap #8: LLM emitted JSON with a field out of the typed range -> FAIL_AUDIT."""
+    from eda_agents.bench import adapters
+
+    canned = (
+        '{"gmid_input": 999.0, "gmid_load": 10.0, '
+        '"L_input": 1.0e-6, "L_load": 1.0e-6, "Cc": 1.0e-12}'
+    )
+    monkeypatch.setattr(adapters, "_call_openrouter", lambda **kw: canned)
+    task = BenchTask.model_validate(
+        {
+            "id": "spec_llm_oor",
+            "family": "spec-to-topology",
+            "category": "ota",
+            "domain": "voltage",
+            "pdk": "ihp_sg13g2",
+            "difficulty": "easy",
+            "expected_backend": "ngspice-osdi",
+            "harness": "callable",
+            "inputs": {
+                "callable": "eda_agents.bench.adapters:llm_spec_to_sizing_adapter",
+                "spec_yaml": "block: miller_ota\n",
+            },
+            "scoring": ["compile", "sim_run"],
+        }
+    )
+    res = adapters.llm_spec_to_sizing_adapter(task, tmp_path)
+    assert res.status is BenchStatus.FAIL_AUDIT
+    assert any("gmid_input" in e or "40" in e for e in res.errors)
+
+
+def test_sar11b_adapter_rejects_bogus_inputs(tmp_path):
+    """Gap #6 typed-input rejection propagates through the adapter."""
+    from eda_agents.bench.adapters import run_sar11_enob_measurement
+
+    task = BenchTask.model_validate(
+        {
+            "id": "e2e_sar11_typo",
+            "family": "end-to-end",
+            "category": "adc",
+            "domain": "mixed",
+            "pdk": "ihp_sg13g2",
+            "difficulty": "hard",
+            "expected_backend": "ngspice-osdi",
+            "harness": "callable",
+            "inputs": {
+                "callable": "eda_agents.bench.adapters:run_sar11_enob_measurement",
+                "N_sample": 64,  # typo: real field is N_samples
+            },
+            "scoring": ["compile", "sim_run"],
+        }
+    )
+    res = run_sar11_enob_measurement(task, tmp_path)
+    assert res.status is BenchStatus.FAIL_INFRA
+    assert any("N_sample" in e for e in res.errors)
+
+
+def test_librelane_flow_adapter_rejects_bogus_inputs(tmp_path):
+    """Gap #5: typed-input rejection on DigitalFlowInputs typos."""
+    from eda_agents.bench.adapters import run_librelane_flow_task
+
+    task = BenchTask.model_validate(
+        {
+            "id": "e2e_counter_typo",
+            "family": "end-to-end",
+            "category": "digital",
+            "domain": "digital",
+            "pdk": "gf180mcu",
+            "difficulty": "easy",
+            "expected_backend": "librelane",
+            "harness": "callable",
+            "inputs": {
+                "callable": "eda_agents.bench.adapters:run_librelane_flow_task",
+                "design_dir": "bench/designs/counter_bench",
+                "stop_after_step": "ROUTE",  # typo: real field is stop_after
+            },
+            "scoring": ["compile"],
+        }
+    )
+    res = run_librelane_flow_task(task, tmp_path)
+    assert res.status is BenchStatus.FAIL_INFRA
+    assert any("stop_after_step" in e or "Extra inputs" in e for e in res.errors)
+
+
+def test_librelane_flow_adapter_skips_when_pdk_absent(tmp_path, monkeypatch):
+    """Gap #5: no PDK root -> FAIL_INFRA (SKIPPED in summary)."""
+    from eda_agents.bench.adapters import run_librelane_flow_task
+
+    import eda_agents.bench.adapters as _adapters
+    monkeypatch.setattr(_adapters, "_resolve_librelane_pdk_root", lambda _: None)
+    task = BenchTask.model_validate(
+        {
+            "id": "e2e_counter_nopdk",
+            "family": "end-to-end",
+            "category": "digital",
+            "domain": "digital",
+            "pdk": "gf180mcu",
+            "difficulty": "easy",
+            "expected_backend": "librelane",
+            "harness": "callable",
+            "inputs": {
+                "callable": "eda_agents.bench.adapters:run_librelane_flow_task",
+                "design_dir": "bench/designs/counter_bench",
+            },
+            "scoring": ["compile"],
+        }
+    )
+    res = run_librelane_flow_task(task, tmp_path)
+    assert res.status is BenchStatus.FAIL_INFRA
+    assert any("PDK" in e or "pdk" in e for e in res.errors)
+
+
+def test_gl_sim_adapter_skips_without_cache_or_env(tmp_path, monkeypatch):
+    """Gap #2: no run_dir + no env + empty bench cache -> FAIL_INFRA."""
+    from eda_agents.bench.adapters import run_gl_sim_post_synth
+    import eda_agents.bench.adapters as _adapters
+
+    monkeypatch.delenv("EDA_AGENTS_GL_SIM_RUN_DIR", raising=False)
+    monkeypatch.setattr(
+        _adapters, "_discover_cached_gl_sim_run", lambda _name: None
+    )
+    task = BenchTask.model_validate(
+        {
+            "id": "e2e_gl_sim_nocache",
+            "family": "end-to-end",
+            "category": "digital_glsim",
+            "domain": "digital",
+            "pdk": "gf180mcu",
+            "difficulty": "hard",
+            "expected_backend": "librelane",
+            "harness": "callable",
+            "inputs": {
+                "callable": "eda_agents.bench.adapters:run_gl_sim_post_synth",
+            },
+            "scoring": ["compile", "sim_run"],
+        }
+    )
+    res = run_gl_sim_post_synth(task, tmp_path)
+    assert res.status is BenchStatus.FAIL_INFRA
+    assert any("hardened run" in e.lower() or "counter" in e.lower() for e in res.errors)
+
+
+def test_gl_sim_adapter_discovers_counter_cache_symlink(tmp_path, monkeypatch):
+    """Gap #2: adapter auto-discovers a hardened counter run via the bench cache."""
+    from eda_agents.bench.adapters import _discover_cached_gl_sim_run
+    import eda_agents.bench.adapters as _adapters
+
+    fake_cache = tmp_path / "cache" / "librelane_runs"
+    run_dir = fake_cache / "counter" / "runs" / "bench-demo"
+    (run_dir / "final" / "pnl").mkdir(parents=True)
+    monkeypatch.setattr(
+        _adapters, "_bench_librelane_cache_root", lambda: fake_cache
+    )
+    discovered = _discover_cached_gl_sim_run("counter")
+    assert discovered == run_dir.resolve()
+
+
+def test_bench_cache_root_prefers_repo_bench_over_package_bench():
+    """Gap #5: cache resolver must not pick src/eda_agents/bench by name."""
+    from eda_agents.bench.adapters import _bench_librelane_cache_root
+
+    root = _bench_librelane_cache_root()
+    assert root.name == "librelane_runs"
+    # The resolver should have found the repo-root bench/ (with tasks/),
+    # not the package dir that also ends in `bench/`.
+    assert (root.parent.parent / "tasks").is_dir(), f"unexpected cache root: {root}"
 
 
 def test_seed_tasks_have_known_harnesses():

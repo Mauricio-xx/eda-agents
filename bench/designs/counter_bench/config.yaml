@@ -1,0 +1,61 @@
+# LibreLane RTL-to-GDS config for the 4-bit counter bench harness.
+#
+# Target: GF180MCU-D. IHP SG13G2 is skipped here because Magic
+# StreamOut is still broken upstream (see docs/upstream_issues/).
+# This config hardens the design through routing (ROUTE) only, not
+# all the way through signoff, because the bench task audits
+# DRC == 0 from KLayout and does not need signoff checks beyond that.
+
+meta:
+  version: 3
+  flow: Classic
+  substituting_steps:
+    Magic.StreamOut: null
+    KLayout.XOR: null
+
+RUN_MAGIC_STREAMOUT: false
+RUN_KLAYOUT_XOR: false
+
+DESIGN_NAME: counter
+VERILOG_FILES:
+  - dir::rtl/counter.v
+CLOCK_PORT: clk
+CLOCK_PERIOD: 50
+CLOCK_NET: clk
+
+# Tiny die keeps the flow under a few minutes on a laptop.
+FP_SIZING: absolute
+DIE_AREA: [0.0, 0.0, 60.0, 60.0]
+
+VDD_NETS:
+  - VDD
+GND_NETS:
+  - VSS
+
+PRIMARY_GDSII_STREAMOUT_TOOL: klayout
+
+# ESD & Layer Rules (GF180MCU standard)
+DIODE_ON_PORTS: in
+RT_MAX_LAYER: Metal4
+PDN_MULTILAYER: false
+
+# PDN: conservative straps for a tiny die.
+PDN_VWIDTH: 3
+PDN_HWIDTH: 3
+PDN_VSPACING: 1
+PDN_HSPACING: 1
+PDN_VPITCH: 30
+PDN_HPITCH: 30
+PDN_EXTEND_TO: boundary
+
+# Placement / timing repair.
+PL_TARGET_DENSITY_PCT: 40
+MAX_FANOUT_CONSTRAINT: 10
+DESIGN_REPAIR_MAX_SLEW_PCT: 35
+DESIGN_REPAIR_MAX_CAP_PCT: 30
+
+# Margins.
+TOP_MARGIN_MULT: 1
+BOTTOM_MARGIN_MULT: 1
+LEFT_MARGIN_MULT: 4
+RIGHT_MARGIN_MULT: 4

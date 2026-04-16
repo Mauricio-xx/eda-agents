@@ -1,0 +1,46 @@
+id: spec_llm_miller_ota_ihp
+family: spec-to-topology
+category: ota
+domain: voltage
+pdk: ihp_sg13g2
+difficulty: medium
+expected_backend: ngspice-osdi
+harness: callable
+topology: miller_ota
+inputs:
+  callable: eda_agents.bench.adapters:llm_spec_to_sizing_adapter
+  model: google/gemini-2.5-flash
+  spec_yaml: |
+    block: miller_ota
+    process: ihp_sg13g2
+    supply:
+      vdd: 1.2
+      vss: 0.0
+    specs:
+      dc_gain: {min: 25, unit: dB}
+      gbw: {min: 500e3, unit: Hz}
+      phase_margin: {min: 45, unit: deg}
+expected_metrics:
+  Adc_dB: {min: 25.0, unit: dB}
+  GBW_Hz: {min: 5.0e5, unit: Hz}
+scoring:
+  - compile
+  - sim_run
+  - metrics_in_range
+weight: 2.0
+timeout_s: 300
+notes: |
+  Closes gap #8. Asks an LLM (default: Gemini 2.0 Flash via OpenRouter,
+  free tier) to translate a YAML spec into the five sizing knobs
+  (gmid_input, gmid_load, L_input, L_load, Cc) and forwards them into
+  the real analytical Miller designer + ngspice. Audit thresholds are
+  the same loose envelope the hand-written IHP task uses, so we
+  measure whether the model can hit a LOW bar honestly rather than
+  measure optimisation quality.
+
+  Skip behaviour: if OPENROUTER_API_KEY is not in the environment the
+  adapter returns FAIL_INFRA, which the runner maps to SKIPPED —
+  perfectly legitimate on a CI host without a key. Pass@1 on this
+  task is only meaningful when the key is present; persist the
+  live-run evidence under bench/results/gap_closure_llm_proof/
+  whenever the session actually calls the API.

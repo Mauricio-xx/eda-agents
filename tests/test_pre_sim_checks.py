@@ -9,6 +9,7 @@ from eda_agents.checks.pre_sim import (
     check_floating_nodes,
     check_mirror_ratio,
     check_testbench_pin_match,
+    check_vds_polarity,
     parse_subcircuit,
     run_all,
 )
@@ -158,7 +159,7 @@ def test_subcircuit_construct_rejects_invalid_kind():
         Device(name="X1", kind="oops", nodes=())
 
 
-def test_run_all_returns_four_results():
+def test_run_all_returns_all_results():
     sc = parse_subcircuit(GOOD_NETLIST)
     res = run_all(sc, declared_ratios={("M3", "M4"): 1.0})
     assert [r.name for r in res] == [
@@ -166,8 +167,62 @@ def test_run_all_returns_four_results():
         "bulk_connections",
         "mirror_ratio",
         "bias_source",
+        "vds_polarity",
     ]
     assert all(r.passed for r in res), [m for r in res for m in r.messages]
+
+
+# ---------------------------------------------------------------------------
+# check_vds_polarity (gap #7)
+# ---------------------------------------------------------------------------
+
+
+VDS_SWAP_NETLIST = """\
+.subckt strongarm_broken inp inn out outn vdd vss clk
+* M1: NMOS with drain-source swap (source lands on VDD)
+M1 stage1 inp vdd vss nfet_03v3 W=8u L=200n
+* M2: correctly wired tail NMOS
+M2 stage1 clk vss vss nfet_03v3 W=18u L=300n
+.ends strongarm_broken
+"""
+
+VDS_CLEAN_NETLIST = """\
+.subckt clean_pair in out vdd vss
+* clean inverter: PMOS source=VDD, NMOS source=VSS (correct).
+M1 out in vdd vdd sg13_lv_pmos W=2u L=180n
+M2 out in vss vss sg13_lv_nmos W=1u L=180n
+.ends clean_pair
+"""
+
+VDS_PMOS_SWAP_NETLIST = """\
+.subckt pmos_broken in out vdd vss
+* PMOS with source accidentally on VSS (drain-source swap).
+M1 out in vss vss sg13_lv_pmos W=2u L=180n
+M2 out in vss vss sg13_lv_nmos W=1u L=180n
+.ends pmos_broken
+"""
+
+
+def test_vds_polarity_flags_nmos_source_on_vdd():
+    sc = parse_subcircuit(VDS_SWAP_NETLIST)
+    res = check_vds_polarity(sc)
+    assert not res.passed
+    assert any("M1" in m and "drain-source swap" in m for m in res.messages), res.messages
+    # M2 is wired correctly and must not appear in the issue list.
+    assert not any("M2" in m for m in res.messages)
+
+
+def test_vds_polarity_clean_pair_passes():
+    sc = parse_subcircuit(VDS_CLEAN_NETLIST)
+    res = check_vds_polarity(sc)
+    assert res.passed, res.messages
+
+
+def test_vds_polarity_flags_pmos_source_on_vss():
+    sc = parse_subcircuit(VDS_PMOS_SWAP_NETLIST)
+    res = check_vds_polarity(sc)
+    assert not res.passed
+    assert any("M1" in m and "pmos" in m.lower() for m in res.messages), res.messages
 
 
 def test_subcircuit_supply_helpers():

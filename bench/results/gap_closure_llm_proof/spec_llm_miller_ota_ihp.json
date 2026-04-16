@@ -1,0 +1,35 @@
+{
+  "artifacts": [
+    "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/results/gap_closure_llm_proof/spec_llm_miller_ota_ihp/llm_response.txt",
+    "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/results/gap_closure_llm_proof/spec_llm_miller_ota_ihp/sim/miller_ota.ac.cir"
+  ],
+  "backend_used": "llm+ngspice-osdi",
+  "duration_s": 1.4574202978983521,
+  "errors": [],
+  "finished": "2026-04-16T09:19:38.551689+00:00",
+  "harness_used": "callable",
+  "metrics": {
+    "Adc_dB": 36.29815,
+    "GBW_Hz": 1627129.0,
+    "PM_deg": -40.19436
+  },
+  "notes": [
+    "ngspice ok in 0.11s; measurements=['Adc_dB', 'GBW_Hz', 'PM_deg']",
+    "LLM model=google/gemini-2.5-flash params={'gmid_input': 15.0, 'gmid_load': 10.0, 'L_input': 5e-07, 'L_load': 5e-07, 'Cc': 1e-12}",
+    "adapter_runtime_s=1.46",
+    "Adc_dB=36.3 in range (margin=11.3)",
+    "GBW_Hz=1.627e+06 in range (margin=1.13e+06)"
+  ],
+  "pdk_used": "ihp_sg13g2",
+  "scores": {
+    "audit_passed": null,
+    "compile": 1.0,
+    "metrics_in_range": 1.0,
+    "regex_match": null,
+    "sim_run": 1.0,
+    "weighted_total": 1.0
+  },
+  "started": "2026-04-16T09:19:37.094254+00:00",
+  "status": "PASS",
+  "task_id": "spec_llm_miller_ota_ihp"
+}
