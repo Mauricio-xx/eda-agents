@@ -110,6 +110,9 @@ class AnalogAcademyOTATopology(CircuitTopology):
     def topology_name(self) -> str:
         return "aa_ota"
 
+    def relevant_skills(self) -> list[str | tuple[str, dict]]:
+        return ["analog.gmid_sizing"]
+
     def design_space(self) -> dict[str, tuple[float, float]]:
         return {
             "Ibias_uA": (10.0, 150.0),

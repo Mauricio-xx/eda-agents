@@ -248,6 +248,20 @@ class DigitalDesign(ABC):
         """
         return {}
 
+    def relevant_skills(self) -> list[str | tuple[str, dict]]:
+        """Names of skills an LLM runner should inject into the system prompt.
+
+        Each entry is either a bare skill name (``"digital.synthesis"``)
+        or a ``(name, kwargs)`` tuple when the skill's ``prompt_fn``
+        needs extra render arguments beyond the design itself.
+
+        Runners that honor this hook (``DigitalAutoresearchRunner`` in
+        S10c) look up each name in ``eda_agents.skills.registry`` and
+        render the skill with ``self`` as context. Default is empty so
+        existing designs remain silent unless they opt in.
+        """
+        return []
+
     # ------------------------------------------------------------------
     # Prompt metadata: agent harnesses consume these to build prompts
     # ------------------------------------------------------------------

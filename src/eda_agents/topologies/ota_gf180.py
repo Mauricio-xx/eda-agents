@@ -58,6 +58,9 @@ class GF180OTATopology(CircuitTopology):
     def topology_name(self) -> str:
         return "gf180_ota"
 
+    def relevant_skills(self) -> list[str | tuple[str, dict]]:
+        return ["analog.gmid_sizing"]
+
     def design_space(self) -> dict[str, tuple[float, float]]:
         return {
             "Ibias_uA": (20.0, 500.0),

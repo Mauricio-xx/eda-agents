@@ -41,6 +41,9 @@ class SystolicMacDftDesign(DigitalDesign):
     def project_name(self) -> str:
         return "systolic-mac-dft"
 
+    def relevant_skills(self) -> list[str | tuple[str, dict]]:
+        return ["digital.verification", "digital.synthesis"]
+
     def specification(self) -> str:
         return (
             "2x2 systolic MAC array with JTAG DFT, targeting Tiny Tapeout "

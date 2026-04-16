@@ -80,6 +80,9 @@ class StrongARMComparatorTopology(CircuitTopology):
     def topology_name(self) -> str:
         return "strongarm_comp"
 
+    def relevant_skills(self) -> list[str | tuple[str, dict]]:
+        return ["analog.gmid_sizing"]
+
     def design_space(self) -> dict[str, tuple[float, float]]:
         return {
             "W_input_um": (4.0, 64.0),      # Input pair width per finger

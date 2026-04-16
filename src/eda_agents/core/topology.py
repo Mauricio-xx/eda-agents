@@ -150,6 +150,20 @@ class CircuitTopology(ABC):
         """
         return {}
 
+    def relevant_skills(self) -> list[str | tuple[str, dict]]:
+        """Names of skills an LLM runner should inject into the system prompt.
+
+        Each entry is either a bare skill name (``"analog.gmid_sizing"``)
+        or a ``(name, kwargs)`` tuple when the skill's ``prompt_fn``
+        needs extra render arguments beyond the topology itself.
+
+        Runners that honor this hook (``AutoresearchRunner`` in S10c)
+        look up each name in ``eda_agents.skills.registry`` and render
+        the skill with ``self`` as context. Default is empty so existing
+        topologies remain silent unless they opt in.
+        """
+        return []
+
     def auxiliary_tools_description(self) -> str:
         """Description of auxiliary (non-SPICE) tools available.
 
