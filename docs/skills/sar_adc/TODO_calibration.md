@@ -1,14 +1,37 @@
 # SAR robustness heuristics — calibration backlog
 
-**Item 1 (spec anchors): RESOLVED in S9-gap-closure (gap #3).** The
-`SARADC11BitTopology._SPEC_ENOB_MIN` / `_SPEC_SNDR_MIN` constants
-were lowered from 6.0 bit / 38 dB (aspirational, inherited from the
-AnalogAcademy 8-bit reference) to 4.0 bit / 25 dB, matching the
-ENOB=4.45 / SNDR=28.56 dB that the default design point produces
-end-to-end on ngspice+PSP103 — measured in gap #6's
-`e2e_sar11b_enob_ihp` task. The aspirational 9-bit ENOB ceiling for
-this architecture remains documented as a target; items 2-5 below
-are what would close the gap between "measured today" and "aspirational".
+**Item 1 (spec anchors): RESOLVED in two passes.**
+
+*First pass — S9-gap-closure (gap #3):* lowered
+`SARADC11BitTopology._SPEC_ENOB_MIN` / `_SPEC_SNDR_MIN` from 6.0 bit
+/ 38 dB (aspirational, inherited from the AnalogAcademy 8-bit
+reference) to 4.0 bit / 25 dB, matching the ENOB=4.45 / SNDR=28.56 dB
+that the old default design point produced end-to-end. That pass
+closed the "aspirational-vs-measured" honesty gap but left the
+thresholds pinned to the defaults with zero margin for architectural
+improvement.
+
+*Second pass — S9-residual-closure (gap #6b, 2026-04-16):* ran a
+12-point Latin-square sweep over `comp_W_input_um`,
+`comp_L_input_um`, `cdac_C_unit_fF`, and `bias_V` via
+`scripts/characterize_sar11_ceiling.py`. 8 of 12 configs produced
+valid measurements (the other 4 all had `bias_V=0.9` which starves
+the StrongARM). Measured ceiling: **ENOB=5.64 bit, SNDR=35.70 dB**
+at W=8 um / L=0.15 um / Cu=20 fF / Vb=0.5 V (reproduced bit-exact
+across the two replica runs in the design matrix). Under the
+"floor(max_ENOB) − 0.5" rule this lifted the anchors to
+**ENOB >= 4.5 bit, SNDR >= 28 dB**. `default_params()` was shifted
+to the ceiling point in the same commit, so the bench baseline at
+defaults now sits at ENOB~5.6 bit with ~1.1 bit margin to the
+threshold. The full TSV is committed under
+`bench/results/sar11_ceiling_characterization/sweep.tsv` and is
+asserted as an invariant by `tests/test_sar_adc_11bit_ceiling.py`.
+
+The aspirational 9-bit ENOB ceiling for this architecture remains
+documented as a target; items 2-5 below are what would close the gap
+between "measured today" (5.64 bit) and "aspirational" (~9 bit).
+Parameter tuning alone cannot bridge that gap — the sweep already
+walks the full 3-level grid of the dominant knobs.
 
 **Items 2-5: DEFERRED to post-gap-closure sessions.** Each of them
 (tau_regen measurement, LDO wiring, real bootstrap switch, corner
@@ -32,7 +55,7 @@ This file tracks what would be needed to upgrade them from
 
 | Gate                  | Heuristic                                                                                 | Confidence                                                                                |
 |-----------------------|-------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|
-| ENOB / SNDR / Power   | Direct measurement vs static thresholds.                                                  | High (actual SPICE result). Thresholds recalibrated to ENOB >= 4.0 / SNDR >= 25 dB in S9-gap-closure (item 1) against measured defaults; aspirational 9-bit ceiling tracked separately. |
+| ENOB / SNDR / Power   | Direct measurement vs static thresholds.                                                  | High (actual SPICE result). Thresholds recalibrated twice: to 4.0 bit / 25 dB in S9-gap-closure (defaults anchor), then to 4.5 bit / 28 dB in S9-residual-closure after a 12-point sweep measured the ceiling at 5.64 bit; defaults shifted to the ceiling point. |
 | PVT margin            | `sigma_Vos = A_VT / sqrt(W*L)` for the input pair vs `0.5 * VDD/2^N`.                     | Medium. Pelgrom holds, but `A_VT` from PdkConfig is itself a vendor estimate.             |
 | Metastability BER     | `tau_regen ~ 20 ps / (W_latch_p / 8)` < 0.4 * `T_algo_PW`.                                | Low. The 20 ps and 0.4 constants are placeholders.                                        |
 | Supply ripple         | `i_peak = 2^N * C_unit * VDD / T_algo_PW` < 2 mA envelope.                                | Medium-low. The 2 mA limit is a single-rail guess; depends on LDO + decap design (absent today, see ldo.md). |

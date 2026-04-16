@@ -11,8 +11,8 @@ inputs:
   callable: eda_agents.bench.adapters:run_sar11_enob_measurement
   # topology_params left empty -> SARADC11BitTopology.default_params()
 expected_metrics:
-  ENOB: {min: 4.0, unit: bit}
-  SNDR_dBc: {min: 25.0, unit: dB}
+  ENOB: {min: 4.5, unit: bit}
+  SNDR_dBc: {min: 28.0, unit: dB}
 scoring:
   - compile
   - sim_run
@@ -25,15 +25,17 @@ notes: |
   post-merge roadmap: previously there was no bench task that
   exercised SARADC11BitTopology.extract_enob / compute_adc_metrics.
 
-  Thresholds (ENOB >= 4.0, SNDR >= 25 dB) deliberately sit BELOW the
-  topology's internal _SPEC_ENOB_MIN = 6.0 / _SPEC_SNDR_MIN = 38 dB.
-  The topology's own thresholds are aspirational / anchored on the
-  8-bit AnalogAcademy reference and do NOT describe what the default
-  11-bit design point actually produces. Session S9-gap-closure
-  measurement at default_params(): ENOB=4.45, SNDR=28.56 dB (see
-  bench/results/gap6_sar11_check/). This task is a regression
-  detector on the measured baseline; the aspirational gap between
-  measured and documented is captured in
-  docs/skills/sar_adc/TODO_calibration.md (closed in gap #3 below).
-  No tuned perturbation (larger CDAC, bigger input pair) lifts the
-  default config to the aspirational bar within one session's budget.
+  Thresholds match the topology's internal _SPEC_ENOB_MIN = 4.5 /
+  _SPEC_SNDR_MIN = 28 dB after the S9-residual-closure recalibration
+  (gap #6b): a 12-point Latin-square sweep across StrongARM input
+  sizing, CDAC unit cap, and bias measured an architectural ceiling
+  of ENOB=5.64 bit at (W=8, L=0.15, Cu=20 fF, Vb=0.5). Default
+  params were shifted to that ceiling point in the same commit, so
+  this task at defaults now lands at ENOB>=5.6 / SNDR>=35 dB with
+  comfortable margin to the thresholds above. The measured-ceiling
+  TSV is persisted under
+  bench/results/sar11_ceiling_characterization/. The 9-bit
+  aspirational ceiling is still tracked in
+  docs/skills/sar_adc/TODO_calibration.md (items 2-5: tau_regen,
+  LDO, bootstrap, corner sweep) — param tuning alone cannot close
+  the gap from 5.64 bit to 9 bit.

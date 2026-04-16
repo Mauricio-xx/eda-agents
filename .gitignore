@@ -55,6 +55,13 @@ bench/results/*
 !bench/results/sar11_cold_flakiness_probe/
 !bench/results/sar11_cold_flakiness_probe/README.md
 !bench/results/sar11_cold_flakiness_probe/runs.tsv
+# S9-residual-closure (gap #6b) SAR 11-bit architectural ceiling
+# characterization. Track README + sweep.tsv + sweep.json; the 12
+# per-config run_NN/ scratch dirs stay gitignored.
+!bench/results/sar11_ceiling_characterization/
+!bench/results/sar11_ceiling_characterization/README.md
+!bench/results/sar11_ceiling_characterization/sweep.tsv
+!bench/results/sar11_ceiling_characterization/sweep.json
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat
