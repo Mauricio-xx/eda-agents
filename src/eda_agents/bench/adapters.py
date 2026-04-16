@@ -42,6 +42,7 @@ from pydantic import ValidationError
 from eda_agents.bench.adapter_inputs import (
     AnalogRolesInputs,
     AnalyticalMillerInputs,
+    DigitalAutoresearchInputs,
     DigitalFlowInputs,
     DryRunInputs,
     GlSimPostSynthInputs,
@@ -185,39 +186,190 @@ def analog_roles_adapter(task: BenchTask, work_dir: Path) -> AdapterResult:
 
 
 # ---------------------------------------------------------------------------
-# digital_autoresearch — stub until the gap-closure session lands a real one
+# digital_autoresearch — real wrapper around DigitalAutoresearchRunner
 # ---------------------------------------------------------------------------
 
 
-_DIGITAL_AUTORESEARCH_NOT_IMPLEMENTED = (
-    "NOT_IMPLEMENTED: digital_autoresearch adapter is a stub. "
-    "The RTL-to-GDS greedy exploration (examples/10_digital_autoresearch.py) "
-    "is not yet wired into the bench runner. Scheduled for the post-merge "
-    "S9-gap-closure session (tier 2). Returns SKIPPED, not FAIL_INFRA, so "
-    "the summary accounts for it as deliberately unimplemented."
-)
+def _resolve_bench_design_dir(raw: str) -> Path:
+    """Resolve a ``design_dir`` from a task YAML.
+
+    Uses the same repo-root heuristic as ``_bench_librelane_cache_root``
+    (walk parents looking for ``bench/tasks/``) so YAMLs can use
+    repo-relative paths without false matches against
+    ``src/eda_agents/bench``.
+    """
+    p = Path(raw)
+    if p.is_absolute():
+        return p.resolve()
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "bench" / "tasks").is_dir():
+            candidate = parent / raw
+            if candidate.is_dir():
+                return candidate.resolve()
+    return p.resolve()
 
 
 def digital_autoresearch_adapter(task: BenchTask, work_dir: Path) -> AdapterResult:
-    """Placeholder adapter for digital autoresearch tasks.
+    """Exercise ``DigitalAutoresearchRunner`` on a :class:`GenericDesign`.
 
-    Tasks whose harness is ``digital_autoresearch`` resolve here today.
-    The adapter returns :class:`BenchStatus.SKIPPED` with an explicit
-    ``NOT_IMPLEMENTED`` note rather than :class:`BenchStatus.FAIL_INFRA`
-    so the summary does not conflate "no hardened run available" with
-    "this feature is not built yet". The real implementation will land
-    in the gap-closure session next.
+    Closes gap #4 (was a ``NOT_IMPLEMENTED`` stub before this session).
+    The task YAML points at a LibreLane project dir and optionally at a
+    mock FlowMetrics JSON file — when the fixture is supplied the
+    adapter runs fully offline (no LLM, no LibreLane, no PDK), which
+    keeps CI honest.
+
+    Audit signal:
+
+    * ``iterations_kept`` metric (``int``) — number of evaluations the
+      greedy loop kept. ``>= 1`` means at least one eval produced a
+      design that satisfied :meth:`DigitalDesign.check_validity`.
+    * ``best_fom`` passed through for informational reporting.
+
+    Skips cleanly when the design_dir is missing. When no mock fixture
+    is supplied *and* the PDK/LibreLane/API key is not available, the
+    underlying runner will short-circuit to a fallback proposal but
+    the LibreLane step will fail — the adapter surfaces that as
+    ``FAIL_INFRA`` → SKIPPED rather than marking the task as failed.
     """
+    try:
+        inputs = DigitalAutoresearchInputs.model_validate(task.inputs)
+    except ValidationError as exc:
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="librelane",
+            errors=[_format_validation_error(exc, "digital_autoresearch_adapter")],
+        )
+
+    import asyncio
+
+    if not inputs.design_dir:
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="librelane",
+            errors=["digital_autoresearch_adapter: inputs.design_dir is required"],
+        )
+
+    design_dir = _resolve_bench_design_dir(inputs.design_dir)
+    if not design_dir.is_dir():
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="librelane",
+            errors=[f"design_dir not found: {design_dir}"],
+        )
+
+    config_path = design_dir / "config.yaml"
+    if not config_path.is_file():
+        config_path = design_dir / "config.json"
+    if not config_path.is_file():
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="librelane",
+            errors=[f"neither config.yaml nor config.json under {design_dir}"],
+        )
+
+    from eda_agents.agents.digital_autoresearch import DigitalAutoresearchRunner
+    from eda_agents.core.designs.generic import GenericDesign
+
+    pdk_name = task.pdk or "gf180mcu"
+    pdk_root = _resolve_librelane_pdk_root(pdk_name)
+
+    # In mock mode we don't need LibreLane — but GenericDesign still
+    # wants a PDK config for prompt metadata. Pass the requested PDK
+    # name and let GenericDesign fall back to its default root when
+    # none is reachable.
+    try:
+        design = GenericDesign(
+            config_path=config_path,
+            pdk_root=pdk_root,
+            pdk_config=pdk_name,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="librelane",
+            errors=[f"GenericDesign init failed: {type(exc).__name__}: {exc}"],
+        )
+
+    mock_path: Path | None = None
+    if inputs.mock_metrics_path:
+        mock_path = Path(inputs.mock_metrics_path)
+        if not mock_path.is_absolute():
+            mock_path = (design_dir / mock_path).resolve()
+        if not mock_path.is_file():
+            return AdapterResult(
+                status=BenchStatus.FAIL_INFRA,
+                backend_used="librelane",
+                errors=[f"mock_metrics_path not found: {mock_path}"],
+            )
+
+    # When running for real (no mock), we need LibreLane + API key.
+    # Short-circuit to SKIPPED if either is missing to avoid a long
+    # subprocess cascade that we know will fail.
+    if mock_path is None:
+        import os as _os
+
+        if pdk_root is None:
+            return AdapterResult(
+                status=BenchStatus.FAIL_INFRA,
+                backend_used="librelane",
+                errors=[
+                    f"digital_autoresearch needs either mock_metrics_path or "
+                    f"a working {pdk_name!r} PDK. Neither available."
+                ],
+            )
+        if not _os.environ.get("OPENROUTER_API_KEY"):
+            return AdapterResult(
+                status=BenchStatus.FAIL_INFRA,
+                backend_used="librelane",
+                errors=[
+                    "digital_autoresearch (real mode) needs OPENROUTER_API_KEY "
+                    "to propose evaluations. Supply a mock_metrics_path for "
+                    "offline / CI runs."
+                ],
+            )
+
+    runner = DigitalAutoresearchRunner(
+        design=design,
+        budget=inputs.budget,
+        use_mock_metrics=mock_path,
+    )
+
     work_dir.mkdir(parents=True, exist_ok=True)
-    note_path = work_dir / "NOT_IMPLEMENTED.txt"
-    note_path.write_text(_DIGITAL_AUTORESEARCH_NOT_IMPLEMENTED + "\n")
+    try:
+        auto_res = asyncio.run(runner.run(work_dir))
+    except Exception as exc:  # noqa: BLE001
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="librelane",
+            errors=[f"DigitalAutoresearchRunner failed: {type(exc).__name__}: {exc}"],
+        )
+
+    metrics: dict[str, Any] = {
+        "iterations_kept": float(auto_res.kept),
+        "iterations_total": float(auto_res.total_evals),
+        "best_fom": float(auto_res.best_fom or 0.0),
+    }
+
+    notes = [
+        f"mode={'mock' if mock_path else 'live'}",
+        f"kept={auto_res.kept}/{auto_res.total_evals}",
+        f"best_valid={auto_res.best_valid}",
+        f"tsv={auto_res.tsv_path}",
+    ]
+
+    # Audit: at least one kept evaluation means the runner found a
+    # design point passing check_validity.
+    passed = auto_res.kept >= 1 and auto_res.best_valid
     return AdapterResult(
-        status=BenchStatus.SKIPPED,
+        status=BenchStatus.PASS if passed else BenchStatus.FAIL_AUDIT,
         backend_used="librelane",
-        artifacts=[str(note_path)],
-        notes=[_DIGITAL_AUTORESEARCH_NOT_IMPLEMENTED],
-        compile_ok=None,
-        sim_ok=None,
+        metrics=metrics,
+        artifacts=[auto_res.tsv_path] if auto_res.tsv_path else [],
+        notes=notes,
+        compile_ok=True,
+        sim_ok=True,
+        raw_text=notes[0],
     )
 
 

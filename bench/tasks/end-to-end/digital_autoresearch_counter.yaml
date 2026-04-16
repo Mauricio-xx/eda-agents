@@ -1,0 +1,37 @@
+id: e2e_digital_autoresearch_counter
+family: end-to-end
+category: digital
+domain: digital
+pdk: gf180mcu
+difficulty: easy
+expected_backend: librelane
+harness: digital_autoresearch
+topology: counter_4bit
+inputs:
+  design_dir: bench/designs/counter_bench
+  budget: 2
+  # Mock fixture keeps this task offline (no LLM, no LibreLane).
+  # Without it the adapter requires OPENROUTER_API_KEY + a real PDK
+  # and returns FAIL_INFRA (SKIPPED) when either is missing.
+  mock_metrics_path: mock_flow_metrics.json
+expected_metrics:
+  iterations_kept: {min: 1, unit: count}
+scoring:
+  - audit_passed
+  - metrics_in_range
+weight: 2.0
+timeout_s: 300
+notes: |
+  Closes gap #4. Replaces the NOT_IMPLEMENTED stub with a real wrapper
+  around DigitalAutoresearchRunner. Audit signal is "the greedy loop
+  kept at least one valid evaluation" — i.e. the runner found a
+  design point whose FlowMetrics.validity_check() passed.
+
+  Mock mode (default, this YAML): loads metrics from
+  bench/designs/counter_bench/mock_flow_metrics.json instead of running
+  LibreLane. The included fixture exercises the validity check with a
+  timing-closed, DRC-clean counter.
+
+  Real mode: drop mock_metrics_path and supply OPENROUTER_API_KEY +
+  a reachable GF180 PDK root. Budget=2 keeps the total flow bounded
+  to roughly 2 minutes on typical hardware.

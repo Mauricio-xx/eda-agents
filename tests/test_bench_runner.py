@@ -130,25 +130,66 @@ def test_callable_adapter_missing_callable(tmp_path):
     assert res.status is BenchStatus.FAIL_INFRA
 
 
-def test_digital_autoresearch_stub_returns_skipped_with_explicit_note(tmp_path):
+def test_digital_autoresearch_rejects_missing_design_dir(tmp_path):
+    """Gap #4: empty/missing design_dir -> FAIL_INFRA."""
     task = _dry_task(
-        id="digital_autoresearch_stub_smoke",
+        id="digital_autoresearch_no_design",
         family="end-to-end",
         domain="digital",
         pdk="gf180mcu",
         expected_backend="librelane",
         harness="digital_autoresearch",
-        scoring=["compile"],
+        scoring=["audit_passed"],
+        inputs={},  # no design_dir
     )
     res = run_task(task, tmp_path)
-    assert res.status is BenchStatus.SKIPPED
-    assert res.backend_used == "librelane"
-    assert any("NOT_IMPLEMENTED" in n for n in res.notes), res.notes
-    # Scheduled-for-gap-closure context must be present, not a generic stub.
-    assert any("gap-closure" in n.lower() for n in res.notes), res.notes
-    note_file = tmp_path / "NOT_IMPLEMENTED.txt"
-    assert note_file.is_file()
-    assert "NOT_IMPLEMENTED" in note_file.read_text()
+    assert res.status is BenchStatus.FAIL_INFRA
+    assert any("design_dir" in e for e in res.errors)
+
+
+def test_digital_autoresearch_skips_without_mock_and_api_key(tmp_path, monkeypatch):
+    """Gap #4: real mode needs OPENROUTER_API_KEY; absent -> SKIPPED."""
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    task = _dry_task(
+        id="digital_autoresearch_nokey",
+        family="end-to-end",
+        domain="digital",
+        pdk="gf180mcu",
+        expected_backend="librelane",
+        harness="digital_autoresearch",
+        scoring=["audit_passed"],
+        inputs={
+            "design_dir": "bench/designs/counter_bench",
+            "budget": 1,
+        },
+    )
+    res = run_task(task, tmp_path)
+    assert res.status is BenchStatus.FAIL_INFRA  # maps to SKIPPED in summary
+    assert any(
+        "OPENROUTER_API_KEY" in e or "PDK" in e for e in res.errors
+    )
+
+
+def test_digital_autoresearch_runs_mock_mode(tmp_path):
+    """Gap #4: mock_metrics_path drives an offline run and audits PASS."""
+    task = _dry_task(
+        id="digital_autoresearch_mock_unit",
+        family="end-to-end",
+        domain="digital",
+        pdk="gf180mcu",
+        expected_backend="librelane",
+        harness="digital_autoresearch",
+        scoring=["audit_passed"],
+        inputs={
+            "design_dir": "bench/designs/counter_bench",
+            "budget": 1,
+            "mock_metrics_path": "mock_flow_metrics.json",
+        },
+    )
+    res = run_task(task, tmp_path)
+    assert res.status is BenchStatus.PASS, (res.status, res.errors, res.notes)
+    assert res.metrics.get("iterations_kept", 0) >= 1
+    assert any("mode=mock" in n for n in res.notes)
 
 
 def test_pre_sim_gate_detects_violation_via_callable(tmp_path):
