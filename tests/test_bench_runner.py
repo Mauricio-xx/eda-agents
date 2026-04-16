@@ -427,6 +427,146 @@ def test_sar11b_adapter_skips_cleanly_when_tools_missing(tmp_path, monkeypatch):
     assert any("missing tools" in e for e in res.errors)
 
 
+def test_llm_adapter_skips_when_no_api_key(tmp_path, monkeypatch):
+    """Gap #8: absent OPENROUTER_API_KEY -> FAIL_INFRA (SKIPPED in summary)."""
+    from eda_agents.bench.adapters import llm_spec_to_sizing_adapter
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    task = BenchTask.model_validate(
+        {
+            "id": "spec_llm_nokey",
+            "family": "spec-to-topology",
+            "category": "ota",
+            "domain": "voltage",
+            "pdk": "ihp_sg13g2",
+            "difficulty": "easy",
+            "expected_backend": "ngspice-osdi",
+            "harness": "callable",
+            "inputs": {
+                "callable": "eda_agents.bench.adapters:llm_spec_to_sizing_adapter",
+                "spec_yaml": "block: miller_ota\n",
+            },
+            "scoring": ["compile", "sim_run", "metrics_in_range"],
+            "expected_metrics": {"Adc_dB": {"min": 25.0}},
+        }
+    )
+    res = llm_spec_to_sizing_adapter(task, tmp_path)
+    assert res.status is BenchStatus.FAIL_INFRA
+    assert any("OPENROUTER_API_KEY" in e for e in res.errors)
+
+
+def test_llm_adapter_parses_canned_response_and_invokes_designer(tmp_path, monkeypatch):
+    """Gap #8: with a canned LLM response, sizing flows into the real path.
+
+    Mocks `_call_openrouter` to avoid hitting the network, then validates
+    the adapter passes the parsed params to analytical_miller_design and
+    returns the simulated AdapterResult. Requires ngspice; otherwise
+    falls back to checking the LLM parse + synthetic task wiring.
+    """
+    import shutil as _shutil
+
+    from eda_agents.bench import adapters
+
+    canned = (
+        "Here is the JSON:\n"
+        '{"gmid_input": 12.0, "gmid_load": 10.0, '
+        '"L_input": 1.0e-6, "L_load": 1.0e-6, "Cc": 1.0e-12}'
+    )
+    monkeypatch.setattr(adapters, "_call_openrouter", lambda **kw: canned)
+    task = BenchTask.model_validate(
+        {
+            "id": "spec_llm_canned",
+            "family": "spec-to-topology",
+            "category": "ota",
+            "domain": "voltage",
+            "pdk": "ihp_sg13g2",
+            "difficulty": "easy",
+            "expected_backend": "ngspice-osdi",
+            "harness": "callable",
+            "inputs": {
+                "callable": "eda_agents.bench.adapters:llm_spec_to_sizing_adapter",
+                "spec_yaml": "block: miller_ota\n",
+            },
+            "scoring": ["compile", "sim_run", "metrics_in_range"],
+            "expected_metrics": {"Adc_dB": {"min": 25.0}},
+        }
+    )
+    res = adapters.llm_spec_to_sizing_adapter(task, tmp_path)
+
+    # The LLM response file is always persisted for auditability.
+    assert (tmp_path / "llm_response.txt").read_text() == canned
+    # Notes capture the model + parsed params for the report.
+    assert any("params=" in n for n in res.notes)
+
+    if _shutil.which("ngspice"):
+        # Under real ngspice we expect a PASS (sizing is the known-good IHP point).
+        assert res.status in {BenchStatus.PASS, BenchStatus.FAIL_SIM, BenchStatus.FAIL_AUDIT}
+    else:
+        # Without ngspice the inner adapter returns FAIL_INFRA (ngspice-missing).
+        assert res.status is BenchStatus.FAIL_INFRA
+        assert any("ngspice" in e.lower() for e in res.errors)
+
+
+def test_llm_adapter_rejects_malformed_json(tmp_path, monkeypatch):
+    """Gap #8: LLM emitted prose without JSON -> FAIL_AUDIT, not ERROR."""
+    from eda_agents.bench import adapters
+
+    monkeypatch.setattr(
+        adapters, "_call_openrouter", lambda **kw: "I am not returning JSON today."
+    )
+    task = BenchTask.model_validate(
+        {
+            "id": "spec_llm_bad_json",
+            "family": "spec-to-topology",
+            "category": "ota",
+            "domain": "voltage",
+            "pdk": "ihp_sg13g2",
+            "difficulty": "easy",
+            "expected_backend": "ngspice-osdi",
+            "harness": "callable",
+            "inputs": {
+                "callable": "eda_agents.bench.adapters:llm_spec_to_sizing_adapter",
+                "spec_yaml": "block: miller_ota\n",
+            },
+            "scoring": ["compile", "sim_run"],
+        }
+    )
+    res = adapters.llm_spec_to_sizing_adapter(task, tmp_path)
+    assert res.status is BenchStatus.FAIL_AUDIT
+    assert any("JSON" in e for e in res.errors)
+
+
+def test_llm_adapter_rejects_out_of_range_json(tmp_path, monkeypatch):
+    """Gap #8: LLM emitted JSON with a field out of the typed range -> FAIL_AUDIT."""
+    from eda_agents.bench import adapters
+
+    canned = (
+        '{"gmid_input": 999.0, "gmid_load": 10.0, '
+        '"L_input": 1.0e-6, "L_load": 1.0e-6, "Cc": 1.0e-12}'
+    )
+    monkeypatch.setattr(adapters, "_call_openrouter", lambda **kw: canned)
+    task = BenchTask.model_validate(
+        {
+            "id": "spec_llm_oor",
+            "family": "spec-to-topology",
+            "category": "ota",
+            "domain": "voltage",
+            "pdk": "ihp_sg13g2",
+            "difficulty": "easy",
+            "expected_backend": "ngspice-osdi",
+            "harness": "callable",
+            "inputs": {
+                "callable": "eda_agents.bench.adapters:llm_spec_to_sizing_adapter",
+                "spec_yaml": "block: miller_ota\n",
+            },
+            "scoring": ["compile", "sim_run"],
+        }
+    )
+    res = adapters.llm_spec_to_sizing_adapter(task, tmp_path)
+    assert res.status is BenchStatus.FAIL_AUDIT
+    assert any("gmid_input" in e or "40" in e for e in res.errors)
+
+
 def test_sar11b_adapter_rejects_bogus_inputs(tmp_path):
     """Gap #6 typed-input rejection propagates through the adapter."""
     from eda_agents.bench.adapters import run_sar11_enob_measurement

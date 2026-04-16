@@ -184,10 +184,11 @@ class LlmSpecToSizingInputs(BaseModel):
     callable: str
     spec_yaml: str = Field(..., min_length=1)
     model: str = Field(
-        default="openrouter/google/gemini-2.0-flash-exp:free",
+        default="google/gemini-2.5-flash",
         description=(
-            "LiteLLM-style model spec. OpenRouter via Gemini Flash is the "
-            "default per persistent memory (feedback_openrouter_model.md)."
+            "OpenRouter model id. Gemini Flash is the default per "
+            "persistent memory (feedback_openrouter_model.md); the "
+            "`openrouter/` prefix is stripped before the API call."
         ),
     )
     max_tokens: int = Field(default=1024, ge=64, le=16384)

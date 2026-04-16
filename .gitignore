@@ -21,10 +21,15 @@ data/gf180-template/
 trackd_results/
 .venv-glayout/
 
-# Bench runs: only the frozen S9 baseline and a curated README are tracked.
+# Bench runs: only the frozen S9 baseline, the S9-gap-closure LLM
+# live-run proof, and a curated README are tracked. Local re-runs stay
+# gitignored.
 bench/results/*
 !bench/results/README.md
 !bench/results/s9_initial_smoke/
 !bench/results/s9_initial_smoke/**
-# Re-assert non-baseline hygiene inside the baseline (ngspice scratch).
+!bench/results/gap_closure_llm_proof/
+!bench/results/gap_closure_llm_proof/**
+# Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
+bench/results/gap_closure_llm_proof/**/*.dat

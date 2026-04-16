@@ -1,0 +1,9 @@
+```json
+{
+  "gmid_input": 15.0,
+  "gmid_load": 10.0,
+  "L_input": 5.0e-7,
+  "L_load": 5.0e-7,
+  "Cc": 1.0e-12
+}
+```

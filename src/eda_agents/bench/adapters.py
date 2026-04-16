@@ -44,6 +44,7 @@ from eda_agents.bench.adapter_inputs import (
     AnalyticalMillerInputs,
     DryRunInputs,
     GlSimPostSynthInputs,
+    LlmSpecToSizingInputs,
     PreSimGateInputs,
     Sar11bEnobInputs,
 )
@@ -538,6 +539,209 @@ def run_gl_sim_post_synth(
 
 
 # ---------------------------------------------------------------------------
+# LLM spec-to-sizing adapter (gap #8)
+# ---------------------------------------------------------------------------
+
+
+_LLM_SYSTEM_PROMPT = (
+    "You are an analog circuit designer. You will be given a spec for a "
+    "two-stage Miller OTA and asked to propose design parameters. "
+    "Respond ONLY with a JSON object — no prose, no markdown fences, no "
+    "explanation. The JSON must have exactly these keys with numeric "
+    "values in the stated ranges:\n"
+    "  gmid_input:   5.0 to 25.0 (S/A)\n"
+    "  gmid_load:    5.0 to 20.0 (S/A)\n"
+    "  L_input:      1.3e-7 to 2e-6 (m)\n"
+    "  L_load:       1.3e-7 to 2e-6 (m)\n"
+    "  Cc:           1e-13 to 5e-12 (F)\n"
+    "Choose values that make the spec targets reachable; do not argue."
+)
+
+
+def _parse_llm_json(text: str) -> dict[str, float]:
+    """Extract the first JSON object from ``text`` and decode it.
+
+    Keeps the adapter independent of whether the model wrapped the JSON
+    in markdown fences / prose — we scan for the first ``{`` and last
+    ``}`` and feed that to :func:`json.loads`.
+    """
+    import json
+
+    first = text.find("{")
+    last = text.rfind("}")
+    if first < 0 or last < 0 or last <= first:
+        raise ValueError(f"no JSON object found in LLM response: {text[:200]!r}")
+    chunk = text[first : last + 1]
+    data = json.loads(chunk)
+    if not isinstance(data, dict):
+        raise TypeError(f"LLM JSON was not an object, got {type(data).__name__}")
+    return data
+
+
+def _call_openrouter(
+    *,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    max_tokens: int,
+    temperature: float,
+) -> str:
+    """Single chat-completion call through OpenRouter's OpenAI-compatible API.
+
+    Raises ``RuntimeError`` (not openai.XxxError / httpx.HTTPStatusError /
+    ImportError) so the adapter can funnel every infra-level failure
+    into one ``FAIL_INFRA`` branch.
+    """
+    import os
+
+    try:
+        from openai import OpenAI
+    except ImportError as exc:  # pragma: no cover — dep is in base install
+        raise RuntimeError(f"openai not available: {exc}") from exc
+
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY not set")
+
+    # OpenRouter accepts model ids with or without the "openrouter/" prefix
+    # depending on the caller; strip it for the direct API call.
+    model_id = model.removeprefix("openrouter/") if model.startswith("openrouter/") else model
+
+    try:
+        client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+        )
+        resp = client.chat.completions.create(
+            model=model_id,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        return resp.choices[0].message.content or ""
+    except Exception as exc:  # noqa: BLE001 — funnel to RuntimeError
+        raise RuntimeError(
+            f"OpenRouter call failed (model={model_id!r}): "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+
+
+def llm_spec_to_sizing_adapter(
+    task: BenchTask, work_dir: Path
+) -> AdapterResult:
+    """Ask an LLM to produce Miller OTA design params, then simulate the result.
+
+    Pipeline: spec YAML -> chat-completion request (OpenRouter /
+    Gemini Flash default) -> JSON of gmid/L/Cc knobs -> forward the
+    values into :func:`analytical_miller_design` so the audit runs
+    against real ngspice output.
+
+    Skips gracefully via ``FAIL_INFRA`` when ``OPENROUTER_API_KEY`` is
+    not set so CI hosts without a key stay green. The runner maps
+    ``FAIL_INFRA`` to ``SKIPPED`` in the summary; we never silently
+    fake a PASS.
+    """
+    try:
+        inputs = LlmSpecToSizingInputs.model_validate(task.inputs)
+    except ValidationError as exc:
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="llm+ngspice",
+            errors=[_format_validation_error(exc, "llm_spec_to_sizing_adapter")],
+        )
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        raw = _call_openrouter(
+            model=inputs.model,
+            system_prompt=_LLM_SYSTEM_PROMPT,
+            user_prompt=(
+                "Spec (YAML):\n"
+                + inputs.spec_yaml
+                + "\nReturn the JSON object with the five sizing knobs."
+            ),
+            max_tokens=inputs.max_tokens,
+            temperature=inputs.temperature,
+        )
+    except RuntimeError as exc:
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used=f"llm/{inputs.model}",
+            errors=[str(exc)],
+            notes=[
+                "LLM adapter skipped: missing API key or upstream error. "
+                "Set OPENROUTER_API_KEY to enable."
+            ],
+        )
+    response_path = work_dir / "llm_response.txt"
+    response_path.write_text(raw, encoding="utf-8")
+
+    try:
+        design_params = _parse_llm_json(raw)
+    except (ValueError, TypeError) as exc:
+        return AdapterResult(
+            status=BenchStatus.FAIL_AUDIT,
+            backend_used=f"llm/{inputs.model}",
+            artifacts=[str(response_path)],
+            errors=[f"LLM JSON parse failed: {exc}"],
+            raw_text=raw,
+        )
+
+    # Validate the LLM's proposed sizing against the same typed contract
+    # analytical_miller_design uses. If the model emitted out-of-range
+    # numbers or missing keys, that is the MODEL failing the audit, not
+    # infrastructure — surface FAIL_AUDIT rather than FAIL_INFRA.
+    synthetic_inner_inputs = {
+        "callable": "eda_agents.bench.adapters:analytical_miller_design",
+        "design_params": design_params,
+    }
+    try:
+        AnalyticalMillerInputs.model_validate(synthetic_inner_inputs)
+    except ValidationError as exc:
+        return AdapterResult(
+            status=BenchStatus.FAIL_AUDIT,
+            backend_used=f"llm/{inputs.model}",
+            artifacts=[str(response_path)],
+            errors=[_format_validation_error(exc, "llm_spec_to_sizing_adapter")],
+            notes=[
+                f"LLM model={inputs.model} produced out-of-range sizing: "
+                f"{design_params}"
+            ],
+            raw_text=raw,
+        )
+    synthetic_task_data = {
+        **task.model_dump(mode="json"),
+        "id": f"{task.id}__sizing",
+        "harness": "callable",
+        "expected_backend": "ngspice-osdi",
+        "pdk": inputs.pdk or task.pdk or "ihp_sg13g2",
+        "inputs": synthetic_inner_inputs,
+    }
+    synthetic_task = BenchTask.model_validate(synthetic_task_data)
+    sim_dir = work_dir / "sim"
+    sim_dir.mkdir(parents=True, exist_ok=True)
+    sim_res = analytical_miller_design(synthetic_task, sim_dir)
+    # Stitch the LLM artifacts into the result so the report shows both.
+    notes = sim_res.notes + [
+        f"LLM model={inputs.model} params={design_params}"
+    ]
+    return AdapterResult(
+        status=sim_res.status,
+        backend_used=f"llm+{sim_res.backend_used}",
+        metrics=dict(sim_res.metrics),
+        artifacts=[str(response_path), *sim_res.artifacts],
+        errors=list(sim_res.errors),
+        notes=notes,
+        compile_ok=sim_res.compile_ok,
+        sim_ok=sim_res.sim_ok,
+        raw_text=sim_res.raw_text,
+    )
+
+
+# ---------------------------------------------------------------------------
 # SAR ADC 11-bit ENOB measurement (gap #6)
 # ---------------------------------------------------------------------------
 
@@ -685,6 +889,7 @@ __all__ = [
     "callable_adapter",
     "digital_autoresearch_adapter",
     "dry_run_adapter",
+    "llm_spec_to_sizing_adapter",
     "resolve_callable",
     "run_gl_sim_post_synth",
     "run_pre_sim_gate_on_inline_netlist",
