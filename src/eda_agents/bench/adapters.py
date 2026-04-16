@@ -371,6 +371,10 @@ def digital_autoresearch_adapter(task: BenchTask, work_dir: Path) -> AdapterResu
         "iterations_kept": float(auto_res.kept),
         "iterations_total": float(auto_res.total_evals),
         "best_fom": float(auto_res.best_fom or 0.0),
+        # Sum of LLM tokens consumed across all proposal calls; 0 on
+        # mock runs or when the backend does not populate
+        # ``response.usage`` (e.g. older litellm / stub adapters).
+        "total_tokens": float(auto_res.total_tokens),
     }
 
     notes = [
