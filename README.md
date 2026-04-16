@@ -28,7 +28,11 @@ them are hidden as generic "future work".
   `size_from_ft`, `size_from_gmro`, `operating_range`).
 - A skill registry (23 skills across analog / digital / flow /
   tools) that callers use through `get_skill(...)` and
-  `list_skills(prefix=...)`.
+  `list_skills(prefix=...)`. Topologies / digital designs declare
+  relevant skills through the `relevant_skills()` extension point;
+  autoresearch and Claude Code CLI runners inject the rendered text
+  into the system prompt (see `docs/architecture.md` → "Skill
+  injection contract").
 - The Session 6 analog 4-role DAG
   (Librarian / Architect / Designer / Verifier) with pre-simulation
   gates (floating nodes, bulk connections, mirror ratio, bias

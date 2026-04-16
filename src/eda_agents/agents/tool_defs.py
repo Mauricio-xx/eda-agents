@@ -8,13 +8,36 @@ metadata, so adding a new circuit type requires zero changes here.
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
+
+from eda_agents.skills.registry import render_relevant_skills
 
 if TYPE_CHECKING:
     from eda_agents.core.digital_design import DigitalDesign
     from eda_agents.core.pdk import PdkConfig
     from eda_agents.core.topology import CircuitTopology
     from eda_agents.core.system_topology import SystemTopology
+
+
+def _maybe_skills_prefix(context) -> str:
+    """Render ``context.relevant_skills()`` when injection is enabled.
+
+    Returns ``""`` when the object has no ``relevant_skills`` hook, the
+    hook returns an empty list, or the ``EDA_AGENTS_INJECT_SKILLS=0``
+    escape hatch is active. Callers prepend the returned string
+    unconditionally and treat empty as "no change".
+    """
+    if os.environ.get("EDA_AGENTS_INJECT_SKILLS", "1") == "0":
+        return ""
+    relevant = getattr(context, "relevant_skills", None)
+    if relevant is None:
+        return ""
+    entries = relevant()
+    if not entries:
+        return ""
+    block = render_relevant_skills(entries, context)
+    return f"{block}\n\n" if block else ""
 
 # Tools always available to agents (write + read)
 BASE_TOOLS = {
@@ -121,7 +144,10 @@ def build_cc_spice_system_prompt(
         )
         aux_note = ''
 
+    skills_prefix = _maybe_skills_prefix(topology)
+
     return (
+        f'{skills_prefix}'
         f'You are an analog circuit design agent exploring the '
         f'{topology.topology_name()} design space. '
         f'You are agent "{agent_id}". '
@@ -1015,7 +1041,9 @@ def build_digital_rtl2gds_prompt(
             if nix_path_prefix else ""
         )
 
-    return f"""You are a digital design automation agent executing the full RTL-to-GDS \
+    skills_prefix = _maybe_skills_prefix(design)
+
+    return f"""{skills_prefix}You are a digital design automation agent executing the full RTL-to-GDS \
 flow for '{project}'.
 
 {design.prompt_description()}

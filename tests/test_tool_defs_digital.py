@@ -139,6 +139,42 @@ class TestBuildDigitalRtl2gdsPrompt:
         assert len(prompt) > 500
 
 
+class TestBuildDigitalRtl2gdsPromptSkillInjection:
+    """S10c: skill text injection into the CC CLI RTL-to-GDS prompt."""
+
+    def _design_with_skills(self, skills):
+        design = _make_design()
+
+        def _relevant_skills(self=design):
+            return list(skills)
+
+        # Bind method-style.
+        design.relevant_skills = _relevant_skills
+        return design
+
+    def test_default_no_skills_no_change(self, monkeypatch):
+        monkeypatch.delenv("EDA_AGENTS_INJECT_SKILLS", raising=False)
+        prompt = build_digital_rtl2gds_prompt(_make_design())
+        # Design declares no skills via default return [] -> no injection.
+        assert "You are a synthesis engineer" not in prompt
+        assert "You are a digital design automation agent" in prompt
+
+    def test_declared_skills_precede_agent_preamble(self, monkeypatch):
+        monkeypatch.delenv("EDA_AGENTS_INJECT_SKILLS", raising=False)
+        design = self._design_with_skills(["digital.synthesis"])
+        prompt = build_digital_rtl2gds_prompt(design)
+        skill_idx = prompt.find("You are a synthesis engineer")
+        agent_idx = prompt.find("You are a digital design automation agent")
+        assert skill_idx >= 0, "skill body missing from CC CLI prompt"
+        assert agent_idx > skill_idx, "skill must precede agent preamble"
+
+    def test_escape_hatch_disables_injection(self, monkeypatch):
+        monkeypatch.setenv("EDA_AGENTS_INJECT_SKILLS", "0")
+        design = self._design_with_skills(["digital.synthesis"])
+        prompt = build_digital_rtl2gds_prompt(design)
+        assert "You are a synthesis engineer" not in prompt
+
+
 # ---------------------------------------------------------------------------
 # write_librelane_flow_script tests
 # ---------------------------------------------------------------------------

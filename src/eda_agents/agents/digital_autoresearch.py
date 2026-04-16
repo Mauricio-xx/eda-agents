@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 import traceback
 from pathlib import Path
@@ -61,6 +62,7 @@ from eda_agents.core.digital_design import DigitalDesign
 from eda_agents.core.flow_metrics import FlowMetrics
 from eda_agents.core.flow_stage import FlowStage
 from eda_agents.core.stages.physical_slice_runner import STAGE_TO_LIBRELANE
+from eda_agents.skills.registry import render_relevant_skills
 
 logger = logging.getLogger(__name__)
 
@@ -216,10 +218,26 @@ class DigitalAutoresearchRunner:
     # ------------------------------------------------------------------
 
     def _system_prompt(self, program_content: str) -> str:
+        """Build the system prompt: skills (S10c) + program.md + response suffix.
+
+        Design-declared skills are rendered first so the methodology
+        framing arrives before the run-local strategy in ``program.md``.
+        Gated by ``EDA_AGENTS_INJECT_SKILLS``: set to ``"0"`` to fall
+        back to the pre-S10c prompt.
+        """
         space = self.design.design_space()
         example_keys = list(space.keys())
         example = ", ".join(f'"{k}": ...' for k in example_keys)
+
+        skills_block = ""
+        if os.environ.get("EDA_AGENTS_INJECT_SKILLS", "1") != "0":
+            skills_block = render_relevant_skills(
+                self.design.relevant_skills(), self.design
+            )
+        prefix = f"{skills_block}\n\n" if skills_block else ""
+
         return (
+            f"{prefix}"
             f"You are an autonomous digital design optimizer. Your program "
             f"is defined below. Follow it exactly.\n\n"
             f"{program_content}\n\n"

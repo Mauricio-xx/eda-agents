@@ -65,6 +65,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 import traceback
 from pathlib import Path
@@ -78,6 +79,7 @@ from eda_agents.agents._autoresearch_core import (
 from eda_agents.agents.phase_results import AutoresearchResult
 from eda_agents.core.pdk import PdkConfig, resolve_pdk
 from eda_agents.core.topology import CircuitTopology
+from eda_agents.skills.registry import render_relevant_skills
 
 logger = logging.getLogger(__name__)
 
@@ -204,8 +206,21 @@ class AutoresearchRunner:
     # ------------------------------------------------------------------
 
     def _system_prompt(self, program_content: str) -> str:
-        """Build the system prompt: program.md IS the system prompt."""
+        """Build the system prompt: skills (S10c) + program.md + response suffix.
+
+        Topology-declared skills are rendered first so the methodology
+        framing arrives before the run-local strategy in ``program.md``.
+        Gated by ``EDA_AGENTS_INJECT_SKILLS``: set to ``"0"`` to fall
+        back to the pre-S10c prompt (escape hatch for regressions).
+        """
+        skills_block = ""
+        if os.environ.get("EDA_AGENTS_INJECT_SKILLS", "1") != "0":
+            skills_block = render_relevant_skills(
+                self.topology.relevant_skills(), self.topology
+            )
+        prefix = f"{skills_block}\n\n" if skills_block else ""
         return (
+            f"{prefix}"
             f"You are an autonomous circuit design optimizer. Your program "
             f"is defined below. Follow it exactly.\n\n"
             f"{program_content}\n\n"

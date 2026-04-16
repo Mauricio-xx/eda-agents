@@ -43,7 +43,7 @@ class MillerOTATopology(CircuitTopology):
         return "miller_ota"
 
     def relevant_skills(self) -> list[str | tuple[str, dict]]:
-        return ["analog.gmid_sizing"]
+        return ["analog.miller_ota_design", "analog.gmid_sizing"]
 
     def design_space(self) -> dict[str, tuple[float, float]]:
         return {

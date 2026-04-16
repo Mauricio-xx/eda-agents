@@ -6,6 +6,7 @@ thin compatibility shim that delegates to ``get_skill(...)``.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from eda_agents.skills.base import Skill
@@ -13,6 +14,26 @@ from eda_agents.skills.registry import register_skill
 
 if TYPE_CHECKING:
     from eda_agents.core.topology import CircuitTopology
+
+
+# Repository root relative to this file: src/eda_agents/skills/analog.py
+# -> up three levels lands at the repo root where ``docs/`` lives.
+_DOCS_DIR = Path(__file__).resolve().parents[3] / "docs" / "skills"
+
+
+def _load_markdown_bundle(topic: str, parts: list[str]) -> str:
+    """Concatenate ``docs/skills/<topic>/<part>.md`` files into one string.
+
+    Used by prompt_fns that ship their body as versionable markdown
+    instead of a hardcoded Python f-string. Missing files raise
+    ``FileNotFoundError`` with the path so authoring mistakes surface
+    loudly at skill-render time.
+    """
+    sections: list[str] = []
+    for part in parts:
+        path = _DOCS_DIR / topic / f"{part}.md"
+        sections.append(path.read_text())
+    return "\n\n".join(sections)
 
 
 def _explorer_prompt(topology: "CircuitTopology", budget: int = 30) -> str:
@@ -457,5 +478,32 @@ register_skill(
             "(topology=None)."
         ),
         prompt_fn=_sar_adc_design_prompt,
+    )
+)
+
+
+def _miller_ota_design_prompt(topology: "CircuitTopology | None" = None) -> str:
+    circuit = ""
+    if topology is not None:
+        circuit = (
+            f"\nActive topology: {topology.topology_name()}\n"
+            f"Description: {topology.prompt_description()}\n"
+            f"Specs: {topology.specs_description()}\n\n"
+        )
+    body = _load_markdown_bundle("miller_ota", ["core", "sizing", "compensation"])
+    return f"{circuit}{body}"
+
+
+register_skill(
+    Skill(
+        name="analog.miller_ota_design",
+        description=(
+            "Miller OTA design guide covering two-stage topology, "
+            "small-signal model, gm/ID sizing per device, and Miller "
+            "compensation (Cc choice, RHP zero, PM targets). Composed "
+            "from docs/skills/miller_ota/{core,sizing,compensation}.md. "
+            "Signature: (topology=None)."
+        ),
+        prompt_fn=_miller_ota_design_prompt,
     )
 )
