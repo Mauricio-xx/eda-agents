@@ -270,6 +270,26 @@ memory. If the session can only close Tier 1 + Tier 3 within its
 context window, Tier 2 splits into a follow-up rather than being
 rushed — **no superficial closures**.
 
+### Beyond gap-closure: exploratory capabilities
+
+These are **not** gaps (the framework works without them) and they are
+**not** in scope for `feat/s9-gap-closure`. They are explicitly
+deferred until after the bench is hardened, to avoid dispersing effort.
+
+- **MCP server for eda-agents** — a semantic Model Context Protocol
+  server exposing the skill registry, bench runner, bridge
+  `JobRegistry`, topology evaluation, and gm/ID sizing to any MCP
+  client (Claude Code, Cursor, Gemini CLI, Zed, etc.) without
+  requiring the user to write Python. Reference pattern:
+  [`luarss/openroad-mcp`](https://github.com/luarss/openroad-mcp)
+  (BSD-3, same org that ships ORFS). **Not a shell wrapper** — our
+  MCP would expose `evaluate_topology`, `run_bench`,
+  `submit_bridge_job`, `render_skill`, etc. as first-class tools,
+  keeping the `CircuitTopology` / `PdkConfig` abstractions the repo
+  is built around. Scheduled after `feat/s9-gap-closure` closes. A
+  short design spike (map each tool candidate to its MCP signature
+  + prototype one tool) precedes any implementation session.
+
 ### Pre-existing failures (pre-S0, left untouched)
 
 Two tests under `tests/test_handler.py`
