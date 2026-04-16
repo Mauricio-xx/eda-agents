@@ -90,6 +90,10 @@ bench/results/*
 # for skill injection (+10% Pass@1 abs over 10-seed pairs).
 !bench/results/s10g_20260416T195409Z_comparison.md
 !bench/results/s10g_20260416T195409Z_analysis.md
+# S10h fazyrv A/B — digital skills on real RISC-V; NEUTRAL (no
+# regression, no positive signal; same trajectory both arms).
+!bench/results/s10h_20260416T204609Z_comparison.md
+!bench/results/s10h_20260416T204609Z_analysis.md
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat

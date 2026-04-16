@@ -737,6 +737,18 @@ class DigitalAutoresearchRunner:
         # Ensure nix-provided yosys (0.62+) is on PATH if system yosys is old
         self._prepend_nix_tools(env_extra)
 
+        # Flags come from two layers: PDK-level (e.g. ``--manual-pdk``
+        # for GF180MCU) plus design-level (e.g. fazyrv skips KLayout
+        # and Magic DRC because its leo/gf180mcu LibreLane pin has a
+        # broken deck). Keep both, PDK flags first so a design can
+        # append overrides deterministically.
+        design_flags = (
+            list(self.design.librelane_extra_flags())
+            if hasattr(self.design, "librelane_extra_flags")
+            else []
+        )
+        combined_flags = list(pdk_cfg.librelane_extra_flags) + design_flags
+
         runner = LibreLaneRunner(
             project_dir=self.design.project_dir(),
             config_file=config_path.name,
@@ -744,7 +756,7 @@ class DigitalAutoresearchRunner:
             timeout_s=1800,
             shell_wrapper=self.design.shell_wrapper(),
             env_extra=env_extra,
-            extra_flags=pdk_cfg.librelane_extra_flags,
+            extra_flags=combined_flags,
         )
 
         # Write exploration params to config
