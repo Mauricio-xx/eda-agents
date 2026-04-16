@@ -110,9 +110,6 @@ topology arrives.
 - `autoresearch_runner.AutoresearchRunner` — the greedy
   exploration loop (adapted from Karpathy's autoresearch). Persists
   `program.md` + `results.tsv` and resumes from them.
-- `reactive_harness.ReactiveHarness` — multi-agent round-based OpenAI
-  harness, optional Context Teleport MCP coordination
-  (`HAS_MCP`-gated).
 - `adk_harness.AdkHarness` + `adk_agents.py` +
   `adk_prompts.py` — Google ADK orchestration with
   `FlowRunner / DRCChecker / LVSVerifier` sub-agents. **Do not

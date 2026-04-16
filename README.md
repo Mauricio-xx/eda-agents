@@ -46,7 +46,7 @@ them are hidden as generic "future work".
 
 ```bash
 pip install -e ".[dev,adc]"           # main venv with bench + ADC metrics
-pip install -e ".[agents]"            # + openai (reactive harness)
+pip install -e ".[agents]"            # + openai (OpenAI-based harnesses)
 pip install -e ".[adk]"               # + google-adk + litellm
 pip install -e ".[coordination]"      # + context-teleport (optional MCP)
 ```

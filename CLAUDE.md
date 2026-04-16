@@ -8,7 +8,7 @@ Install in editable mode with dev extras (main venv):
 
 ```bash
 pip install -e ".[dev]"           # core + pytest/ruff
-pip install -e ".[agents]"        # + openai (reactive_harness)
+pip install -e ".[agents]"        # + openai (OpenAI-based harnesses)
 pip install -e ".[adk]"           # + google-adk, litellm (adk_harness)
 pip install -e ".[coordination]"  # + context-teleport (optional MCP)
 ```
@@ -108,9 +108,6 @@ for analytical sizing) or a full `CircuitTopology` subclass. Current:
   adapted from Karpathy's autoresearch. Persists `program.md` +
   `results.tsv` in the work dir and resumes from them on re-invocation.
   This is the primary sizing-exploration path.
-- `reactive_harness.py` — multi-agent round-based OpenAI harness with
-  optional Context Teleport MCP coordination (gated on
-  `HAS_MCP`/`context-teleport`); degrades gracefully when CT is absent.
 - `adk_harness.py` + `adk_agents.py` + `adk_prompts.py` — Google ADK
   harness with `FlowRunner`, `DRCChecker`, `LVSVerifier` sub-agents.
   Used by the Track D GF180 end-to-end flow.

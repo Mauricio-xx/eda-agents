@@ -91,9 +91,6 @@ class TestRegistryCore:
             "flow.drc_checker",
             "flow.drc_fixer",
             "flow.lvs_checker",
-            "tools.simulate_miller_ota",
-            "tools.gmid_lookup",
-            "tools.evaluate_miller_ota",
         }
         missing = expected - names
         assert not missing, f"Missing skills: {missing}"
@@ -233,25 +230,3 @@ class TestDigitalShimParity:
         assert digital_adk_prompts.signoff_checker_prompt(d) == get_skill(
             "digital.signoff"
         ).render(d)
-
-
-# --------------------------------------------------------------------- #
-# Tool spec skills
-# --------------------------------------------------------------------- #
-
-
-class TestToolSpecSkills:
-    def test_gmid_lookup_matches_constant(self):
-        from eda_agents.agents.tool_defs import GMID_LOOKUP_TOOL_SPEC
-
-        assert get_skill("tools.gmid_lookup").spec() is GMID_LOOKUP_TOOL_SPEC
-
-    def test_simulate_matches_constant(self):
-        from eda_agents.agents.tool_defs import SIMULATE_TOOL_SPEC
-
-        assert get_skill("tools.simulate_miller_ota").spec() is SIMULATE_TOOL_SPEC
-
-    def test_evaluate_matches_constant(self):
-        from eda_agents.agents.tool_defs import EVALUATE_TOOL_SPEC
-
-        assert get_skill("tools.evaluate_miller_ota").spec() is EVALUATE_TOOL_SPEC
