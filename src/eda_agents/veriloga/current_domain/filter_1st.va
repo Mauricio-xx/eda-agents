@@ -1,0 +1,26 @@
+// First-order low-pass filter, behavioural.
+//
+// Two-port voltage device: V(out) = V(in) * 1 / (1 + s/wp). The
+// realisation uses a series resistor and a grounded capacitor between
+// ``out`` and ``vss`` so the pole lives at 1/(R*C) rad/s. Since
+// openvaf does not offer a direct Laplace primitive, we instead
+// expose R and C directly (lumped network form). This is compact and
+// valid across DC / AC / tran.
+//
+// Authored for eda-agents. No code taken from external sources.
+`include "disciplines.vams"
+
+module filter_1st (in, out, vss);
+    inout in, out, vss;
+    electrical in, out, vss;
+
+    parameter real r_ohm = 1.0e3 from (0:inf);
+    parameter real c_f   = 1.0e-12 from (0:inf);
+
+    analog begin
+        // Resistor between in and out.
+        I(in, out) <+ (V(in) - V(out)) / r_ohm;
+        // Grounded capacitor (to vss) at the output node.
+        I(out, vss) <+ c_f * ddt(V(out) - V(vss));
+    end
+endmodule

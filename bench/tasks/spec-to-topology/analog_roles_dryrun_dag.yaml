@@ -1,0 +1,31 @@
+id: spec_analog_roles_dryrun_dag
+family: spec-to-topology
+category: dag
+domain: voltage
+pdk: ihp_sg13g2
+difficulty: easy
+expected_backend: dry-run
+harness: analog_roles
+inputs:
+  spec_yaml: |
+    block: miller_ota
+    process: ihp_sg13g2
+    supply:
+      vdd: 1.2
+      vss: 0.0
+    specs:
+      dc_gain: {min: 60, unit: dB}
+      gbw: {min: 10e6, unit: Hz}
+      phase_margin: {min: 60, unit: deg}
+    corners: [TT_27]
+  max_iterations: 3
+scoring:
+  - compile
+  - audit_passed
+must_include:
+  - "verifier"
+notes: |
+  Pure pipeline check: AnalogRolesHarness with the bundled
+  DryRunExecutor walks Librarian -> Architect -> Designer <-> Verifier
+  without any LLM. If this task ever fails it means S6 wiring drifted,
+  not that the bench is wrong.

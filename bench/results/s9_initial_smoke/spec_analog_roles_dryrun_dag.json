@@ -1,0 +1,30 @@
+{
+  "artifacts": [
+    "/home/montanares/git/eda-agents-worktrees/arcadia-integration/bench/results/s9_initial_smoke/spec_analog_roles_dryrun_dag/iteration_log.yaml"
+  ],
+  "backend_used": "analog_roles-dry",
+  "duration_s": 0.011339009739458561,
+  "errors": [],
+  "finished": "2026-04-15T22:07:04.800679+00:00",
+  "harness_used": "analog_roles",
+  "metrics": {
+    "final_status": "PASS",
+    "iterations_used": 1.0
+  },
+  "notes": [
+    "final_status=PASS",
+    "adapter_runtime_s=0.01"
+  ],
+  "pdk_used": "ihp_sg13g2",
+  "scores": {
+    "audit_passed": 1.0,
+    "compile": 1.0,
+    "metrics_in_range": null,
+    "regex_match": null,
+    "sim_run": 1.0,
+    "weighted_total": 1.0
+  },
+  "started": "2026-04-15T22:07:04.789334+00:00",
+  "status": "PASS",
+  "task_id": "spec_analog_roles_dryrun_dag"
+}

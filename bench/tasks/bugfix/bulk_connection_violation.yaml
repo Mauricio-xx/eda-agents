@@ -1,0 +1,27 @@
+id: bugfix_bulk_connection_violation
+family: bugfix
+category: structural
+domain: voltage
+pdk: ihp_sg13g2
+difficulty: easy
+expected_backend: dry-run
+harness: callable
+inputs:
+  callable: eda_agents.bench.adapters:run_pre_sim_gate_on_inline_netlist
+  gate: bulk_connections
+  subckt: bad_pmos
+  expect_violation: true
+  netlist: |
+    .subckt bad_pmos in out vdd vss
+    * pmos with bulk tied to vss instead of vdd or its source
+    M1 out in vdd vss pfet W=1u L=180n
+    M2 in  in vss vss nfet W=1u L=180n
+    .ends
+scoring:
+  - audit_passed
+  - regex_match
+must_include:
+  - "(?i)bulk"
+notes: |
+  Pre-sim bulk_connections gate: PMOS bulk is wrong (vss instead of
+  vdd/source). PASS = the gate caught the violation.

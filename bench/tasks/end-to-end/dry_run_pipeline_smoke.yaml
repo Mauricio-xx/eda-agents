@@ -1,0 +1,25 @@
+id: e2e_dry_run_pipeline_smoke
+family: end-to-end
+category: pipeline
+domain: voltage
+pdk: ihp_sg13g2
+difficulty: easy
+expected_backend: dry-run
+harness: dry_run
+inputs:
+  fake_metrics:
+    Adc_dB: 60.0
+    GBW_Hz: 12.0e6
+expected_metrics:
+  Adc_dB: {min: 30.0}
+  GBW_Hz: {min: 1.0e6}
+scoring:
+  - compile
+  - sim_run
+  - audit_passed
+  - metrics_in_range
+notes: |
+  Pipeline smoke task. Always passes by construction — its job is to
+  guarantee the runner can produce a valid bench/results/<run>.json
+  even on a CI box with no EDA tools installed. If this fails, the
+  runner regressed.

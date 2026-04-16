@@ -1,0 +1,23 @@
+id: bugfix_floating_node_clean
+family: bugfix
+category: structural
+domain: voltage
+pdk: ihp_sg13g2
+difficulty: easy
+expected_backend: dry-run
+harness: callable
+inputs:
+  callable: eda_agents.bench.adapters:run_pre_sim_gate_on_inline_netlist
+  gate: floating_nodes
+  subckt: clean_inv
+  expect_violation: false
+  netlist: |
+    .subckt clean_inv in out vdd vss
+    M1 out in vdd vdd pfet W=2u L=180n
+    M2 out in vss vss nfet W=1u L=180n
+    .ends
+scoring:
+  - audit_passed
+notes: |
+  Negative control: a clean inverter must NOT trigger floating_nodes.
+  PASS = gate reports no violations as expected.

@@ -1,0 +1,379 @@
+{
+  "by_family": {
+    "bugfix": {
+      "error": 0,
+      "fail": 0,
+      "pass": 3,
+      "skipped": 0,
+      "total": 3
+    },
+    "end-to-end": {
+      "error": 0,
+      "fail": 0,
+      "pass": 2,
+      "skipped": 1,
+      "total": 3
+    },
+    "spec-to-topology": {
+      "error": 0,
+      "fail": 1,
+      "pass": 2,
+      "skipped": 0,
+      "total": 3
+    },
+    "tb-generation": {
+      "error": 0,
+      "fail": 0,
+      "pass": 2,
+      "skipped": 0,
+      "total": 2
+    }
+  },
+  "errored": 0,
+  "failed": 1,
+  "pass_rate": 0.9,
+  "passed": 9,
+  "results": [
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/arcadia-integration/bench/results/s9_initial_smoke/bugfix_bulk_connection_violation/gate_report.txt"
+      ],
+      "backend_used": "dry-run",
+      "duration_s": 0.0026198411360383034,
+      "errors": [],
+      "finished": "2026-04-15T22:07:04.659764+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "passed_gate": false,
+        "violations": 1.0
+      },
+      "notes": [
+        "expect_violation=True, detected=True",
+        "adapter_runtime_s=0.00"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": 1.0,
+        "compile": 1.0,
+        "metrics_in_range": null,
+        "regex_match": 1.0,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-15T22:07:04.657135+00:00",
+      "status": "PASS",
+      "task_id": "bugfix_bulk_connection_violation"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/arcadia-integration/bench/results/s9_initial_smoke/bugfix_floating_node_clean/gate_report.txt"
+      ],
+      "backend_used": "dry-run",
+      "duration_s": 0.00020276755094528198,
+      "errors": [],
+      "finished": "2026-04-15T22:07:04.660273+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "passed_gate": true,
+        "violations": 0.0
+      },
+      "notes": [
+        "expect_violation=False, detected=False",
+        "adapter_runtime_s=0.00"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": 1.0,
+        "compile": 1.0,
+        "metrics_in_range": null,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-15T22:07:04.660063+00:00",
+      "status": "PASS",
+      "task_id": "bugfix_floating_node_clean"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/arcadia-integration/bench/results/s9_initial_smoke/bugfix_floating_node_detected/gate_report.txt"
+      ],
+      "backend_used": "dry-run",
+      "duration_s": 0.0001976480707526207,
+      "errors": [],
+      "finished": "2026-04-15T22:07:04.660649+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "passed_gate": false,
+        "violations": 1.0
+      },
+      "notes": [
+        "expect_violation=True, detected=True",
+        "adapter_runtime_s=0.00"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": 1.0,
+        "compile": 1.0,
+        "metrics_in_range": null,
+        "regex_match": 1.0,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-15T22:07:04.660446+00:00",
+      "status": "PASS",
+      "task_id": "bugfix_floating_node_detected"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/arcadia-integration/bench/results/s9_initial_smoke/e2e_dry_run_pipeline_smoke/dry_run.txt"
+      ],
+      "backend_used": "dry-run",
+      "duration_s": 0.000135018490254879,
+      "errors": [],
+      "finished": "2026-04-15T22:07:04.661033+00:00",
+      "harness_used": "dry_run",
+      "metrics": {
+        "Adc_dB": 60.0,
+        "GBW_Hz": 12000000.0,
+        "PM_deg": 65.0
+      },
+      "notes": [
+        "adapter_runtime_s=0.00",
+        "Adc_dB=60 in range (margin=30)",
+        "GBW_Hz=1.2e+07 in range (margin=1.1e+07)"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": 1.0,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-15T22:07:04.660893+00:00",
+      "status": "PASS",
+      "task_id": "e2e_dry_run_pipeline_smoke"
+    },
+    {
+      "artifacts": [],
+      "backend_used": "librelane",
+      "duration_s": 0.011930413544178009,
+      "errors": [
+        "GL sim task needs inputs.run_dir or EDA_AGENTS_GL_SIM_RUN_DIR; no hardened LibreLane run available"
+      ],
+      "finished": "2026-04-15T22:07:04.673151+00:00",
+      "harness_used": "callable",
+      "metrics": {},
+      "notes": [
+        "bench did not harden a fresh design \u2014 see TODO",
+        "adapter_runtime_s=0.01"
+      ],
+      "pdk_used": "gf180mcu",
+      "scores": {
+        "audit_passed": null,
+        "compile": null,
+        "metrics_in_range": null,
+        "regex_match": null,
+        "sim_run": null,
+        "weighted_total": 0.0
+      },
+      "started": "2026-04-15T22:07:04.661215+00:00",
+      "status": "FAIL_INFRA",
+      "task_id": "e2e_gl_sim_post_synth_systolic"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/arcadia-integration/bench/results/s9_initial_smoke/e2e_miller_ota_audit_ihp/miller_ota.ac.cir"
+      ],
+      "backend_used": "ngspice-osdi",
+      "duration_s": 0.11564836744219065,
+      "errors": [],
+      "finished": "2026-04-15T22:07:04.788987+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "Adc_dB": 32.5033,
+        "GBW_Hz": 1385226.0,
+        "PM_deg": -42.28415
+      },
+      "notes": [
+        "ngspice ok in 0.11s; measurements=['Adc_dB', 'GBW_Hz', 'PM_deg']",
+        "adapter_runtime_s=0.12",
+        "Adc_dB=32.5 in range (margin=7.5)",
+        "GBW_Hz=1.385e+06 in range (margin=8.85e+05)",
+        "PM_deg=-42.28 in range (margin=138)"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": 1.0,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-15T22:07:04.673332+00:00",
+      "status": "PASS",
+      "task_id": "e2e_miller_ota_audit_ihp"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/arcadia-integration/bench/results/s9_initial_smoke/spec_analog_roles_dryrun_dag/iteration_log.yaml"
+      ],
+      "backend_used": "analog_roles-dry",
+      "duration_s": 0.011339009739458561,
+      "errors": [],
+      "finished": "2026-04-15T22:07:04.800679+00:00",
+      "harness_used": "analog_roles",
+      "metrics": {
+        "final_status": "PASS",
+        "iterations_used": 1.0
+      },
+      "notes": [
+        "final_status=PASS",
+        "adapter_runtime_s=0.01"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": 1.0,
+        "compile": 1.0,
+        "metrics_in_range": null,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-15T22:07:04.789334+00:00",
+      "status": "PASS",
+      "task_id": "spec_analog_roles_dryrun_dag"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/arcadia-integration/bench/results/s9_initial_smoke/spec_miller_ota_gf180_easy/miller_ota.ac.cir"
+      ],
+      "backend_used": "ngspice",
+      "duration_s": 0.04922782629728317,
+      "errors": [
+        "ngspice exited with code 1 (no measurements)"
+      ],
+      "finished": "2026-04-15T22:07:04.850209+00:00",
+      "harness_used": "callable",
+      "metrics": {},
+      "notes": [
+        "adapter_runtime_s=0.05"
+      ],
+      "pdk_used": "gf180mcu",
+      "scores": {
+        "audit_passed": null,
+        "compile": 1.0,
+        "metrics_in_range": null,
+        "regex_match": null,
+        "sim_run": 0.0,
+        "weighted_total": 0.5
+      },
+      "started": "2026-04-15T22:07:04.800975+00:00",
+      "status": "FAIL_SIM",
+      "task_id": "spec_miller_ota_gf180_easy"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/arcadia-integration/bench/results/s9_initial_smoke/spec_miller_ota_ihp_easy/miller_ota.ac.cir"
+      ],
+      "backend_used": "ngspice-osdi",
+      "duration_s": 0.11382373049855232,
+      "errors": [],
+      "finished": "2026-04-15T22:07:04.964319+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "Adc_dB": 32.5033,
+        "GBW_Hz": 1385226.0,
+        "PM_deg": -42.28415
+      },
+      "notes": [
+        "ngspice ok in 0.11s; measurements=['Adc_dB', 'GBW_Hz', 'PM_deg']",
+        "adapter_runtime_s=0.11",
+        "missing required pattern: 'Adc_dB'",
+        "Adc_dB=32.5 in range (margin=7.5)",
+        "GBW_Hz=1.385e+06 in range (margin=8.85e+05)"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": null,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-15T22:07:04.850487+00:00",
+      "status": "PASS",
+      "task_id": "spec_miller_ota_ihp_easy"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/arcadia-integration/bench/results/s9_initial_smoke/tb_miller_ota_ac_runs/miller_ota.ac.cir"
+      ],
+      "backend_used": "ngspice-osdi",
+      "duration_s": 0.10808120016008615,
+      "errors": [],
+      "finished": "2026-04-15T22:07:05.072940+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "Adc_dB": 32.5033,
+        "GBW_Hz": 1385226.0,
+        "PM_deg": -42.28415
+      },
+      "notes": [
+        "ngspice ok in 0.11s; measurements=['Adc_dB', 'GBW_Hz', 'PM_deg']",
+        "adapter_runtime_s=0.11",
+        "Adc_dB=32.5 in range (margin=31.5)"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": null,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-15T22:07:04.964849+00:00",
+      "status": "PASS",
+      "task_id": "tb_miller_ota_ac_runs"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/arcadia-integration/bench/results/s9_initial_smoke/tb_miller_ota_deck_emits_ac_meas/miller_ota.ac.cir"
+      ],
+      "backend_used": "ngspice-osdi",
+      "duration_s": 0.10583662800490856,
+      "errors": [],
+      "finished": "2026-04-15T22:07:05.179306+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "Adc_dB": 32.5033,
+        "GBW_Hz": 1385226.0,
+        "PM_deg": -42.28415
+      },
+      "notes": [
+        "ngspice ok in 0.11s; measurements=['Adc_dB', 'GBW_Hz', 'PM_deg']",
+        "adapter_runtime_s=0.11"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": null,
+        "compile": 1.0,
+        "metrics_in_range": null,
+        "regex_match": 1.0,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-15T22:07:05.073462+00:00",
+      "status": "PASS",
+      "task_id": "tb_miller_ota_deck_emits_ac_meas"
+    }
+  ],
+  "run_id": "s9_initial_smoke",
+  "skipped": 1,
+  "total": 11
+}

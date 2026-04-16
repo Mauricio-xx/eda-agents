@@ -1,0 +1,28 @@
+id: tb_miller_ota_ac_runs
+family: tb-generation
+category: ota_ac
+domain: voltage
+pdk: ihp_sg13g2
+difficulty: easy
+expected_backend: ngspice-osdi
+harness: callable
+inputs:
+  callable: eda_agents.bench.adapters:analytical_miller_design
+  design_params:
+    gmid_input: 12.0
+    gmid_load: 10.0
+    L_input: 1.0e-6
+    L_load: 1.0e-6
+    Cc: 1.0e-12
+expected_metrics:
+  Adc_dB: {min: 1.0}   # the TB ran and produced *some* AC measurement
+scoring:
+  - compile
+  - sim_run
+  - metrics_in_range
+must_include:
+  - ".meas"
+notes: |
+  Treats Miller OTA AC analysis as a testbench-generation task: PASS
+  iff the AC deck the topology emits actually runs and at least one
+  .meas value is parsed. Reuses the analytical adapter; no new code.

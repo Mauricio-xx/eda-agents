@@ -1,0 +1,33 @@
+id: e2e_miller_ota_audit_ihp
+family: end-to-end
+category: ota
+domain: voltage
+pdk: ihp_sg13g2
+difficulty: medium
+expected_backend: ngspice-osdi
+harness: callable
+inputs:
+  callable: eda_agents.bench.adapters:analytical_miller_design
+  design_params:
+    gmid_input: 12.0
+    gmid_load: 10.0
+    L_input: 1.0e-6
+    L_load: 1.0e-6
+    Cc: 1.0e-12
+expected_metrics:
+  Adc_dB: {min: 25.0, unit: dB}
+  GBW_Hz: {min: 5.0e5, unit: Hz}
+  PM_deg: {min: -180.0, max: 180.0, unit: deg}
+scoring:
+  - compile
+  - sim_run
+  - audit_passed
+  - metrics_in_range
+weight: 2.0
+timeout_s: 300
+notes: |
+  End-to-end gate matching the bridge demo (S8). PASS requires the
+  deck generator + ngspice + measurement parser + audit thresholds to
+  agree. The audit floor (Adc>=25 dB) is well below the unoptimised
+  IHP demo result (32.5 dB) so this is a regression detector, not a
+  design challenge.

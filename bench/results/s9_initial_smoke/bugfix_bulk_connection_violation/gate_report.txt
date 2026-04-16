@@ -1,0 +1,2 @@
+gate=bulk_connections passed=False
+M1 (pmos) bulk 'vss' not tied to VDD or source

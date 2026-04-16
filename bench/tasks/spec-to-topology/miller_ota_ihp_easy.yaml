@@ -1,0 +1,33 @@
+id: spec_miller_ota_ihp_easy
+family: spec-to-topology
+category: ota
+domain: voltage
+pdk: ihp_sg13g2
+difficulty: easy
+expected_backend: ngspice-osdi
+harness: callable
+topology: miller_ota
+inputs:
+  callable: eda_agents.bench.adapters:analytical_miller_design
+  design_params:
+    gmid_input: 12.0
+    gmid_load: 10.0
+    L_input: 1.0e-6
+    L_load: 1.0e-6
+    Cc: 1.0e-12
+expected_metrics:
+  Adc_dB: {min: 25.0, unit: dB}
+  GBW_Hz: {min: 5.0e5, unit: Hz}
+scoring:
+  - compile
+  - sim_run
+  - metrics_in_range
+must_include:
+  - "Adc_dB"
+weight: 1.0
+timeout_s: 240
+notes: |
+  Reference Miller OTA on IHP-SG13G2 with the same legacy GBW-driven
+  sizing the bridge demo uses (no Ibias override). Audit thresholds are
+  intentionally loose because the topology is unoptimised; the bench
+  measures *the Miller deck + ngspice + OSDI integration*, not OTA QoR.

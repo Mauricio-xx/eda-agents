@@ -1,0 +1,32 @@
+{
+  "artifacts": [
+    "/home/montanares/git/eda-agents-worktrees/arcadia-integration/bench/results/s9_initial_smoke/e2e_dry_run_pipeline_smoke/dry_run.txt"
+  ],
+  "backend_used": "dry-run",
+  "duration_s": 0.000135018490254879,
+  "errors": [],
+  "finished": "2026-04-15T22:07:04.661033+00:00",
+  "harness_used": "dry_run",
+  "metrics": {
+    "Adc_dB": 60.0,
+    "GBW_Hz": 12000000.0,
+    "PM_deg": 65.0
+  },
+  "notes": [
+    "adapter_runtime_s=0.00",
+    "Adc_dB=60 in range (margin=30)",
+    "GBW_Hz=1.2e+07 in range (margin=1.1e+07)"
+  ],
+  "pdk_used": "ihp_sg13g2",
+  "scores": {
+    "audit_passed": 1.0,
+    "compile": 1.0,
+    "metrics_in_range": 1.0,
+    "regex_match": null,
+    "sim_run": 1.0,
+    "weighted_total": 1.0
+  },
+  "started": "2026-04-15T22:07:04.660893+00:00",
+  "status": "PASS",
+  "task_id": "e2e_dry_run_pipeline_smoke"
+}

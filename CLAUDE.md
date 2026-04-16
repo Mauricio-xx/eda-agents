@@ -80,6 +80,11 @@ prompts, or tool specs.
   double-loading — do not also include `cap_lib_rel` in that case.
 - `spice_runner.py` — sync + async ngspice invocation with
   measurement parsing. Builds `SpiceResult` (Adc, GBW, PM, power).
+  Accepts `extra_osdi=[paths]` for user-compiled Verilog-A models;
+  the runner writes a temporary `.spiceinit` in the work directory
+  that pre-loads those OSDIs so `.model` lines bind to them during
+  parse. The work directory must not already contain a `.spiceinit`
+  when extras are used.
 - `gmid_lookup.py` — gm/ID LUT reader used for analytical
   pre-sizing before spending SPICE budget. GF180 LUTs live under
   `data/gmid_luts/`; IHP LUTs default to the external ihp-gmid-kit
@@ -155,6 +160,97 @@ for analytical sizing) or a full `CircuitTopology` subclass. Current:
 `ExtFileParser` for Magic `.ext` parasitic-cap extraction.
 `utils/vlnggen.py` handles Verilog compilation; `utils/detect.py`
 detects EDA project layouts.
+
+## Verilog-A → OSDI → ngspice pipeline
+
+User-authored Verilog-A models are compiled to OSDI with `openvaf`
+and loaded alongside the PDK OSDI at ngspice startup:
+
+```bash
+openvaf mymodel.va     # produces mymodel.osdi next to the source
+```
+
+Wire-up from Python:
+
+```python
+from eda_agents.core.stages.veriloga_compile import VerilogACompiler
+from eda_agents.core.spice_runner import SpiceRunner
+
+result = VerilogACompiler().run("path/to/mymodel.va")
+osdi = result.artifacts["osdi"]
+runner = SpiceRunner(pdk="ihp_sg13g2", extra_osdi=[osdi])
+```
+
+ngspice cir conventions for Verilog-A-backed devices:
+
+- Instance names must begin with `N` (ngspice's OSDI instance letter).
+- The `.model` name is arbitrary; the model **type** must match the
+  Verilog-A `module` name verbatim.
+- `SpiceRunner` writes a transient `.spiceinit` in the work directory
+  that pre-registers every `extra_osdi` file before the deck is
+  parsed, then removes it after the run. Do not leave your own
+  `.spiceinit` in that directory or the runner will refuse to
+  overwrite it.
+
+Example deck skeleton (`netlist_osdi_lines(pdk, extra_osdi=...)` emits
+the `osdi ...` lines inside `.control` as an idempotent reload; the
+pre-parse registration comes from the auto-written `.spiceinit`):
+
+```spice
+.control
+  osdi '/abs/path/mymodel.osdi'
+  dc V1 0 1.0 0.05
+  meas dc i_out FIND i(V1) AT=0.5
+.endc
+V1 a 0 DC 0
+.model m1 mymodel r=1000
+Nr1 a 0 m1
+.end
+```
+
+Verilog-A stage lives at `src/eda_agents/core/stages/veriloga_compile.py`.
+Three current-domain primitives authored in-house ship in
+`src/eda_agents/veriloga/current_domain/`: `filter_1st.va`,
+`opamp_1p.va`, `ldo_beh.va`. They are referenced by the
+`analog.behavioral_primitives` skill and exercised by
+`tests/test_veriloga_current_primitives.py -m veriloga`.
+
+## Behavioural primitives — XSPICE (voltage-domain)
+
+XSPICE code models fill the gap where pure Verilog-A cannot express
+event-driven voltage-domain behaviour (comparator edges, clock
+generators, edge-triggered latches). Sources live in
+`src/eda_agents/veriloga/voltage_domain/<primitive>/{cfunc.mod,
+ifspec.ifs}` and are compiled by
+`eda_agents.core.stages.xspice_compile.XSpiceCompiler` into a single
+`.cm` shared object loaded via `codemodel` lines injected by
+`SpiceRunner(extra_codemodel=...)`.
+
+The compiler needs an ngspice source tree with `cmpp` built and
+in-tree headers. On developer machines this is typically absent, so
+the repo ships a pinned container image:
+
+```bash
+# Builds the image on first use (ngspice-45 + openvaf 23.5.0).
+scripts/xspice_docker.sh pytest -m xspice tests/test_xspice_primitives.py
+```
+
+See `docker/README.md` for details. The `xspice` pytest marker gates
+all tests that need the toolchain, so native `pytest -m "not xspice"`
+runs stay unaffected on hosts without the compiler chain.
+
+Primitives shipped:
+
+- `ea_comparator_ideal(inp, inn, out)` with hysteresis + bounded
+  output swing.
+- `ea_clock_gen(out)` with `period_s`, `duty`, `v_high`, `v_low`,
+  `delay_s`.
+- `ea_opamp_ideal(inp, inn, out)` — behavioural single-pole op-amp.
+- `ea_edge_sampler(din, clk, q)` — rising-edge D-latch.
+
+The behavioural SAR comparator kit lives at
+`src/eda_agents/topologies/sar_adc_8bit_behavioral.py`; it's the
+Session-7 seed for the full SAR ADC behavioural variant.
 
 ## LibreLane templates
 

@@ -1,0 +1,26 @@
+* Miller OTA - GF180MCU 180nm CMOS
+* Stage 1: nMOS diff pair + pMOS mirror load
+X1a n1  inp ns ns  nfet_03v3 W={W1} L={L1} AS={AS1} PS={PS1} AD={AD1} PD={PD1}
+X1b out inn ns ns  nfet_03v3 W={W1} L={L1} AS={AS1} PS={PS1} AD={AD1} PD={PD1}
+X4a n1  n1  VDD VDD pfet_03v3 W={W4} L={L4} AS={AS4} PS={PS4} AD={AD4} PD={PD4}
+X4b out n1  VDD VDD pfet_03v3 W={W4} L={L4} AS={AS4} PS={PS4} AD={AD4} PD={PD4}
+* Stage 2: pMOS CS + nMOS current source
+X2  vout out VDD VDD pfet_03v3 W={W2} L={L2} AS={AS2} PS={PS2} AD={AD2} PD={PD2}
+X5b vout nb2 0   0   nfet_03v3 W={W5} L={L5} AS={AS5} PS={PS5} AD={AD5} PD={PD5}
+* Bias mirror
+X3a nb  nb  0 0 nfet_03v3 W={W3} L={L3} AS={AS3} PS={PS3} AD={AD3} PD={PD3}
+X3b ns  nb  0 0 nfet_03v3 W={W3} L={L3} AS={AS3} PS={PS3} AD={AD3} PD={PD3}
+* Second stage mirror diode for M5
+X5a nb2 nb2 0 0 nfet_03v3 W={W5} L={L5} AS={AS5} PS={PS5} AD={AD5} PD={PD5}
+Ibias2 VDD nb2 {Ib2}
+.param Ib2=3.6824569840328265e-06
+* Compensation and load
+Cc n1 vout {Cc}
+CL vout 0 {CL}
+* Supply and input
+Ib VDD nb {2*Ib}
+VVDD VDD 0 {VDD}
+Vic ic 0 {Vic}
+Vid id 0 DC={Vos} AC=1
+Einp inp ic id 0 0.5
+Einn inn ic id 0 -0.5

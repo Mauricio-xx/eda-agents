@@ -1,0 +1,30 @@
+{
+  "artifacts": [
+    "/home/montanares/git/eda-agents-worktrees/arcadia-integration/bench/results/s9_initial_smoke/bugfix_floating_node_clean/gate_report.txt"
+  ],
+  "backend_used": "dry-run",
+  "duration_s": 0.00020276755094528198,
+  "errors": [],
+  "finished": "2026-04-15T22:07:04.660273+00:00",
+  "harness_used": "callable",
+  "metrics": {
+    "passed_gate": true,
+    "violations": 0.0
+  },
+  "notes": [
+    "expect_violation=False, detected=False",
+    "adapter_runtime_s=0.00"
+  ],
+  "pdk_used": "ihp_sg13g2",
+  "scores": {
+    "audit_passed": 1.0,
+    "compile": 1.0,
+    "metrics_in_range": null,
+    "regex_match": null,
+    "sim_run": 1.0,
+    "weighted_total": 1.0
+  },
+  "started": "2026-04-15T22:07:04.660063+00:00",
+  "status": "PASS",
+  "task_id": "bugfix_floating_node_clean"
+}

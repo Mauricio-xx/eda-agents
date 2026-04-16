@@ -12,6 +12,21 @@ Pipeline steps:
     5. Generate post-layout testbench
     6. Run post-layout SPICE simulation
     7. Compare pre-layout vs post-layout metrics
+
+ADC metric integration
+----------------------
+This pipeline targets small-signal OTAs (Adc/GBW/PM). For ADC flows,
+the post-SPICE dynamic-metric stage lives in
+``SystemHandler.evaluate_system``: it invokes
+``SARADCTopology.extract_enob``, which routes through
+``eda_agents.tools.adc_metrics.compute_adc_metrics`` (ADCToolbox) and
+surfaces ENOB/SNDR/SFDR/THD/SNR via ``SystemEvalResult.enob_data``.
+
+Known IHP caveat (2026-04-15): every Magic step currently hangs on
+IHP-Open-PDK dev (see ``docs/upstream_issues/ihp_magic_hang.md``), so
+the physical-PEX path here only works end-to-end on GF180MCU. On IHP,
+callers should rely on the pre-layout SAR ADC flow until the upstream
+blocker is resolved or a KLayout-PEX path is added.
 """
 
 from __future__ import annotations

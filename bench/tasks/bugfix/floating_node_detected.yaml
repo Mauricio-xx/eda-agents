@@ -1,0 +1,29 @@
+id: bugfix_floating_node_detected
+family: bugfix
+category: structural
+domain: voltage
+pdk: ihp_sg13g2
+difficulty: easy
+expected_backend: dry-run
+harness: callable
+inputs:
+  callable: eda_agents.bench.adapters:run_pre_sim_gate_on_inline_netlist
+  gate: floating_nodes
+  subckt: broken_diff
+  expect_violation: true
+  netlist: |
+    .subckt broken_diff inp inn out vdd vss
+    * Stage 1: differential pair without a load on the floating drain
+    M1 dangling inp tail vss nfet W=1u L=180n
+    M2 out      inn tail vss nfet W=1u L=180n
+    M3 tail bias vss vss nfet W=4u L=500n
+    Vbias bias 0 0.7
+    .ends
+scoring:
+  - audit_passed
+  - regex_match
+must_include:
+  - "dangling"
+notes: |
+  Pre-sim floating_nodes gate: net "dangling" only touches one terminal.
+  PASS = the gate detected the violation.

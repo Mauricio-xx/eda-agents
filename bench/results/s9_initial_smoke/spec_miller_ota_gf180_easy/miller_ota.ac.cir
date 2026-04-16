@@ -1,0 +1,24 @@
+Miller OTA AC analysis - GF180MCU 180nm CMOS
+
+.include $PDK_ROOT/gf180mcuD/libs.tech/ngspice/design.ngspice
+.lib $PDK_ROOT/gf180mcuD/libs.tech/ngspice/sm141064.ngspice typical
+.lib $PDK_ROOT/gf180mcuD/libs.tech/ngspice/sm141064.ngspice mimcap_typical
+.include miller_ota.par
+.include miller_ota.net
+
+.control
+  set ngbehavior=hsa
+  op
+  save v(vout)
+  ac dec 41 10 100MEG
+  let AmagdB=vdb(vout)
+  let Aphdeg=180/PI*vp(vout)
+  meas ac Adc find AmagdB at=10
+  meas ac Adc_peak max AmagdB
+  meas ac GBW when AmagdB=0
+  meas ac PGBW find Aphdeg at=GBW
+  set wr_singlescale
+  set wr_vecnames
+  wrdata miller_ota.ac.dat AmagdB Aphdeg
+.endc
+.end

@@ -1,0 +1,29 @@
+NAME_TABLE:
+
+Spice_Model_Name:      ea_comparator_ideal
+C_Function_Name:       ucm_ea_comparator_ideal
+Description:           "Ideal voltage comparator with hysteresis and bounded output swing"
+
+
+PORT_TABLE:
+
+Port_Name:             inp              inn              out
+Description:           "pos input"      "neg input"      "comparator out"
+Direction:             in               in               out
+Default_Type:          v                v                v
+Allowed_Types:         [v]              [v]              [v]
+Vector:                no               no               no
+Vector_Bounds:         -                -                -
+Null_Allowed:          no               no               no
+
+
+PARAMETER_TABLE:
+
+Parameter_Name:        vout_high        vout_low         hysteresis_v
+Description:           "high output"    "low output"     "hysteresis window (V)"
+Data_Type:             real             real             real
+Default_Value:         1.0              0.0              0.0
+Limits:                -                -                -
+Vector:                no               no               no
+Vector_Bounds:         -                -                -
+Null_Allowed:          yes              yes              yes

@@ -20,6 +20,18 @@ from eda_agents.core.pdk import PdkConfig, resolve_pdk, resolve_pdk_root
 # Regex for parsing .meas output lines: "name = 1.234e+05"
 _MEAS_RE = re.compile(r"=\s*([-+]?\d+\.?\d*(?:e[-+]?\d+)?)", re.IGNORECASE)
 
+# Stricter shape for a real ngspice ``.meas`` line: a single bare token,
+# whitespace on both sides of ``=``, and a numeric tail (optionally
+# followed by units / annotations). ngspice ``.meas`` output always has
+# the form ``adc                 =  5.55000e+01`` whereas info lines like
+# ``Doing analysis at temp = 27.0`` start with multiple words. Anchoring
+# at line start with a single ``\w+`` token keeps the parser from
+# vacuuming up status messages (caught while running ``examples/14``).
+_MEAS_LINE_RE = re.compile(
+    r"^([A-Za-z_]\w*)\s*=\s*([-+]?\d+\.?\d*(?:e[-+]?\d+)?)\b",
+    re.IGNORECASE,
+)
+
 
 @dataclass
 class SpiceResult:
@@ -61,6 +73,27 @@ class SpiceRunner:
         Model corner override. If None, uses pdk.model_corner.
     timeout_s : int
         Maximum simulation time in seconds. Default 120.
+    extra_osdi : iterable of str or Path, optional
+        Extra OSDI shared libraries to load alongside the PDK ones
+        (e.g. user models compiled from Verilog-A via openvaf). Pass
+        the same list through to ``netlist_osdi_lines(pdk,
+        extra_osdi=runner.extra_osdi)`` when building the netlist.
+    extra_codemodel : iterable of str or Path, optional
+        Extra XSPICE code-model shared objects (``.cm``) to load before
+        the netlist is parsed. Paths are emitted as ``codemodel <abs>``
+        lines in the transient cwd ``.spiceinit`` alongside any extra
+        OSDI entries. Do not list ngspice's bundled ``.cm`` files here —
+        they are autoloaded at startup and duplicate registration
+        segfaults.
+    preload_pdk_osdi : bool, optional
+        When True (and the PDK publishes OSDI files) the transient
+        ``.spiceinit`` also emits ``osdi`` lines for every PDK OSDI.
+        Use this for fully self-contained decks that cannot rely on a
+        home-directory ``.spiceinit`` to auto-load the PDK models (for
+        example when the deck mixes PSP103 transistors with
+        user-compiled Verilog-A OSDIs or XSPICE ``.cm``s). Default
+        False — the runner keeps the pre-existing behaviour that lets
+        the host ``~/.spiceinit`` handle PDK OSDI load.
     """
 
     def __init__(
@@ -69,6 +102,9 @@ class SpiceRunner:
         pdk_root: str | Path | None = None,
         corner: str | None = None,
         timeout_s: int = 120,
+        extra_osdi: "list[str | Path] | tuple[str | Path, ...] | None" = None,
+        extra_codemodel: "list[str | Path] | tuple[str | Path, ...] | None" = None,
+        preload_pdk_osdi: bool = False,
     ):
         self.pdk = resolve_pdk(pdk)
         root_str = resolve_pdk_root(
@@ -82,6 +118,13 @@ class SpiceRunner:
         self._model_lib = Path(self.pdk.model_lib_path(root_str))
         osdi_path = self.pdk.osdi_dir_path(root_str)
         self._osdi_dir = Path(osdi_path) if osdi_path else None
+        self._extra_osdi: tuple[Path, ...] = tuple(
+            Path(p).resolve() for p in (extra_osdi or ())
+        )
+        self._extra_codemodel: tuple[Path, ...] = tuple(
+            Path(p).resolve() for p in (extra_codemodel or ())
+        )
+        self._preload_pdk_osdi = bool(preload_pdk_osdi)
 
     @property
     def model_lib(self) -> Path:
@@ -94,8 +137,21 @@ class SpiceRunner:
     @property
     def osdi_paths(self) -> list[Path]:
         if self._osdi_dir is None:
-            return []
-        return [self._osdi_dir / f for f in self.pdk.osdi_files]
+            return list(self._extra_osdi)
+        return [self._osdi_dir / f for f in self.pdk.osdi_files] + list(
+            self._extra_osdi
+        )
+
+    @property
+    def extra_osdi(self) -> tuple[Path, ...]:
+        """User-supplied OSDI libraries loaded on top of the PDK set."""
+        return self._extra_osdi
+
+    @property
+    def extra_codemodel(self) -> tuple[Path, ...]:
+        """User-supplied XSPICE code-model ``.cm`` files pre-loaded via
+        the cwd ``.spiceinit`` shim."""
+        return self._extra_codemodel
 
     def validate_pdk(self) -> list[str]:
         """Check that PDK files exist. Returns list of missing paths."""
@@ -115,6 +171,45 @@ class SpiceRunner:
         env = os.environ.copy()
         env["PDK_ROOT"] = str(self.pdk_root)
         return env
+
+    def _install_extra_osdi_spiceinit(self, work_dir: Path) -> Path | None:
+        """Write a cwd ``.spiceinit`` that pre-loads extras.
+
+        ngspice sources ``./.spiceinit`` before parsing the deck, which
+        is the only reliable hook for registering model types defined
+        in user-compiled Verilog-A (``osdi`` inside ``.control`` fires
+        after ``.model`` lines are parsed and therefore too late) and
+        XSPICE ``A`` devices (same timing constraint applies to
+        ``codemodel``).
+
+        Returns the written path (caller is responsible for cleanup)
+        or ``None`` when there are no extras.
+        """
+        pdk_osdi_paths: list[Path] = []
+        if self._preload_pdk_osdi and self._osdi_dir is not None:
+            pdk_osdi_paths = [
+                (self._osdi_dir / f).resolve() for f in self.pdk.osdi_files
+            ]
+        if (
+            not self._extra_osdi
+            and not self._extra_codemodel
+            and not pdk_osdi_paths
+        ):
+            return None
+        target = work_dir / ".spiceinit"
+        if target.exists():
+            raise RuntimeError(
+                f"Cannot install extras spiceinit: {target} already exists. "
+                "Use a dedicated working directory for SpiceRunner with "
+                "extra_osdi / extra_codemodel."
+            )
+        lines = ["* eda-agents pre-load (auto-generated)"]
+        lines.extend(f"osdi '{p}'" for p in pdk_osdi_paths)
+        lines.extend(f"osdi '{p}'" for p in self._extra_osdi)
+        # codemodel does not accept quoted paths in ngspice-45+, emit raw.
+        lines.extend(f"codemodel {p}" for p in self._extra_codemodel)
+        target.write_text("\n".join(lines) + "\n")
+        return target
 
     def run(self, cir_path: Path, work_dir: Path | None = None) -> SpiceResult:
         """Run ngspice in batch mode synchronously.
@@ -140,24 +235,29 @@ class SpiceRunner:
         env = self._build_env()
         t0 = time.monotonic()
 
+        spiceinit_path = self._install_extra_osdi_spiceinit(work_dir)
         try:
-            proc = subprocess.run(
-                ["ngspice", "-b", str(cir_path)],
-                capture_output=True,
-                text=True,
-                timeout=self.timeout_s,
-                cwd=str(work_dir),
-                env=env,
-            )
-        except FileNotFoundError:
-            return SpiceResult(success=False, error="ngspice not found in PATH")
-        except subprocess.TimeoutExpired:
-            elapsed = time.monotonic() - t0
-            return SpiceResult(
-                success=False,
-                error=f"ngspice timed out ({self.timeout_s}s)",
-                sim_time_s=elapsed,
-            )
+            try:
+                proc = subprocess.run(
+                    ["ngspice", "-b", str(cir_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout_s,
+                    cwd=str(work_dir),
+                    env=env,
+                )
+            except FileNotFoundError:
+                return SpiceResult(success=False, error="ngspice not found in PATH")
+            except subprocess.TimeoutExpired:
+                elapsed = time.monotonic() - t0
+                return SpiceResult(
+                    success=False,
+                    error=f"ngspice timed out ({self.timeout_s}s)",
+                    sim_time_s=elapsed,
+                )
+        finally:
+            if spiceinit_path is not None and spiceinit_path.exists():
+                spiceinit_path.unlink()
 
         elapsed = time.monotonic() - t0
         stdout = proc.stdout or ""
@@ -177,7 +277,7 @@ class SpiceRunner:
         if proc.returncode == 1 and not _has_measurements(stdout):
             return SpiceResult(
                 success=False,
-                error=f"ngspice exited with code 1 (no measurements)",
+                error="ngspice exited with code 1 (no measurements)",
                 sim_time_s=elapsed,
                 stdout_tail=stdout[-3000:],
                 stderr_tail=stderr[-2000:],
@@ -208,34 +308,39 @@ class SpiceRunner:
         if not ngspice_path:
             return SpiceResult(success=False, error="ngspice not found in PATH")
 
+        spiceinit_path = self._install_extra_osdi_spiceinit(work_dir)
         try:
-            proc = await asyncio.create_subprocess_exec(
-                ngspice_path, "-b", str(cir_path),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(work_dir),
-                env=env,
-            )
-
             try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(), timeout=self.timeout_s
+                proc = await asyncio.create_subprocess_exec(
+                    ngspice_path, "-b", str(cir_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(work_dir),
+                    env=env,
                 )
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                elapsed = time.monotonic() - t0
+
+                try:
+                    stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                        proc.communicate(), timeout=self.timeout_s
+                    )
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    await proc.wait()
+                    elapsed = time.monotonic() - t0
+                    return SpiceResult(
+                        success=False,
+                        error=f"ngspice timed out ({self.timeout_s}s)",
+                        sim_time_s=elapsed,
+                    )
+
+            except FileNotFoundError:
                 return SpiceResult(
                     success=False,
-                    error=f"ngspice timed out ({self.timeout_s}s)",
-                    sim_time_s=elapsed,
+                    error=f"ngspice not found at {ngspice_path}",
                 )
-
-        except FileNotFoundError:
-            return SpiceResult(
-                success=False,
-                error=f"ngspice not found at {ngspice_path}",
-            )
+        finally:
+            if spiceinit_path is not None and spiceinit_path.exists():
+                spiceinit_path.unlink()
 
         elapsed = time.monotonic() - t0
         stdout = stdout_bytes.decode("utf-8", errors="replace")
@@ -264,7 +369,7 @@ class SpiceRunner:
         if proc.returncode == 1 and not _has_measurements(stdout):
             return SpiceResult(
                 success=False,
-                error=f"ngspice exited with code 1 (no measurements)",
+                error="ngspice exited with code 1 (no measurements)",
                 sim_time_s=elapsed,
                 stdout_tail=stdout[-3000:],
                 stderr_tail=stderr[-2000:],
@@ -295,33 +400,34 @@ class SpiceRunner:
         for line in stdout.splitlines():
             stripped = line.strip().lower()
 
-            # Skip lines without '=' (not measurement output)
-            if "=" not in stripped:
+            # Strict shape gate: only ``token = number`` lines count as
+            # measurements. Without this, info / status lines containing
+            # ``=`` (e.g. "Doing analysis at temp = 27.0") leak into the
+            # measurements dict — caught by examples/14 audit.
+            match = _MEAS_LINE_RE.match(stripped)
+            if not match:
                 continue
-
-            # Try to parse a measurement value
-            val = _parse_meas_value(stripped)
-            if val is None:
+            name = match.group(1)
+            try:
+                val = float(match.group(2))
+            except ValueError:
                 continue
 
             # Route to known fields
-            if stripped.startswith("adc_peak"):
+            if name.startswith("adc_peak"):
                 result.Adc_peak_dB = val
                 result.measurements["Adc_peak_dB"] = val
-            elif stripped.startswith("adc") and not stripped.startswith("adc_"):
+            elif name == "adc":
                 result.Adc_dB = val
                 result.measurements["Adc_dB"] = val
-            elif stripped.startswith("gbw"):
+            elif name == "gbw":
                 result.GBW_Hz = val
                 result.measurements["GBW_Hz"] = val
-            elif stripped.startswith("pgbw") and not stripped.startswith("pgbw_"):
+            elif name == "pgbw":
                 result.PM_deg = val
                 result.measurements["PM_deg"] = val
             else:
-                # Store any other measurement by its name
-                name = stripped.split("=")[0].strip()
-                if name:
-                    result.measurements[name] = val
+                result.measurements[name] = val
 
         return result
 

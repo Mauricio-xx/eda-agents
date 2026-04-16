@@ -13,6 +13,18 @@ Supports any PDK via PdkConfig (defaults to IHP SG13G2).
 System FoM: Walden FoM = 2^ENOB * f_s / P_total
 
 Reference: IHP-AnalogAcademy Module 3 - 8-bit SAR ADC
+
+WARNING — naming caveat (inherited from the AnalogAcademy reference):
+  the "8-bit" name refers to the D bus width, not the resolution. The
+  upstream SAR FSM (`sar_logic.v`) only iterates 7 times so D[7] stays
+  zero, and the upstream CDAC reuses the LSB switch for the dummy cap
+  (8 caps, 7 distinct controls). Effective resolution is therefore
+  ~7 bits, not 8. This convention is preserved verbatim because the
+  topology is silicon-traceable to AnalogAcademy; the eda-agents
+  11-bit topology (:mod:`eda_agents.topologies.sar_adc_11bit`)
+  deliberately breaks with this convention and is a true 11-bit
+  converter. See ``docs/skills/sar_adc/TODO_naming.md`` for the
+  rename / cleanup tracking note.
 """
 
 from __future__ import annotations
@@ -24,6 +36,7 @@ from pathlib import Path
 import numpy as np
 
 from eda_agents.core.pdk import PdkConfig, resolve_pdk
+from eda_agents.tools import adc_metrics as _adc_metrics
 from eda_agents.topologies.comparator_strongarm import StrongARMComparatorTopology
 from eda_agents.topologies.sar_adc_netlist import generate_sar_adc_netlist
 from eda_agents.core.spice_runner import SpiceResult
@@ -53,7 +66,16 @@ _SINE_AMP = 0.25           # V (per side)
 
 
 class SARADCTopology(SystemTopology):
-    """8-bit SAR ADC.
+    """SAR ADC, AnalogAcademy "8-bit" topology — *effectively 7-bit*.
+
+    The "8-bit" name comes from upstream and refers to the D output
+    bus width, not the resolution. The bundled SAR FSM iterates 7
+    times and the CDAC dummy cap shares the LSB switch, so the
+    converter has 7 distinct binary weights. Use the 11-bit topology
+    in :mod:`eda_agents.topologies.sar_adc_11bit` when you need a
+    true N-bit converter (its CDAC ties the dummy permanently to vcm
+    so all N binary weights stay distinct). See
+    ``docs/skills/sar_adc/TODO_naming.md`` for the rename plan.
 
     System design space (8D):
       - comp_W_input_um, comp_L_input_um: comparator input pair (2D)
@@ -224,10 +246,17 @@ class SARADCTopology(SystemTopology):
         if power_w <= 0:
             return 0.0
 
-        # Walden FoM: lower is better (energy per conversion step)
-        # But for optimization we want HIGHER = better, so invert:
-        # FoM = 2^ENOB * f_s / P_total (conversions per joule * resolution)
-        fom = (2**enob) * f_s / power_w
+        # Walden FoM via ADCToolbox when available (falls back to the
+        # identical closed-form otherwise). The toolbox returns energy
+        # per conversion step (fJ) - we invert so the autoresearch loop
+        # keeps its "higher is better" contract.
+        try:
+            walden_fj = _adc_metrics.calculate_walden_fom(
+                power_w=power_w, fs=f_s, enob=enob
+            )
+            fom = 1e15 / walden_fj if walden_fj > 0 else 0.0
+        except ImportError:
+            fom = (2**enob) * f_s / power_w
 
         # Spec penalty
         valid, violations = self.check_system_validity(spice_result, system_params)
@@ -269,14 +298,21 @@ class SARADCTopology(SystemTopology):
 
     @staticmethod
     def extract_enob(work_dir: Path) -> dict[str, float]:
-        """Extract ENOB from bit_data.txt produced by SAR ADC simulation.
+        """Extract ADC dynamic metrics from ``bit_data.txt``.
 
-        Uses rectangular window (no windowing) since sampling is coherent
-        (M=7 cycles in N=64 samples). Fixes startup artifact (first sample
-        may be zero due to SAR reset timing).
+        Reads the mixed-signal cosim trace, samples digital codes on
+        ``dac_clk`` rising edges, and delegates spectral analysis to
+        :func:`eda_agents.tools.adc_metrics.compute_adc_metrics` (backed
+        by ADCToolbox). When ADCToolbox is not installed, falls back to
+        the manual rectangular-window FFT so the SAR flow keeps working
+        with core-only dependencies.
 
-        Returns dict with keys: enob, sndr_dB, n_samples, code_min, code_max,
-        unique_codes, code_span.
+        Returns a dict with at least ``enob`` and ``sndr_dB``. When
+        ADCToolbox is available the dict also carries ``sfdr_dB``,
+        ``thd_dB``, ``snr_dB``, and ``walden_fom_fj`` (latter populated
+        by the caller when power is known). Domain-specific keys
+        (``n_samples``, ``code_min``, ``code_max``, ``unique_codes``,
+        ``code_span``) are always present on success.
         """
         bit_file = work_dir / "bit_data.txt"
         if not bit_file.exists():
@@ -321,10 +357,53 @@ class SARADCTopology(SystemTopology):
         unique_codes = len(np.unique(codes))
         code_span = int(codes.max() - codes.min())
 
-        # FFT with rectangular window (coherent sampling: M cycles in N samples)
-        # No windowing needed because signal lands exactly on bin M
-        spectrum = np.abs(np.fft.fft(codes - codes.mean()))[: N // 2]
+        base = {
+            "n_samples": N,
+            "code_min": int(codes.min()),
+            "code_max": int(codes.max()),
+            "unique_codes": unique_codes,
+            "code_span": code_span,
+        }
 
+        # Primary path: ADCToolbox. Coherent rectangular window is the
+        # right call (M prime cycles in N samples), so we pass
+        # ``win_type="boxcar"``. INL/DNL is skipped because 64 samples
+        # cannot populate 128 codes usefully; this remains a spectrum
+        # analysis only.
+        f_s = 1e6
+        fin = _SINE_CYCLES * f_s / _N_FFT_SAMPLES
+        try:
+            metrics = _adc_metrics.compute_adc_metrics(
+                codes - codes.mean(),
+                fs=f_s,
+                num_bits=8,
+                win_type="boxcar",
+                include_inl=False,
+                fin_target_hz=fin,
+            )
+            enob = metrics["enob"] or 0.0
+            sndr = metrics["sndr_dbc"] or 0.0
+            out = dict(base)
+            out.update(
+                {
+                    "enob": max(0.0, float(enob)),
+                    "sndr_dB": round(float(sndr), 2),
+                }
+            )
+            for src, dst in (
+                ("sfdr_dbc", "sfdr_dB"),
+                ("thd_dbc", "thd_dB"),
+                ("snr_dbc", "snr_dB"),
+            ):
+                if metrics.get(src) is not None:
+                    out[dst] = round(float(metrics[src]), 2)
+            return out
+        except ImportError:
+            pass  # fall through to manual path
+
+        # Fallback: no ADCToolbox. Rectangular-window FFT, same math
+        # as the pre-S3 implementation.
+        spectrum = np.abs(np.fft.fft(codes - codes.mean()))[: N // 2]
         sig_bin = _SINE_CYCLES
         signal_power = spectrum[sig_bin] ** 2
         noise_power = sum(
@@ -332,27 +411,14 @@ class SARADCTopology(SystemTopology):
         )
 
         if noise_power <= 0 or signal_power <= 0:
-            return {
-                "enob": 0.0,
-                "sndr_dB": 0.0,
-                "n_samples": N,
-                "code_min": int(codes.min()),
-                "code_max": int(codes.max()),
-                "unique_codes": unique_codes,
-                "code_span": code_span,
-            }
+            return {"enob": 0.0, "sndr_dB": 0.0, **base}
 
         sndr_dB = 10 * math.log10(signal_power / noise_power)
         enob = (sndr_dB - 1.76) / 6.02
-
         return {
             "enob": max(0.0, enob),
             "sndr_dB": round(sndr_dB, 2),
-            "n_samples": N,
-            "code_min": int(codes.min()),
-            "code_max": int(codes.max()),
-            "unique_codes": unique_codes,
-            "code_span": code_span,
+            **base,
         }
 
     # ------------------------------------------------------------------

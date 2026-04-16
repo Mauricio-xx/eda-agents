@@ -1,0 +1,29 @@
+id: tb_miller_ota_deck_emits_ac_meas
+family: tb-generation
+category: ota_ac
+domain: voltage
+pdk: ihp_sg13g2
+difficulty: easy
+expected_backend: ngspice-osdi
+harness: callable
+inputs:
+  callable: eda_agents.bench.adapters:analytical_miller_design
+  design_params:
+    gmid_input: 12.0
+    gmid_load: 10.0
+    L_input: 1.0e-6
+    L_load: 1.0e-6
+    Cc: 1.0e-12
+expected_metrics:
+  GBW_Hz: {min: 1.0e3}
+scoring:
+  - compile
+  - sim_run
+  - regex_match
+must_include:
+  - ".meas\\s+ac\\s+Adc"
+  - ".ac\\s+dec"
+notes: |
+  Validates that the TB emitted by MillerOTADesigner contains the AC
+  sweep + measurement directives the autoresearch loop relies on. The
+  regex matches against the generated .cir artifact text.

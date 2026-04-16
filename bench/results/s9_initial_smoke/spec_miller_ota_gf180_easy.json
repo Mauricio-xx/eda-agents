@@ -1,0 +1,28 @@
+{
+  "artifacts": [
+    "/home/montanares/git/eda-agents-worktrees/arcadia-integration/bench/results/s9_initial_smoke/spec_miller_ota_gf180_easy/miller_ota.ac.cir"
+  ],
+  "backend_used": "ngspice",
+  "duration_s": 0.04922782629728317,
+  "errors": [
+    "ngspice exited with code 1 (no measurements)"
+  ],
+  "finished": "2026-04-15T22:07:04.850209+00:00",
+  "harness_used": "callable",
+  "metrics": {},
+  "notes": [
+    "adapter_runtime_s=0.05"
+  ],
+  "pdk_used": "gf180mcu",
+  "scores": {
+    "audit_passed": null,
+    "compile": 1.0,
+    "metrics_in_range": null,
+    "regex_match": null,
+    "sim_run": 0.0,
+    "weighted_total": 0.5
+  },
+  "started": "2026-04-15T22:07:04.800975+00:00",
+  "status": "FAIL_SIM",
+  "task_id": "spec_miller_ota_gf180_easy"
+}

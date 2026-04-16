@@ -1,0 +1,29 @@
+NAME_TABLE:
+
+Spice_Model_Name:      ea_edge_sampler
+C_Function_Name:       ucm_ea_edge_sampler
+Description:           "Rising-edge level sampler — captures din value when clk crosses mid-level"
+
+
+PORT_TABLE:
+
+Port_Name:             din              clk              q
+Description:           "data in"        "clock"          "latched out"
+Direction:             in               in               out
+Default_Type:          v                v                v
+Allowed_Types:         [v]              [v]              [v]
+Vector:                no               no               no
+Vector_Bounds:         -                -                -
+Null_Allowed:          no               no               no
+
+
+PARAMETER_TABLE:
+
+Parameter_Name:        clk_threshold    delay_s
+Description:           "clk decision V" "output delay"
+Data_Type:             real             real
+Default_Value:         0.5              0.0
+Limits:                -                -
+Vector:                no               no
+Vector_Bounds:         -                -
+Null_Allowed:          yes              yes

@@ -22,7 +22,9 @@ class TestFlowStage:
         assert "SIGNOFF_DRC" in names
         assert "PRECHECK" in names
         assert "GL_SIM_POST_PNR" in names
-        assert len(names) == 15
+        assert "VERILOGA_COMPILE" in names
+        assert "XSPICE_COMPILE" in names
+        assert len(names) == 17
 
 
 class TestStageResult:
