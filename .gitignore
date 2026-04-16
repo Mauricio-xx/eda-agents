@@ -71,6 +71,12 @@ bench/results/*
 !bench/results/gap_closure_digital_autoresearch_live/report.md
 !bench/results/gap_closure_digital_autoresearch_live/program.md
 !bench/results/gap_closure_digital_autoresearch_live/results.tsv
+# S9-residual-closure final bench run (17 tasks, Pass@1=100%).
+# Same pattern as gap_closure_final.
+!bench/results/s9_residual_final_evidence/
+!bench/results/s9_residual_final_evidence/README.md
+!bench/results/s9_residual_final_evidence/summary.json
+!bench/results/s9_residual_final_evidence/report.md
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat

@@ -12,9 +12,65 @@ pre-roadmap history (IHP digital port, post-PnR GL sim gates, LibreLane
 template parity) is in git log; only roadmap sessions are summarized
 below.
 
-## Unreleased — branch `feat/s9-gap-closure`
+## Unreleased — branch `feat/s9-residual-closure`
 
-### Session S9-gap-closure — close all 11 bench gaps (this session)
+### Session S9-residual-closure — close the "caveats honestos" from S9-gap-closure
+
+Follow-up session after `feat/s9-gap-closure` merged to main (merge
+`40026ac`). Two gaps had closed with residual caveats that the
+original session acknowledged but could not close inside its scope:
+
+* **Gap #6 residual (#6a + #6b)**: the SAR 11-bit ENOB task passed
+  warm but was flagged as "cold-cache flaky" (SNDR=16.18 dB reported
+  once on a cold full-bench run); thresholds were pinned to the
+  defaults with zero architectural headroom.
+* **Gap #4 residual**: the real-mode path of
+  `digital_autoresearch_adapter` (LibreLane + real LLM) was never
+  exercised end-to-end; only the mock-metrics path had coverage.
+
+Close-out commits on this branch:
+
+* **`516d6b6` — Gap #6a cold-cache flakiness probe**. Nine cold
+  independent runs (5 SAR-only + 4 full-bench) all PASS with
+  bit-exact identical numbers (ENOB=4.451, SNDR=28.56 dB). The 12
+  dB collapse previously observed did not reproduce. Evidence + README
+  under `bench/results/sar11_cold_flakiness_probe/`. No code change;
+  the previous observation stays as history with a "not reproducible,
+  tracker-link if it reappears" conclusion.
+
+* **`6c04ac8` — Gap #6b SAR 11-bit ceiling characterization**. A
+  12-point Latin-square sweep over (`comp_W_input_um`,
+  `comp_L_input_um`, `cdac_C_unit_fF`, `bias_V`) driven by the new
+  `scripts/characterize_sar11_ceiling.py` measured the architectural
+  ENOB ceiling at **5.64 bit / 35.70 dB** at W=8, L=0.15, Cu=20 fF,
+  Vb=0.5 (reproduced bit-exact across the replica pair). Applied the
+  "floor(ceiling) − 0.5" rule: raised
+  `SARADC11BitTopology._SPEC_ENOB_MIN` from 4.0 → 4.5 and
+  `_SPEC_SNDR_MIN` from 25.0 → 28.0, and shifted `default_params()`
+  to the ceiling point so the bench baseline stays above the new
+  floor with 1.14 bit / 7.74 dB margin. New
+  `tests/test_sar_adc_11bit_ceiling.py` locks the invariant against
+  future regressions. `TODO_calibration.md` updated to cite the TSV.
+
+* **`f7f4c8f` — Gap #4 live-mode digital_autoresearch**. New
+  `bench/tasks/end-to-end/digital_autoresearch_counter_live.yaml`
+  drives the real pipeline: OpenRouter LLM proposes flow-config
+  overrides, LibreLane v3 runs each eval to signoff
+  (Checker.KLayoutDRC) on GF180MCU-D, `FlowMetrics` extracts WNS /
+  cells / area / power, greedy keep/discard on FoM. Budget=2 runs in
+  ~113 s wall-clock with all tools present; FAIL_INFRA (SKIPPED)
+  otherwise. Adapter now snapshots and restores
+  `design_dir/config.yaml` so repeated live runs don't mutate the
+  committed baseline. New `@pytest.mark.librelane` integration test
+  plus evidence at `bench/results/gap_closure_digital_autoresearch_live/`.
+
+Bench surface after this session: **17 tasks** (16 from S9-gap-closure
++ the new live autoresearch variant). Pass@1 = 100% on tool-complete
+hosts; SKIPPED (honestly) for tasks missing their tool chain.
+
+## Pre-merge history — branch `feat/s9-gap-closure` (merged 40026ac)
+
+### Session S9-gap-closure — close all 11 bench gaps
 
 Dedicated session to close the 11 known-gap items listed in S10's
 README "In-tree gaps to close". Every gap is one commit; every commit
