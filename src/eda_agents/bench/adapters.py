@@ -37,7 +37,26 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from pydantic import ValidationError
+
+from eda_agents.bench.adapter_inputs import (
+    AnalogRolesInputs,
+    AnalyticalMillerInputs,
+    DryRunInputs,
+    GlSimPostSynthInputs,
+    PreSimGateInputs,
+)
 from eda_agents.bench.models import BenchStatus, BenchTask
+
+
+def _format_validation_error(exc: ValidationError, adapter: str) -> str:
+    """Turn a Pydantic ValidationError into a one-line bench-friendly message."""
+    parts = []
+    for err in exc.errors():
+        loc = ".".join(str(x) for x in err.get("loc", ()))
+        msg = err.get("msg", "")
+        parts.append(f"inputs.{loc}: {msg}" if loc else msg)
+    return f"{adapter}: typed inputs validation failed: " + " | ".join(parts)
 
 
 @dataclass
@@ -70,7 +89,15 @@ def dry_run_adapter(task: BenchTask, work_dir: Path) -> AdapterResult:
     ngspice / Verilator / LibreLane available. ``inputs.fake_metrics``
     can override the canned numbers per task.
     """
-    fake = task.inputs.get("fake_metrics") or {}
+    try:
+        inputs = DryRunInputs.model_validate(task.inputs)
+    except ValidationError as exc:
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="dry-run",
+            errors=[_format_validation_error(exc, "dry_run_adapter")],
+        )
+    fake = inputs.fake_metrics or {}
     metrics = {"Adc_dB": 60.0, "GBW_Hz": 5.0e6, "PM_deg": 65.0}
     metrics.update({k: float(v) for k, v in fake.items()})
     artifact = work_dir / "dry_run.txt"
@@ -110,15 +137,16 @@ def analog_roles_adapter(task: BenchTask, work_dir: Path) -> AdapterResult:
     )
     from eda_agents.specs import load_spec_from_string
 
-    spec_yaml = task.inputs.get("spec_yaml")
-    if not spec_yaml:
+    try:
+        inputs = AnalogRolesInputs.model_validate(task.inputs)
+    except ValidationError as exc:
         return AdapterResult(
             status=BenchStatus.FAIL_INFRA,
             backend_used="analog_roles",
-            errors=["analog_roles task missing inputs.spec_yaml"],
+            errors=[_format_validation_error(exc, "analog_roles_adapter")],
         )
     try:
-        spec = load_spec_from_string(spec_yaml)
+        spec = load_spec_from_string(inputs.spec_yaml)
     except Exception as exc:  # noqa: BLE001 — surface to runner
         return AdapterResult(
             status=BenchStatus.FAIL_INFRA,
@@ -129,7 +157,7 @@ def analog_roles_adapter(task: BenchTask, work_dir: Path) -> AdapterResult:
     harness = AnalogRolesHarness(
         spec=spec,
         executor=DryRunExecutor(verbose=False),
-        max_iterations=task.inputs.get("max_iterations", 3),
+        max_iterations=inputs.max_iterations,
     )
     output = harness.run()
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -261,16 +289,27 @@ def analytical_miller_design(task: BenchTask, work_dir: Path) -> AdapterResult:
         )
     pdk_obj = resolve_pdk(pdk_name)
     backend_label = "ngspice-osdi" if pdk_obj.has_osdi() else "ngspice"
-    inputs = task.inputs.get("design_params") or {}
+    try:
+        inputs = AnalyticalMillerInputs.model_validate(task.inputs)
+    except ValidationError as exc:
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used=backend_label,
+            errors=[_format_validation_error(exc, "analytical_miller_design")],
+        )
+    params = inputs.design_params
     designer = MillerOTADesigner(pdk=pdk_obj)
     try:
-        result = designer.analytical_design(
-            gmid_input=inputs.get("gmid_input", 12.0),
-            gmid_load=inputs.get("gmid_load", 10.0),
-            L_input=inputs.get("L_input", 1.0e-6),
-            L_load=inputs.get("L_load", 1.0e-6),
-            Cc=inputs.get("Cc", 1.0e-12),
-        )
+        design_kwargs: dict[str, Any] = {
+            "gmid_input": params.gmid_input,
+            "gmid_load": params.gmid_load,
+            "L_input": params.L_input,
+            "L_load": params.L_load,
+            "Cc": params.Cc,
+        }
+        if params.Ibias is not None:
+            design_kwargs["Ibias"] = params.Ibias
+        result = designer.analytical_design(**design_kwargs)
     except Exception as exc:  # noqa: BLE001
         return AdapterResult(
             status=BenchStatus.ERROR,
@@ -341,16 +380,16 @@ def run_pre_sim_gate_on_inline_netlist(
         parse_subcircuit,
     )
 
-    gate = task.inputs.get("gate")
-    netlist = task.inputs.get("netlist")
-    subckt = task.inputs.get("subckt")
-    expect_violation = bool(task.inputs.get("expect_violation", False))
-    if not (gate and netlist and subckt):
+    try:
+        inputs = PreSimGateInputs.model_validate(task.inputs)
+    except ValidationError as exc:
         return AdapterResult(
             status=BenchStatus.FAIL_INFRA,
             backend_used="dry-run",
             errors=[
-                "pre-sim task requires inputs.gate, inputs.netlist, inputs.subckt"
+                _format_validation_error(
+                    exc, "run_pre_sim_gate_on_inline_netlist"
+                )
             ],
         )
     fn_table = {
@@ -359,15 +398,20 @@ def run_pre_sim_gate_on_inline_netlist(
         "mirror_ratio": check_mirror_ratio,
         "bias_source": check_bias_source,
     }
-    fn = fn_table.get(gate)
+    # vds_polarity is registered in the schema but plugged in at gap #7
+    # time; until that lands this branch returns FAIL_INFRA with a
+    # clear error instead of silently running nothing.
+    fn = fn_table.get(inputs.gate)
     if fn is None:
         return AdapterResult(
             status=BenchStatus.FAIL_INFRA,
             backend_used="dry-run",
-            errors=[f"unknown gate: {gate}"],
+            errors=[
+                f"gate {inputs.gate!r} not yet wired into run_pre_sim_gate_on_inline_netlist"
+            ],
         )
     try:
-        sc = parse_subcircuit(netlist, name=subckt)
+        sc = parse_subcircuit(inputs.netlist, name=inputs.subckt)
     except Exception as exc:  # noqa: BLE001
         return AdapterResult(
             status=BenchStatus.FAIL_INFRA,
@@ -378,12 +422,12 @@ def run_pre_sim_gate_on_inline_netlist(
     work_dir.mkdir(parents=True, exist_ok=True)
     rep = work_dir / "gate_report.txt"
     rep.write_text(
-        f"gate={gate} passed={res.passed}\n"
+        f"gate={inputs.gate} passed={res.passed}\n"
         + "\n".join(res.messages)
         + "\n"
     )
     detected_violation = not res.passed
-    if expect_violation == detected_violation:
+    if inputs.expect_violation == detected_violation:
         status = BenchStatus.PASS
     else:
         status = BenchStatus.FAIL_AUDIT
@@ -395,7 +439,10 @@ def run_pre_sim_gate_on_inline_netlist(
             "passed_gate": res.passed,
         },
         artifacts=[str(rep)],
-        notes=[f"expect_violation={expect_violation}, detected={detected_violation}"],
+        notes=[
+            f"expect_violation={inputs.expect_violation}, "
+            f"detected={detected_violation}"
+        ],
         compile_ok=True,
         sim_ok=True,
         raw_text=rep.read_text(),
@@ -421,7 +468,15 @@ def run_gl_sim_post_synth(
     from eda_agents.core.stages.gl_sim_runner import GlSimRunner
     from eda_agents.core.tool_environment import ToolEnvironment
 
-    run_dir_str = task.inputs.get("run_dir") or os.environ.get(
+    try:
+        inputs = GlSimPostSynthInputs.model_validate(task.inputs)
+    except ValidationError as exc:
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="librelane",
+            errors=[_format_validation_error(exc, "run_gl_sim_post_synth")],
+        )
+    run_dir_str = inputs.run_dir or os.environ.get(
         "EDA_AGENTS_GL_SIM_RUN_DIR"
     )
     if not run_dir_str:
