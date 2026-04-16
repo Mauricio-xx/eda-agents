@@ -1,0 +1,55 @@
+{
+  "by_family": {
+    "end-to-end": {
+      "error": 0,
+      "fail": 0,
+      "pass": 1,
+      "skipped": 0,
+      "total": 1
+    }
+  },
+  "errored": 0,
+  "failed": 0,
+  "pass_rate": 1.0,
+  "passed": 1,
+  "results": [
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s9-residual-closure/bench/results/gap4_live_proof/e2e_digital_autoresearch_counter_live/results.tsv"
+      ],
+      "backend_used": "librelane",
+      "duration_s": 113.43735246825963,
+      "errors": [],
+      "finished": "2026-04-16T13:14:57.454336+00:00",
+      "harness_used": "digital_autoresearch",
+      "metrics": {
+        "best_fom": 961.559026807754,
+        "iterations_kept": 1.0,
+        "iterations_total": 2.0
+      },
+      "notes": [
+        "mode=live",
+        "kept=1/2",
+        "best_valid=True",
+        "tsv=/home/montanares/git/eda-agents-worktrees/s9-residual-closure/bench/results/gap4_live_proof/e2e_digital_autoresearch_counter_live/results.tsv",
+        "adapter_runtime_s=113.44",
+        "iterations_kept=1 in range (margin=0)"
+      ],
+      "pdk_used": "gf180mcu",
+      "scores": {
+        "audit_passed": 1.0,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T13:13:04.016966+00:00",
+      "status": "PASS",
+      "task_id": "e2e_digital_autoresearch_counter_live"
+    }
+  ],
+  "run_id": "gap4_live_proof",
+  "skipped": 0,
+  "total": 1
+}

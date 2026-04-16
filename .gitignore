@@ -62,6 +62,15 @@ bench/results/*
 !bench/results/sar11_ceiling_characterization/README.md
 !bench/results/sar11_ceiling_characterization/sweep.tsv
 !bench/results/sar11_ceiling_characterization/sweep.json
+# S9-residual-closure (gap #4) live-mode digital_autoresearch proof.
+# Mirrors the gap_closure_llm_proof / gap_closure_final pattern:
+# README + summary.json + report.md + program.md + results.tsv only.
+!bench/results/gap_closure_digital_autoresearch_live/
+!bench/results/gap_closure_digital_autoresearch_live/README.md
+!bench/results/gap_closure_digital_autoresearch_live/summary.json
+!bench/results/gap_closure_digital_autoresearch_live/report.md
+!bench/results/gap_closure_digital_autoresearch_live/program.md
+!bench/results/gap_closure_digital_autoresearch_live/results.tsv
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat

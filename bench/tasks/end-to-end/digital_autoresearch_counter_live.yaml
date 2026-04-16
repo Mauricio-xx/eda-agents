@@ -1,0 +1,49 @@
+id: e2e_digital_autoresearch_counter_live
+family: end-to-end
+category: digital
+domain: digital
+pdk: gf180mcu
+difficulty: hard
+expected_backend: librelane
+harness: digital_autoresearch
+topology: counter_4bit
+inputs:
+  design_dir: bench/designs/counter_bench
+  budget: 2
+  # No mock_metrics_path: real LibreLane + OpenRouter LLM each eval.
+expected_metrics:
+  iterations_kept: {min: 1, unit: count}
+scoring:
+  - audit_passed
+  - metrics_in_range
+weight: 2.0
+timeout_s: 1800
+notes: |
+  S9-residual-closure gap #4. Closes the "cerrado con caveat" on
+  gap #4 by actually running digital_autoresearch end-to-end instead
+  of only the mock path. Budget=2 means two full LibreLane runs of
+  the 4-bit counter on GF180MCU-D through signoff Checker.KLayoutDRC
+  between which Gemini Flash proposes param overrides.
+
+  Requires simultaneously:
+    - OPENROUTER_API_KEY sourced in the environment (Gemini Flash
+      on OpenRouter; model string is the runner default
+      openrouter/anthropic/claude-haiku-4.5 today but the adapter
+      does not pin it, so whichever model the memory
+      feedback_openrouter_model.md says is currently preferred
+      flows through).
+    - A GF180MCU-D PDK reachable via PDK_ROOT or its wafer-space
+      fork (same detection path as gap #5's digital_counter task).
+    - LibreLane v3 venv + nix EDA tools (yosys >= 0.60, OpenROAD
+      recent). The runner auto-prepends nix dirs via
+      detect_nix_eda_tool_dirs.
+
+  If any of the above is missing, the adapter returns FAIL_INFRA and
+  the bench marks the task SKIPPED. That behaviour matches gap #5
+  and gap #8 (llm_miller_ota_ihp) so a tool-less host still produces
+  an honest green bench.
+
+  Evidence for the live-mode proof is persisted under
+  bench/results/gap_closure_digital_autoresearch_live/ after the
+  close-out run; see
+  bench/results/gap_closure_digital_autoresearch_live/README.md.
