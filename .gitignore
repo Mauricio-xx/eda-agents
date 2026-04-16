@@ -49,6 +49,12 @@ bench/results/*
 !bench/results/gap_closure_final/summary.json
 !bench/results/gap_closure_final/report.md
 !bench/results/gap_closure_final/README.md
+# S9-residual-closure (gap #6a) cold-cache flakiness probe. Only the
+# consolidated README + TSV are tracked; the 9 per-run report dirs
+# stay gitignored under the default bench/results/* rule.
+!bench/results/sar11_cold_flakiness_probe/
+!bench/results/sar11_cold_flakiness_probe/README.md
+!bench/results/sar11_cold_flakiness_probe/runs.tsv
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat

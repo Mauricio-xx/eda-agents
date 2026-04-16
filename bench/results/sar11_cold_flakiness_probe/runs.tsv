@@ -1,0 +1,10 @@
+mode	run_id	status	ENOB	SNDR_dBc	runtime_s
+sar_only	sar_cold_1	PASS	4.451	28.56	78.11
+sar_only	sar_cold_2	PASS	4.451	28.56	77.98
+sar_only	sar_cold_3	PASS	4.451	28.56	78.06
+sar_only	sar_cold_4	PASS	4.451	28.56	76.79
+sar_only	sar_cold_5	PASS	4.451	28.56	78.01
+full_bench	sar_coldfull_1	PASS	4.451	28.56	78.18
+full_bench	sar_coldfull_2	PASS	4.451	28.56	77.83
+full_bench	sar_coldfull_3	PASS	4.451	28.56	78.79
+full_bench	residual_baseline	PASS	4.454	28.57	78.13
