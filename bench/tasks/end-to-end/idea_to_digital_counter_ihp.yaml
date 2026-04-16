@@ -1,0 +1,38 @@
+id: e2e_idea_to_digital_counter_ihp
+family: end-to-end
+category: digital
+domain: digital
+pdk: ihp_sg13g2
+difficulty: easy
+expected_backend: dry-run
+harness: callable
+topology: counter_4bit
+inputs:
+  callable: eda_agents.bench.adapters:run_idea_to_digital_chip
+  description: |
+    4-bit synchronous up-counter with active-low asynchronous reset
+    and an enable input. Inputs: clk, rst_n, en. Output: count[3:0].
+    When en=1 and rst_n=1, count increments on each rising edge of
+    clk. When rst_n=0, count returns to 0 asynchronously. When en=0,
+    count holds its current value.
+  design_name: counter4_ihp
+  pdk: ihp_sg13g2
+  complexity: simple
+  dry_run: true
+expected_metrics:
+  prompt_length: {min: 2000, unit: chars}
+scoring:
+  - compile
+  - metrics_in_range
+weight: 2.0
+timeout_s: 120
+notes: |
+  S11 Fase 0 IHP dry gate. Mirrors idea_to_digital_counter.yaml for
+  the IHP SG13G2 template. Validates that the prompt-builder routes
+  PDK-specific config / env / Nix path correctly for IHP.
+
+  Live IHP variant is NOT shipped in this worktree because IHP's Magic
+  StreamOut step is known-slow (20-60+ min per counter on current
+  main). Users who want live IHP should copy this file to
+  idea_to_digital_counter_ihp_live.yaml with dry_run=false and be
+  prepared for a >1h wall time.

@@ -1,0 +1,56 @@
+id: e2e_idea_to_digital_alu8_gf180
+family: end-to-end
+category: digital
+domain: digital
+pdk: gf180mcu
+difficulty: medium
+expected_backend: dry-run
+harness: callable
+topology: alu_8bit
+inputs:
+  callable: eda_agents.bench.adapters:run_idea_to_digital_chip
+  description: |
+    8-bit combinational arithmetic-logic unit.
+
+    Inputs:
+      - a[7:0], b[7:0]: two 8-bit operands.
+      - op[2:0]: operation select.
+    Outputs:
+      - result[7:0]: operation result.
+      - zero: 1 iff result == 0.
+      - cout: carry-out from ADD/SUB (ignored otherwise).
+
+    Operations by op code:
+      000: ADD   -> {cout, result} = a + b
+      001: SUB   -> {cout, result} = a - b (subtract via two's complement;
+                    cout=1 means no borrow)
+      010: AND   -> result = a & b
+      011: OR    -> result = a | b
+      100: XOR   -> result = a ^ b
+      101: SHL1  -> result = a << 1 (zero-fill, cout = a[7])
+      110: SHR1  -> result = a >> 1 (logical, cout = a[0])
+      111: PASSA -> result = a, cout = 0
+
+    Purely combinational. No clock. No reset.
+  design_name: alu8
+  pdk: gf180mcu
+  complexity: medium
+  dry_run: true
+expected_metrics:
+  prompt_length: {min: 2000, unit: chars}
+scoring:
+  - compile
+  - metrics_in_range
+weight: 2.0
+timeout_s: 120
+notes: |
+  S11 Fase 1 dry gate. Ramps the idea->chip pipeline from counter
+  (easy) to 8-bit ALU (medium). ALU is combinational so cocotb
+  testbench must drive input vectors and check expected outputs.
+  The agent's testbench quality is the main variable — a
+  well-specified ALU testbench with edge cases (subtract borrow,
+  shift fill, zero flag on all ops) is what tips this from
+  "randomly works" to "reliably works".
+
+  Live variant (idea_to_digital_alu8_gf180_live.yaml) drives CC CLI
+  + LibreLane end-to-end; expect 3-10 minute wall time on GF180.

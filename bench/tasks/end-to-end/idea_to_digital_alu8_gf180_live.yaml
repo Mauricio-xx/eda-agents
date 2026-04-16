@@ -1,0 +1,79 @@
+id: e2e_idea_to_digital_alu8_gf180_live
+family: end-to-end
+category: digital
+domain: digital
+pdk: gf180mcu
+difficulty: hard
+expected_backend: librelane
+harness: callable
+topology: alu_8bit
+inputs:
+  callable: eda_agents.bench.adapters:run_idea_to_digital_chip
+  description: |
+    8-bit combinational arithmetic-logic unit.
+
+    Inputs:
+      - a[7:0], b[7:0]: two 8-bit operands.
+      - op[2:0]: operation select.
+    Outputs:
+      - result[7:0]: operation result.
+      - zero: 1 iff result == 0.
+      - cout: carry-out from ADD/SUB (ignored otherwise).
+
+    Operations by op code:
+      000: ADD   -> {cout, result} = a + b
+      001: SUB   -> {cout, result} = a - b (two's complement subtract;
+                    cout=1 means no borrow, i.e. a >= b)
+      010: AND   -> result = a & b
+      011: OR    -> result = a | b
+      100: XOR   -> result = a ^ b
+      101: SHL1  -> result = a << 1 (zero-fill, cout = a[7])
+      110: SHR1  -> result = a >> 1 (logical shift, cout = a[0])
+      111: PASSA -> result = a, cout = 0
+
+    Purely combinational. No clock. No reset. The testbench MUST
+    exercise every op code with at least 4 input vectors per op,
+    including boundary cases (a=0, b=0, a=255, b=255, carry in SUB).
+
+    Because the DUT has no clock, the LibreLane config must either
+    set CLOCK_PORT to an unused wire or supply a fake clock wrapper.
+    Prefer the latter: wrap the pure ALU in a flop-registered top so
+    the LibreLane signoff STA flow has a real clock domain to analyse.
+  design_name: alu8
+  pdk: gf180mcu
+  complexity: medium
+  dry_run: false
+  skip_gl_sim: false
+  allow_dangerous: true
+  max_budget_usd: 10.0
+  timeout_s: 5400
+  librelane_python: /home/montanares/git/librelane/.venv/bin/python
+expected_metrics:
+  gds_exists: {min: 1, unit: bool}
+  gl_post_synth_ok: {min: 1, unit: bool}
+  gl_post_pnr_ok: {min: 1, unit: bool}
+scoring:
+  - compile
+  - sim_run
+  - metrics_in_range
+weight: 4.0
+timeout_s: 5400
+notes: |
+  S11 Fase 1 LIVE probe. Single-shot attempt: if Claude Code CLI
+  can take this description all the way to SIGNOFF CLEAN in one
+  pass, Fase 1 closes without needing the iterative loop
+  (IdeaToRTLLoop). Failure here is the tripwire that forces us to
+  implement propose->sim->critique->re-propose.
+
+  Same env requirements as idea_to_digital_counter_live.yaml:
+    - Claude Code CLI on PATH, EDA_AGENTS_ALLOW_DANGEROUS=1.
+    - GF180MCU-D PDK reachable (wafer-space fork).
+    - LibreLane venv.
+
+  Gotchas the prompt explicitly flags:
+    - Pure combinational DUT + LibreLane clock-mandatory flow -> the
+      agent must wrap in a registered top or the STA stage will not
+      have a clock domain.
+    - Testbench MUST cover every opcode. Agents that write a
+      "PASS" testbench that only checks ADD will technically pass
+      the sim stage but produce an un-reviewable audit signal.

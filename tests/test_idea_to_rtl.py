@@ -336,6 +336,28 @@ class TestBenchAdapterDry:
         assert t.harness.value == "callable"
         assert t.inputs["dry_run"] is True
 
+    @pytest.mark.parametrize(
+        "yaml_name,task_id,pdk,complexity",
+        [
+            ("idea_to_digital_counter.yaml", "e2e_idea_to_digital_counter",
+             "gf180mcu", "simple"),
+            ("idea_to_digital_counter_ihp.yaml", "e2e_idea_to_digital_counter_ihp",
+             "ihp_sg13g2", "simple"),
+            ("idea_to_digital_alu8_gf180.yaml", "e2e_idea_to_digital_alu8_gf180",
+             "gf180mcu", "medium"),
+        ],
+    )
+    def test_dry_variants_pass(self, tmp_path, yaml_name, task_id, pdk, complexity):
+        task = load_task(_TASK_DIR / yaml_name)
+        assert task.id == task_id
+        assert task.inputs["pdk"] == pdk
+        assert task.inputs["complexity"] == complexity
+        assert task.inputs["dry_run"] is True
+        result = run_idea_to_digital_chip(task, tmp_path)
+        assert result.status is BenchStatus.PASS, result.errors
+        assert result.metrics["prompt_length"] > 2000
+        assert result.compile_ok is True
+
     def test_adapter_passes_on_dry(self, tmp_path):
         task = self._task_dry()
         result = run_idea_to_digital_chip(task, tmp_path)
