@@ -33,7 +33,7 @@ class TestSpiceHandlerUnit:
         # Very high gmid -> weak inversion -> low gain -> should be pre-filtered
         params = {"gmid_input": 25.0, "gmid_load": 20.0, "L_input_um": 0.13,
                   "L_load_um": 0.13, "Cc_pF": 5.0, "Ibias_uA": 0.5}
-        result = asyncio.get_event_loop().run_until_complete(h.evaluate(params))
+        result = asyncio.run(h.evaluate(params))
         assert result.eval_mode in ("analytical_prefilter", "spice")
         # Budget should not have been consumed for prefiltered
         if result.eval_mode == "analytical_prefilter":
@@ -43,7 +43,7 @@ class TestSpiceHandlerUnit:
         h = self._make_handler(tmp_path)
         params = {"gmid_input": 12.0, "gmid_load": 10.0, "L_input_um": 0.5,
                   "L_load_um": 0.5, "Cc_pF": 0.5, "Ibias_uA": 10.0}
-        asyncio.get_event_loop().run_until_complete(h.evaluate(params))
+        asyncio.run(h.evaluate(params))
         export_path = tmp_path / "results.json"
         h.export_results(export_path)
         assert export_path.exists()
