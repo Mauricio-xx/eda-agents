@@ -212,20 +212,22 @@ class GenericDesign(DigitalDesign):
     def testbench(self) -> TestbenchSpec | None:
         """Auto-detect testbench in project directory.
 
-        Looks for ``tb/tb_*.v`` or ``testbench/*.v`` patterns.
-        Returns an iverilog-based TestbenchSpec if found, None otherwise.
+        Looks for ``tb/tb_*.v`` or ``testbench/*.v`` patterns. Returns
+        an iverilog-based :class:`TestbenchSpec` pointing at the first
+        matching file, or ``None`` when none is found.
+
+        The ``target`` is the project-relative path to the testbench
+        file only — downstream runners (``GlSimRunner``, ``RtlSimRunner``)
+        wire the RTL / post-synth netlist in separately from
+        :meth:`rtl_sources`.
         """
         project = self._config_path.parent
-        # Check common testbench locations
         for pattern in ["tb/tb_*.v", "testbench/*.v", "tb/*.v"]:
             matches = sorted(project.glob(pattern))
             if matches:
-                # Build iverilog target: compile RTL + testbench
-                rtl_files = " ".join(str(s) for s in self.rtl_sources())
-                tb_files = " ".join(str(m) for m in matches)
                 return TestbenchSpec(
                     driver="iverilog",
-                    target=f"{rtl_files} {tb_files}",
+                    target=str(matches[0].relative_to(project)),
                     work_dir_relative=".",
                 )
         return None

@@ -1,0 +1,36 @@
+id: e2e_gl_sim_post_synth_counter
+family: end-to-end
+category: digital_glsim
+domain: digital
+pdk: gf180mcu
+difficulty: hard
+expected_backend: librelane
+harness: callable
+inputs:
+  callable: eda_agents.bench.adapters:run_gl_sim_post_synth
+  # run_dir intentionally omitted: the adapter auto-discovers the
+  # newest hardened counter run under
+  # bench/cache/librelane_runs/counter/runs/<tag>/ — the symlink is
+  # published by gap #5's digital_counter_gf180 task. Override with
+  # EDA_AGENTS_GL_SIM_RUN_DIR or inputs.run_dir when running against a
+  # custom run.
+scoring:
+  - compile
+  - sim_run
+weight: 1.0
+timeout_s: 600
+notes: |
+  Closes gap #2. Exercises core/stages/gl_sim_runner.py's
+  run_post_synth() against the hardened 4-bit counter produced by
+  gap #5's digital_counter_gf180 task. The adapter wraps the counter
+  project in a GenericDesign, picks up tb/tb_counter.v via
+  GenericDesign.testbench(), and asserts PASS/FAIL through the iverilog
+  log.
+
+  Auto-discovery chain (no-arg happy path):
+    inputs.run_dir -> EDA_AGENTS_GL_SIM_RUN_DIR -> bench cache symlink.
+
+  SKIPPED (FAIL_INFRA) when:
+    - No hardened counter run is available (gap #5 not run yet).
+    - iverilog/vvp missing on PATH.
+    - GF180 PDK not reachable.

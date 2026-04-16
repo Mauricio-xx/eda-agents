@@ -603,24 +603,52 @@ def run_pre_sim_gate_on_inline_netlist(
     )
 
 
+def _discover_cached_gl_sim_run(design_name: str) -> Path | None:
+    """Find the most recent hardened LibreLane run produced by the bench.
+
+    Looks under :func:`_bench_librelane_cache_root` for
+    ``<design_name>/runs/<tag>/`` (the symlinks created by
+    :func:`run_librelane_flow_task`, gap #5). Returns the most recent
+    entry by mtime or ``None`` when the cache is empty.
+    """
+    root = _bench_librelane_cache_root()
+    runs_dir = root / design_name / "runs"
+    if not runs_dir.is_dir():
+        return None
+    candidates = [d for d in runs_dir.iterdir() if d.is_dir() or d.is_symlink()]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates[0].resolve()
+
+
 def run_gl_sim_post_synth(
     task: BenchTask, work_dir: Path
 ) -> AdapterResult:
     """Exercise ``core/stages/gl_sim_runner.py`` against a hardened run.
 
-    The hardened LibreLane run directory comes from
-    ``inputs.run_dir`` or, if absent, the env var
-    ``EDA_AGENTS_GL_SIM_RUN_DIR``. If neither is set or the dir does
-    not look like a LibreLane run, the adapter returns ``FAIL_INFRA``
-    so the runner can map it to ``SKIPPED`` — we never silently fake
-    a GL sim PASS.
+    Resolution order for the hardened LibreLane run directory:
+
+    1. ``inputs.run_dir`` (explicit path in the YAML).
+    2. ``EDA_AGENTS_GL_SIM_RUN_DIR`` environment variable.
+    3. The newest symlink under
+       ``bench/cache/librelane_runs/counter/runs/`` (published by
+       :func:`run_librelane_flow_task` when gap #5's task runs).
+
+    When none of those produces a usable LibreLane run, the adapter
+    returns ``FAIL_INFRA`` so the runner can map it to SKIPPED. We never
+    silently fake a GL sim PASS.
+
+    Post-synth GL simulation is run against the ``counter`` design
+    (via :class:`GenericDesign`) — that's the design the bench hardens
+    and the one with an iverilog-compatible testbench under ``tb/``.
     """
     import os
 
-    from eda_agents.core.designs.systolic_mac_dft import SystolicMacDftDesign
-    from eda_agents.core.pdk import resolve_pdk, resolve_pdk_root
+    from eda_agents.core.designs.generic import GenericDesign
+    from eda_agents.core.pdk import resolve_pdk
     from eda_agents.core.stages.gl_sim_runner import GlSimRunner
-    from eda_agents.core.tool_environment import ToolEnvironment
+    from eda_agents.core.tool_environment import LocalToolEnvironment
 
     try:
         inputs = GlSimPostSynthInputs.model_validate(task.inputs)
@@ -630,20 +658,25 @@ def run_gl_sim_post_synth(
             backend_used="librelane",
             errors=[_format_validation_error(exc, "run_gl_sim_post_synth")],
         )
-    run_dir_str = inputs.run_dir or os.environ.get(
-        "EDA_AGENTS_GL_SIM_RUN_DIR"
-    )
-    if not run_dir_str:
+    run_dir: Path | None
+    if inputs.run_dir:
+        run_dir = Path(inputs.run_dir)
+    elif os.environ.get("EDA_AGENTS_GL_SIM_RUN_DIR"):
+        run_dir = Path(os.environ["EDA_AGENTS_GL_SIM_RUN_DIR"])
+    else:
+        run_dir = _discover_cached_gl_sim_run("counter")
+
+    if run_dir is None:
         return AdapterResult(
             status=BenchStatus.FAIL_INFRA,
             backend_used="librelane",
             errors=[
-                "GL sim task needs inputs.run_dir or EDA_AGENTS_GL_SIM_RUN_DIR; "
-                "no hardened LibreLane run available"
+                "GL sim task found no hardened run: inputs.run_dir / "
+                "EDA_AGENTS_GL_SIM_RUN_DIR / bench cache all empty. "
+                "Hint: run the digital_counter_gf180 task first (gap #5)."
             ],
             notes=["bench did not harden a fresh design — see TODO"],
         )
-    run_dir = Path(run_dir_str)
     if not (run_dir / "final" / "pnl").is_dir() and not list(
         run_dir.glob("*-yosys-synthesis")
     ):
@@ -663,9 +696,36 @@ def run_gl_sim_post_synth(
         )
     pdk_name = task.pdk or "gf180mcu"
     pdk = resolve_pdk(pdk_name)
-    pdk_root = resolve_pdk_root(pdk)
-    design = SystolicMacDftDesign()
-    env = ToolEnvironment()
+    pdk_root_str = _resolve_librelane_pdk_root(pdk_name)
+    if pdk_root_str is None:
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="librelane",
+            errors=[f"GL sim needs a PDK root for {pdk_name!r}; none found"],
+        )
+    pdk_root = Path(pdk_root_str)
+
+    # Resolve the counter project dir via the bench cache heuristic and
+    # wrap it in a GenericDesign so GlSimRunner can read its testbench.
+    here = Path(__file__).resolve()
+    design_dir: Path | None = None
+    for parent in here.parents:
+        candidate = parent / "bench" / "designs" / "counter_bench"
+        if candidate.is_dir():
+            design_dir = candidate
+            break
+    if design_dir is None:
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="librelane",
+            errors=["counter design dir not found under bench/designs/"],
+        )
+    design = GenericDesign(
+        config_path=design_dir / "config.yaml",
+        pdk_root=pdk_root,
+        pdk_config=pdk_name,
+    )
+    env = LocalToolEnvironment()
     runner = GlSimRunner(
         design=design,
         env=env,
@@ -675,19 +735,19 @@ def run_gl_sim_post_synth(
         timeout_s=task.timeout_s,
     )
     work_dir.mkdir(parents=True, exist_ok=True)
-    stage_res = runner.run_post_synth(work_dir=work_dir)
+    stage_res = runner.run_post_synth()
     return AdapterResult(
         status=(
             BenchStatus.PASS if stage_res.success else BenchStatus.FAIL_SIM
         ),
         backend_used="librelane",
-        metrics={"runtime_s": stage_res.duration_s or 0.0},
-        artifacts=[str(p) for p in (stage_res.artifacts or [])],
+        metrics={"runtime_s": stage_res.run_time_s or 0.0},
+        artifacts=[str(p) for p in stage_res.artifacts.values()],
         errors=[stage_res.error] if stage_res.error else [],
-        notes=[f"stage={stage_res.stage.value if stage_res.stage else '?'}"],
+        notes=[f"stage={stage_res.stage.name if stage_res.stage else '?'}"],
         compile_ok=True,
         sim_ok=stage_res.success,
-        raw_text=(stage_res.stdout_tail or "")[-2000:],
+        raw_text=(stage_res.log_tail or "")[-2000:],
     )
 
 

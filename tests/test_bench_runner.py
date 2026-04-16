@@ -689,6 +689,51 @@ def test_librelane_flow_adapter_skips_when_pdk_absent(tmp_path, monkeypatch):
     assert any("PDK" in e or "pdk" in e for e in res.errors)
 
 
+def test_gl_sim_adapter_skips_without_cache_or_env(tmp_path, monkeypatch):
+    """Gap #2: no run_dir + no env + empty bench cache -> FAIL_INFRA."""
+    from eda_agents.bench.adapters import run_gl_sim_post_synth
+    import eda_agents.bench.adapters as _adapters
+
+    monkeypatch.delenv("EDA_AGENTS_GL_SIM_RUN_DIR", raising=False)
+    monkeypatch.setattr(
+        _adapters, "_discover_cached_gl_sim_run", lambda _name: None
+    )
+    task = BenchTask.model_validate(
+        {
+            "id": "e2e_gl_sim_nocache",
+            "family": "end-to-end",
+            "category": "digital_glsim",
+            "domain": "digital",
+            "pdk": "gf180mcu",
+            "difficulty": "hard",
+            "expected_backend": "librelane",
+            "harness": "callable",
+            "inputs": {
+                "callable": "eda_agents.bench.adapters:run_gl_sim_post_synth",
+            },
+            "scoring": ["compile", "sim_run"],
+        }
+    )
+    res = run_gl_sim_post_synth(task, tmp_path)
+    assert res.status is BenchStatus.FAIL_INFRA
+    assert any("hardened run" in e.lower() or "counter" in e.lower() for e in res.errors)
+
+
+def test_gl_sim_adapter_discovers_counter_cache_symlink(tmp_path, monkeypatch):
+    """Gap #2: adapter auto-discovers a hardened counter run via the bench cache."""
+    from eda_agents.bench.adapters import _discover_cached_gl_sim_run
+    import eda_agents.bench.adapters as _adapters
+
+    fake_cache = tmp_path / "cache" / "librelane_runs"
+    run_dir = fake_cache / "counter" / "runs" / "bench-demo"
+    (run_dir / "final" / "pnl").mkdir(parents=True)
+    monkeypatch.setattr(
+        _adapters, "_bench_librelane_cache_root", lambda: fake_cache
+    )
+    discovered = _discover_cached_gl_sim_run("counter")
+    assert discovered == run_dir.resolve()
+
+
 def test_bench_cache_root_prefers_repo_bench_over_package_bench():
     """Gap #5: cache resolver must not pick src/eda_agents/bench by name."""
     from eda_agents.bench.adapters import _bench_librelane_cache_root
