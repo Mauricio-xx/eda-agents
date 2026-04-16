@@ -1449,6 +1449,26 @@ def run_idea_to_digital_chip(
                     "inputs.dry_run=true for offline sanity-check."
                 ],
             )
+        # Double-gate sanity: if the YAML asked for dangerous-skip but the
+        # env var isn't set, the CLI won't get the flag AND will hang on
+        # the first permission prompt (stdin is piped; there is no way to
+        # approve interactively). Catch that here so we fail fast rather
+        # than burning the full timeout.
+        import os as _os_adapter
+        if inputs.allow_dangerous and _os_adapter.environ.get(
+            "EDA_AGENTS_ALLOW_DANGEROUS"
+        ) != "1":
+            return AdapterResult(
+                status=BenchStatus.FAIL_INFRA,
+                backend_used="idea-to-chip",
+                errors=[
+                    "inputs.allow_dangerous=true requires "
+                    "EDA_AGENTS_ALLOW_DANGEROUS=1 in the env (double "
+                    "gate). Export the env var and retry, or set "
+                    "allow_dangerous=false if permissions are "
+                    "handled another way."
+                ],
+            )
         pdk_root = inputs.pdk_root or _resolve_librelane_pdk_root(inputs.pdk)
         if pdk_root is None:
             return AdapterResult(

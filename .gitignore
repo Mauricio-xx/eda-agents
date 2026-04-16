@@ -90,6 +90,27 @@ bench/results/*
 # for skill injection (+10% Pass@1 abs over 10-seed pairs).
 !bench/results/s10g_20260416T195409Z_comparison.md
 !bench/results/s10g_20260416T195409Z_analysis.md
+# S11 Fase 0 live evidence. NL idea -> digital GDS on GF180 counter4,
+# Pass@1 = 100% in 164s. Narrow allowlist: README + summary + report +
+# the structured idea_to_chip_result.json and the generated
+# LibreLane config.yaml. The agent-written RTL / testbench / runs/
+# stay gitignored (runs/ re-excluded below so the subdir allowlist
+# doesn't let the whole LibreLane tree through).
+!bench/results/s11_fase0_live/
+!bench/results/s11_fase0_live/README.md
+!bench/results/s11_fase0_live/summary.json
+!bench/results/s11_fase0_live/report.md
+!bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/
+!bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/idea_to_chip_result.json
+!bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/config.yaml
+# Re-exclude the heavy stuff (LibreLane run tree, agent-written RTL,
+# per-task JSON mirror, Claude Code's default-loaded project bundles).
+bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/runs/
+bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/src/
+bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/tb/
+bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live.json
+bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/.claude/
+bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/.venv/
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat

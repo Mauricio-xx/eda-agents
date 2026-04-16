@@ -363,6 +363,29 @@ class TestBenchAdapterDry:
         assert result.status is BenchStatus.FAIL_INFRA
         assert any("Claude Code CLI" in e for e in result.errors)
 
+    def test_live_dangerous_without_env_flag_skips(self, tmp_path, monkeypatch):
+        """Double-gate sanity: allow_dangerous=true + env var unset -> fail fast.
+
+        Without this check the CLI subprocess would hang on its first
+        permission prompt (stdin is piped; no way to approve interactively)
+        and burn the full 90-min timeout.
+        """
+        task = self._task_dry()
+        live_inputs = {
+            **task.inputs,
+            "dry_run": False,
+            "skip_gl_sim": True,
+            "allow_dangerous": True,
+        }
+        live_task = task.model_copy(update={"inputs": live_inputs})
+
+        # Pretend claude CLI exists, but strip the env gate.
+        monkeypatch.setattr(shutil, "which", lambda name: "/fake/claude")
+        monkeypatch.delenv("EDA_AGENTS_ALLOW_DANGEROUS", raising=False)
+        result = run_idea_to_digital_chip(live_task, tmp_path)
+        assert result.status is BenchStatus.FAIL_INFRA
+        assert any("EDA_AGENTS_ALLOW_DANGEROUS" in e for e in result.errors)
+
 
 class TestBenchAdapterValidation:
     def test_missing_required_fields_fails_infra(self, tmp_path):
