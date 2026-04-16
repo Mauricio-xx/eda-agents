@@ -6,9 +6,10 @@ SPICE-in-the-loop validation, a skill registry, a benchmark suite,
 and a Virtuoso-bridge-shaped orchestrator for the open-source EDA
 tool chain. Apache-2.0.
 
-Status: **experimental, with a visible roadmap**. The Session 9
-smoke bench reports 9/11 PASS (Pass@1 = 90% excluding skipped). The
-remaining gaps are listed under
+Status: **experimental, with a visible roadmap**. The bench reports
+**16/16 PASS (Pass@1 = 100%)** after Session S9-gap-closure
+(`feat/s9-gap-closure`). Upstream blockers and deferred follow-ons
+are listed under
 [Known limitations / roadmap](#known-limitations--roadmap); none of
 them are hidden as generic "future work".
 
@@ -16,9 +17,11 @@ them are hidden as generic "future work".
 
 - `CircuitTopology` / `SystemTopology` ABCs with a clean evaluation
   pipeline: `params -> sizing -> netlist -> SpiceRunner -> FoM`.
-- Topologies for Miller OTA (IHP), AnalogAcademy OTA, GF180 OTA,
-  StrongARM comparator, 8-bit SAR (transistor and behavioural), and
-  an 11-bit SAR flagged as a `DESIGN_REFERENCE`.
+- Topologies for Miller OTA (IHP + GF180), AnalogAcademy OTA, GF180
+  OTA, StrongARM comparator, 7-bit SAR (transistor +
+  `SAR7BitTopology`, behavioural + `SAR7BitBehavioralTopology`; old
+  "8-bit" names live as deprecation shims), and an 11-bit SAR
+  flagged as a `DESIGN_REFERENCE`.
 - ngspice integration with async support, measurement parsing, and
   optional OSDI / XSPICE code-model preload.
 - gm/ID LUT reader with analytical sizing helpers (`size`,
@@ -78,16 +81,16 @@ expects is on PATH.
 
 ```bash
 PYTHONPATH=src python scripts/run_bench.py --run-id quick_smoke
-# 9/11 PASS, 1 FAIL_SIM (GF180 Miller OTA — see Known limitations),
-# 1 SKIPPED (GL sim post-synth — no hardened LibreLane run).
+# 16/16 PASS, Pass@1 = 100% when OPENROUTER_API_KEY is sourced.
+# Without the key: 15 PASS + 1 SKIPPED (spec_llm_miller_ota_ihp).
 ```
 
 Local runs write under `bench/results/<run_id>/` plus a
 `bench/results/latest.md` pointer. Only
-`bench/results/s9_initial_smoke/` is tracked in git — see
-[`bench/results/README.md`](bench/results/README.md). The canonical
-Session 9 report lives at
-[`bench/results/s9_initial_smoke/report.md`](bench/results/s9_initial_smoke/report.md).
+`bench/results/s9_initial_smoke/` (frozen S9 baseline),
+`bench/results/gap_closure_llm_proof/` (LLM live-run evidence), and
+`bench/results/gap_closure_parallel/` (workers>1 proof) are tracked
+in git — see [`bench/results/README.md`](bench/results/README.md).
 
 ### 2. Bridge end-to-end demo (IHP SG13G2)
 
@@ -96,9 +99,8 @@ PYTHONPATH=src python examples/14_bridge_e2e.py --pdk ihp_sg13g2
 # Audit verdict: PASS. Adc = 32.5 dB, GBW = 1.39 MHz.
 ```
 
-The same demo on GF180MCU surfaces the
-`miller_ota_gf180_process_params` blocker (see
-[Known limitations](#known-limitations--roadmap)).
+The same demo on GF180MCU works end-to-end since S9-gap-closure
+(gap #1) fixed the `miller_ota_gf180_process_params` blocker.
 
 ### 3. Analog 4-role DAG dry-run (no tools, no model)
 
@@ -228,13 +230,12 @@ an end-to-end scenario.
 
 ## Known limitations / roadmap
 
-This section is deliberately explicit. The framework works for the
-IHP Miller OTA path end-to-end (simulate + bridge + bench); the
-open items below either have upstream blockers or are scheduled for
-the post-merge **Session 9 gap-closure** dedicated worktree
-(`feat/s9-gap-closure`, coming after `feat/arcadia-integration` is
-merged to `main`). Nothing here is a surprise — the bench run
-already surfaces most of it.
+All 11 S9 in-tree gaps were closed in session S9-gap-closure on
+branch `feat/s9-gap-closure` (11 commits, see `CHANGELOG.md` for
+the full mapping). Bench summary: **16/16 PASS, Pass@1 = 100%**
+when `OPENROUTER_API_KEY` is sourced; the LLM task SKIPS cleanly
+without it. Remaining open items below are upstream blockers (not
+our bugs) and deferred follow-ons, not bench regressions.
 
 ### Upstream blockers (not our bugs, but they gate us)
 
@@ -242,33 +243,21 @@ already surfaces most of it.
   DRC`. See
   [`docs/upstream_issues/ihp_magic_hang.md`](docs/upstream_issues/ihp_magic_hang.md).
   Effect: post-layout validation on IHP runs KLayout-only signoff;
-  Magic PEX is unavailable.
+  Magic PEX is unavailable. The bench routes digital RTL-to-GDS at
+  GF180MCU-D precisely to avoid this blocker.
 - **IHP KLayout LVS deck** is incomplete; `RUN_LVS: false` is set
   on the IHP flow until upstream lands a working deck. See
   [`docs/upstream_issues/ihp_klayout_lvs_deck.md`](docs/upstream_issues/ihp_klayout_lvs_deck.md).
 
-### In-tree gaps to close in Session 9 gap-closure
+### Deferred follow-ons (post-gap-closure, each its own session)
 
-| # | Gap | Ticket / file | Tier |
-|---|-----|---------------|------|
-| 1 | GF180 Miller OTA sizing uses IHP sEKV constants -> sub-Wmin devices -> `FAIL_SIM` | [`docs/upstream_issues/miller_ota_gf180_process_params.md`](docs/upstream_issues/miller_ota_gf180_process_params.md) | Tier 1 (productive) |
-| 2 | GL sim post-synth adapter has no hardened run to execute against; always `SKIPPED` today | `src/eda_agents/bench/adapters.py::run_gl_sim_post_synth` | Tier 2 (digital coverage) |
-| 3 | SAR 11-bit design reference still has heuristic calibration and 8-bit vs 7-bit-effective naming TODO | [`docs/skills/sar_adc/TODO_calibration.md`](docs/skills/sar_adc/TODO_calibration.md), [`docs/skills/sar_adc/TODO_naming.md`](docs/skills/sar_adc/TODO_naming.md) | Tier 3 (housekeeping) |
-| 4 | `digital_autoresearch` bench adapter is a stub returning `NOT_IMPLEMENTED` | `src/eda_agents/bench/adapters.py::digital_autoresearch_adapter` | Tier 2 |
-| 5 | No digital RTL-to-GDS bench task uses the autoresearch loop end-to-end | `bench/tasks/end-to-end/` (absent) | Tier 2 |
-| 6 | No bench task exercises the SAR 11-bit ENOB measurement path via ADCToolbox | `bench/tasks/` (absent) | Tier 1 |
-| 7 | No bugfix task for the StrongARM comparator (Vds inversion, missing body tie) | `bench/tasks/bugfix/` (absent) | Tier 1 |
-| 8 | Pass@1 is measured without a real LLM today — the current adapters are analytical / rule-based | `src/eda_agents/bench/adapters.py` (LLM-adapter absent) | Tier 1 |
-| 9 | `--workers > 1` is covered by unit tests but not by a smoke run that actually parallelizes real tool invocations | `scripts/run_bench.py` | Tier 3 |
-| 10 | Bench is not yet in CI (`--no-real-tools` would be the default CI recipe) | `.github/workflows/` (absent) | Tier 3 |
-| 11 | `BenchTask.inputs` is `dict[str, Any]`; a Pydantic sub-model per adapter would close the "silent typo" gap | `src/eda_agents/bench/models.py` | Tier 3 |
-
-The gap-closure scope, precondition (merge to `main` + new worktree
-`feat/s9-gap-closure`), and tier ordering are committed in
-`SESSION_HANDOFF.md` (gitignored) and in the user's persistent
-memory. If the session can only close Tier 1 + Tier 3 within its
-context window, Tier 2 splits into a follow-up rather than being
-rushed — **no superficial closures**.
+- **SAR calibration items 2-5** — `tau_regen` measurement, LDO wiring,
+  real bootstrap switch, corner sweep. Tracked in
+  [`docs/skills/sar_adc/TODO_calibration.md`](docs/skills/sar_adc/TODO_calibration.md)
+  (item 1, the spec anchor, is RESOLVED).
+- **Deprecation shim removal** — the `sar_adc_8bit` /
+  `sar_adc_8bit_behavioral` modules are thin re-exports of the
+  canonical 7-bit names. They stay until external callers migrate.
 
 ### Beyond gap-closure: exploratory capabilities
 

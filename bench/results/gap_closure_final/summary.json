@@ -1,0 +1,558 @@
+{
+  "by_family": {
+    "bugfix": {
+      "error": 0,
+      "fail": 0,
+      "pass": 4,
+      "skipped": 0,
+      "total": 4
+    },
+    "end-to-end": {
+      "error": 0,
+      "fail": 0,
+      "pass": 6,
+      "skipped": 0,
+      "total": 6
+    },
+    "spec-to-topology": {
+      "error": 0,
+      "fail": 0,
+      "pass": 4,
+      "skipped": 0,
+      "total": 4
+    },
+    "tb-generation": {
+      "error": 0,
+      "fail": 0,
+      "pass": 2,
+      "skipped": 0,
+      "total": 2
+    }
+  },
+  "errored": 0,
+  "failed": 0,
+  "pass_rate": 1.0,
+  "passed": 16,
+  "results": [
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/results/gap_closure_final/bugfix_bulk_connection_violation/gate_report.txt"
+      ],
+      "backend_used": "dry-run",
+      "duration_s": 0.0026624836027622223,
+      "errors": [],
+      "finished": "2026-04-16T10:44:26.868360+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "passed_gate": false,
+        "violations": 1.0
+      },
+      "notes": [
+        "expect_violation=True, detected=True",
+        "adapter_runtime_s=0.00"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": 1.0,
+        "compile": 1.0,
+        "metrics_in_range": null,
+        "regex_match": 1.0,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T10:44:26.865688+00:00",
+      "status": "PASS",
+      "task_id": "bugfix_bulk_connection_violation"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/results/gap_closure_final/bugfix_floating_node_clean/gate_report.txt"
+      ],
+      "backend_used": "dry-run",
+      "duration_s": 0.00020184926688671112,
+      "errors": [],
+      "finished": "2026-04-16T10:44:26.868856+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "passed_gate": true,
+        "violations": 0.0
+      },
+      "notes": [
+        "expect_violation=False, detected=False",
+        "adapter_runtime_s=0.00"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": 1.0,
+        "compile": 1.0,
+        "metrics_in_range": null,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T10:44:26.868649+00:00",
+      "status": "PASS",
+      "task_id": "bugfix_floating_node_clean"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/results/gap_closure_final/bugfix_floating_node_detected/gate_report.txt"
+      ],
+      "backend_used": "dry-run",
+      "duration_s": 0.0002109389752149582,
+      "errors": [],
+      "finished": "2026-04-16T10:44:26.869245+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "passed_gate": false,
+        "violations": 1.0
+      },
+      "notes": [
+        "expect_violation=True, detected=True",
+        "adapter_runtime_s=0.00"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": 1.0,
+        "compile": 1.0,
+        "metrics_in_range": null,
+        "regex_match": 1.0,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T10:44:26.869029+00:00",
+      "status": "PASS",
+      "task_id": "bugfix_floating_node_detected"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/results/gap_closure_final/bugfix_strongarm_vds_inversion/gate_report.txt"
+      ],
+      "backend_used": "dry-run",
+      "duration_s": 0.0001948988065123558,
+      "errors": [],
+      "finished": "2026-04-16T10:44:26.869695+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "passed_gate": false,
+        "violations": 1.0
+      },
+      "notes": [
+        "expect_violation=True, detected=True",
+        "adapter_runtime_s=0.00"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": 1.0,
+        "compile": 1.0,
+        "metrics_in_range": null,
+        "regex_match": 1.0,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T10:44:26.869494+00:00",
+      "status": "PASS",
+      "task_id": "bugfix_strongarm_vds_inversion"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/results/gap_closure_final/e2e_digital_autoresearch_counter/results.tsv"
+      ],
+      "backend_used": "librelane",
+      "duration_s": 4.168318380601704,
+      "errors": [],
+      "finished": "2026-04-16T10:44:31.038299+00:00",
+      "harness_used": "digital_autoresearch",
+      "metrics": {
+        "best_fom": 6151.388888888889,
+        "iterations_kept": 1.0,
+        "iterations_total": 2.0
+      },
+      "notes": [
+        "mode=mock",
+        "kept=1/2",
+        "best_valid=True",
+        "tsv=/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/results/gap_closure_final/e2e_digital_autoresearch_counter/results.tsv",
+        "adapter_runtime_s=4.17",
+        "iterations_kept=1 in range (margin=0)"
+      ],
+      "pdk_used": "gf180mcu",
+      "scores": {
+        "audit_passed": 1.0,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T10:44:26.869972+00:00",
+      "status": "PASS",
+      "task_id": "e2e_digital_autoresearch_counter"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/designs/counter_bench/runs/bench-e2e_digital_counter_gf180/final/gds/counter.gds",
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/designs/counter_bench/runs/bench-e2e_digital_counter_gf180/final/def/counter.def",
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/designs/counter_bench/runs/bench-e2e_digital_counter_gf180/final/nl/counter.nl.v",
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/designs/counter_bench/runs/bench-e2e_digital_counter_gf180"
+      ],
+      "backend_used": "librelane",
+      "duration_s": 53.06636071763933,
+      "errors": [],
+      "finished": "2026-04-16T10:45:24.105298+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "DRC_violations": 0.0,
+        "run_time_s": 52.88534483965486
+      },
+      "notes": [
+        "librelane_tag=bench-e2e_digital_counter_gf180",
+        "run_dir=/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/designs/counter_bench/runs/bench-e2e_digital_counter_gf180",
+        "DRC clean",
+        "cache_link=/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/cache/librelane_runs/counter/runs/bench-e2e_digital_counter_gf180",
+        "adapter_runtime_s=53.07",
+        "DRC_violations=0 in range (margin=0)"
+      ],
+      "pdk_used": "gf180mcu",
+      "scores": {
+        "audit_passed": null,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T10:44:31.038925+00:00",
+      "status": "PASS",
+      "task_id": "e2e_digital_counter_gf180"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/results/gap_closure_final/e2e_dry_run_pipeline_smoke/dry_run.txt"
+      ],
+      "backend_used": "dry-run",
+      "duration_s": 0.00019219890236854553,
+      "errors": [],
+      "finished": "2026-04-16T10:45:24.105807+00:00",
+      "harness_used": "dry_run",
+      "metrics": {
+        "Adc_dB": 60.0,
+        "GBW_Hz": 12000000.0,
+        "PM_deg": 65.0
+      },
+      "notes": [
+        "adapter_runtime_s=0.00",
+        "Adc_dB=60 in range (margin=30)",
+        "GBW_Hz=1.2e+07 in range (margin=1.1e+07)"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": 1.0,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T10:45:24.105608+00:00",
+      "status": "PASS",
+      "task_id": "e2e_dry_run_pipeline_smoke"
+    },
+    {
+      "artifacts": [],
+      "backend_used": "librelane",
+      "duration_s": 0.14055124390870333,
+      "errors": [],
+      "finished": "2026-04-16T10:45:24.246609+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "runtime_s": 0.13323618099093437
+      },
+      "notes": [
+        "stage=POST_SYNTH_SIM",
+        "adapter_runtime_s=0.14"
+      ],
+      "pdk_used": "gf180mcu",
+      "scores": {
+        "audit_passed": null,
+        "compile": 1.0,
+        "metrics_in_range": null,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T10:45:24.106050+00:00",
+      "status": "PASS",
+      "task_id": "e2e_gl_sim_post_synth_counter"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/results/gap_closure_final/e2e_miller_ota_audit_ihp/miller_ota.ac.cir"
+      ],
+      "backend_used": "ngspice-osdi",
+      "duration_s": 0.11580606549978256,
+      "errors": [],
+      "finished": "2026-04-16T10:45:24.362806+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "Adc_dB": 32.5033,
+        "GBW_Hz": 1385226.0,
+        "PM_deg": -42.28415
+      },
+      "notes": [
+        "ngspice ok in 0.11s; measurements=['Adc_dB', 'GBW_Hz', 'PM_deg']",
+        "adapter_runtime_s=0.12",
+        "Adc_dB=32.5 in range (margin=7.5)",
+        "GBW_Hz=1.385e+06 in range (margin=8.85e+05)",
+        "PM_deg=-42.28 in range (margin=138)"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": 1.0,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T10:45:24.246992+00:00",
+      "status": "PASS",
+      "task_id": "e2e_miller_ota_audit_ihp"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/results/gap_closure_final/e2e_sar11b_enob_ihp/sar_adc_11bit.cir"
+      ],
+      "backend_used": "ngspice-osdi",
+      "duration_s": 77.58983890153468,
+      "errors": [],
+      "finished": "2026-04-16T10:46:41.953046+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "ENOB": 4.451355955023635,
+        "SFDR_dBc": 33.77,
+        "SNDR_dBc": 28.56,
+        "THD_dBc": -37.98,
+        "code_span": 855.0,
+        "n_samples": 128.0,
+        "unique_codes": 98.0
+      },
+      "notes": [
+        "sar11_enob: ENOB=4.45 SNDR=28.6 dB codes=98",
+        "adapter_runtime_s=77.59",
+        "ENOB=4.451 in range (margin=0.451)",
+        "SNDR_dBc=28.56 in range (margin=3.56)"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": null,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T10:45:24.363199+00:00",
+      "status": "PASS",
+      "task_id": "e2e_sar11b_enob_ihp"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/results/gap_closure_final/spec_analog_roles_dryrun_dag/iteration_log.yaml"
+      ],
+      "backend_used": "analog_roles-dry",
+      "duration_s": 0.011225276626646519,
+      "errors": [],
+      "finished": "2026-04-16T10:46:41.964598+00:00",
+      "harness_used": "analog_roles",
+      "metrics": {
+        "final_status": "PASS",
+        "iterations_used": 1.0
+      },
+      "notes": [
+        "final_status=PASS",
+        "adapter_runtime_s=0.01"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": 1.0,
+        "compile": 1.0,
+        "metrics_in_range": null,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T10:46:41.953366+00:00",
+      "status": "PASS",
+      "task_id": "spec_analog_roles_dryrun_dag"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/results/gap_closure_final/spec_llm_miller_ota_ihp/llm_response.txt",
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/results/gap_closure_final/spec_llm_miller_ota_ihp/sim/miller_ota.ac.cir"
+      ],
+      "backend_used": "llm+ngspice-osdi",
+      "duration_s": 1.3749699052423239,
+      "errors": [],
+      "finished": "2026-04-16T10:46:43.339859+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "Adc_dB": 36.29815,
+        "GBW_Hz": 1627129.0,
+        "PM_deg": -40.19436
+      },
+      "notes": [
+        "ngspice ok in 0.11s; measurements=['Adc_dB', 'GBW_Hz', 'PM_deg']",
+        "LLM model=google/gemini-2.5-flash params={'gmid_input': 15.0, 'gmid_load': 10.0, 'L_input': 5e-07, 'L_load': 5e-07, 'Cc': 1e-12}",
+        "adapter_runtime_s=1.37",
+        "Adc_dB=36.3 in range (margin=11.3)",
+        "GBW_Hz=1.627e+06 in range (margin=1.13e+06)"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": null,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T10:46:41.964881+00:00",
+      "status": "PASS",
+      "task_id": "spec_llm_miller_ota_ihp"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/results/gap_closure_final/spec_miller_ota_gf180_easy/miller_ota.ac.cir"
+      ],
+      "backend_used": "ngspice",
+      "duration_s": 0.05370817147195339,
+      "errors": [],
+      "finished": "2026-04-16T10:46:43.393947+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "Adc_dB": 42.46925,
+        "GBW_Hz": 1359279.0,
+        "PM_deg": -36.07871
+      },
+      "notes": [
+        "ngspice ok in 0.05s; measurements=['Adc_dB', 'GBW_Hz', 'PM_deg']",
+        "adapter_runtime_s=0.05",
+        "Adc_dB=42.47 in range (margin=17.5)",
+        "GBW_Hz=1.359e+06 in range (margin=8.59e+05)"
+      ],
+      "pdk_used": "gf180mcu",
+      "scores": {
+        "audit_passed": null,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T10:46:43.340230+00:00",
+      "status": "PASS",
+      "task_id": "spec_miller_ota_gf180_easy"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/results/gap_closure_final/spec_miller_ota_ihp_easy/miller_ota.ac.cir"
+      ],
+      "backend_used": "ngspice-osdi",
+      "duration_s": 0.10820897668600082,
+      "errors": [],
+      "finished": "2026-04-16T10:46:43.502542+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "Adc_dB": 32.5033,
+        "GBW_Hz": 1385226.0,
+        "PM_deg": -42.28415
+      },
+      "notes": [
+        "ngspice ok in 0.11s; measurements=['Adc_dB', 'GBW_Hz', 'PM_deg']",
+        "adapter_runtime_s=0.11",
+        "missing required pattern: 'Adc_dB'",
+        "Adc_dB=32.5 in range (margin=7.5)",
+        "GBW_Hz=1.385e+06 in range (margin=8.85e+05)"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": null,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T10:46:43.394325+00:00",
+      "status": "PASS",
+      "task_id": "spec_miller_ota_ihp_easy"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/results/gap_closure_final/tb_miller_ota_ac_runs/miller_ota.ac.cir"
+      ],
+      "backend_used": "ngspice-osdi",
+      "duration_s": 0.11010327469557524,
+      "errors": [],
+      "finished": "2026-04-16T10:46:43.613118+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "Adc_dB": 32.5033,
+        "GBW_Hz": 1385226.0,
+        "PM_deg": -42.28415
+      },
+      "notes": [
+        "ngspice ok in 0.11s; measurements=['Adc_dB', 'GBW_Hz', 'PM_deg']",
+        "adapter_runtime_s=0.11",
+        "Adc_dB=32.5 in range (margin=31.5)"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": null,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T10:46:43.503005+00:00",
+      "status": "PASS",
+      "task_id": "tb_miller_ota_ac_runs"
+    },
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s9-gap-closure/bench/results/gap_closure_final/tb_miller_ota_deck_emits_ac_meas/miller_ota.ac.cir"
+      ],
+      "backend_used": "ngspice-osdi",
+      "duration_s": 0.11642242409288883,
+      "errors": [],
+      "finished": "2026-04-16T10:46:43.730079+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "Adc_dB": 32.5033,
+        "GBW_Hz": 1385226.0,
+        "PM_deg": -42.28415
+      },
+      "notes": [
+        "ngspice ok in 0.12s; measurements=['Adc_dB', 'GBW_Hz', 'PM_deg']",
+        "adapter_runtime_s=0.12"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": null,
+        "compile": 1.0,
+        "metrics_in_range": null,
+        "regex_match": 1.0,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T10:46:43.613647+00:00",
+      "status": "PASS",
+      "task_id": "tb_miller_ota_deck_emits_ac_meas"
+    }
+  ],
+  "run_id": "gap_closure_final",
+  "skipped": 0,
+  "total": 16
+}

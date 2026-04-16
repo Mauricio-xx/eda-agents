@@ -43,6 +43,12 @@ bench/results/*
 !bench/results/gap_closure_parallel/summary.json
 !bench/results/gap_closure_parallel/report.md
 !bench/results/gap_closure_parallel/README.md
+# Final bench run for session S9-gap-closure close-out. Same narrow
+# rule as the parallel proof: summary + report + README only.
+!bench/results/gap_closure_final/
+!bench/results/gap_closure_final/summary.json
+!bench/results/gap_closure_final/report.md
+!bench/results/gap_closure_final/README.md
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat
