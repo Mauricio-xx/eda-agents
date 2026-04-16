@@ -267,6 +267,28 @@ class LibreLaneRunner:
             env["PDK_ROOT"] = self.pdk_root
         env.update(self.env_extra)
 
+        # Nix-patched Python embedded in yosys resolves ``sys.executable``
+        # by scanning PATH. If any ``*/bin`` on PATH is a virtualenv
+        # whose ``python3`` sits above the yosys-python-env entry in
+        # resolution order, Python adopts that venv's prefix and loses
+        # the nix site-packages where yosys' pyosys scripts' deps
+        # (click, ys_common) live. Strip VIRTUAL_ENV and every
+        # pyvenv-tagged bin directory from the subprocess PATH so the
+        # nix-provided Python wins outright. Observed regression
+        # 2026-04-16 against LibreLane 3.0.0rc0 + yosys 0.62.
+        venv_dir = env.pop("VIRTUAL_ENV", "")
+        path_entries = (env.get("PATH") or "").split(":")
+        def _is_venv_bin(p: str) -> bool:
+            if not p:
+                return False
+            if venv_dir and p.startswith(venv_dir):
+                return True
+            try:
+                return os.path.isfile(os.path.join(os.path.dirname(p), "pyvenv.cfg"))
+            except OSError:
+                return False
+        env["PATH"] = ":".join(p for p in path_entries if not _is_venv_bin(p))
+
         # Build the actual subprocess command
         if self.shell_wrapper:
             # Wrap: e.g. nix-shell /path --run 'python3 -m librelane ...'
