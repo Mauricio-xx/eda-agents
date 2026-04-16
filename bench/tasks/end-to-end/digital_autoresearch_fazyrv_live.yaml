@@ -1,0 +1,47 @@
+id: e2e_digital_autoresearch_fazyrv_live
+family: end-to-end
+category: digital
+domain: digital
+pdk: gf180mcu
+difficulty: hard
+expected_backend: librelane
+harness: digital_autoresearch
+topology: fazyrv_frv_1
+inputs:
+  design_class: fazyrv_hachure
+  budget: 4
+expected_metrics:
+  iterations_kept: {min: 1, unit: count}
+scoring:
+  - audit_passed
+  - metrics_in_range
+weight: 2.0
+timeout_s: 3600
+notes: |
+  S10h A/B counterpart to the counter-live task: exercises digital
+  skill injection (``digital.synthesis``, ``digital.physical``,
+  ``digital.signoff``) on a real RISC-V macro (fazyrv frv_1) instead
+  of the toy 4-bit counter. Design space 5x4 = 20 combos vs
+  counter's 12, and the reference design point (density 65, clock
+  40 ns) sits at WNS +1.41 ns — tight enough that some combos will
+  actually fail timing. That is exactly where methodology knowledge
+  has room to bite.
+
+  Budget=4 so the autoresearch loop gets more than a single shot.
+  Wall-clock per run is dominated by LibreLane (frv_1 hardens in
+  ~270 s at the reference point per Phase 0), so budget 4 lands
+  around ~18 min/run; 6 runs (3 seeds x 2 conds) -> ~110 min total.
+
+  Requires simultaneously:
+    - OPENROUTER_API_KEY in the environment.
+    - /home/montanares/git/gf180mcu-fazyrv-hachure cloned at the
+      Phase 0 pin (via scripts/fetch_digital_designs.sh).
+    - nix-shell invocable at the repo root (fazyrv brings its own
+      LibreLane via ``nix-shell /path --run``).
+    - Its bundled PDK under
+      /home/montanares/git/gf180mcu-fazyrv-hachure/gf180mcu.
+
+  If any of the above is missing the adapter surfaces FAIL_INFRA
+  which the bench runner maps to SKIPPED. Not flagged as a gap #8
+  / #5 equivalent — this is an S10h-specific A/B task and does not
+  replace any existing green evidence.

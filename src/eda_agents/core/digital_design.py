@@ -221,6 +221,18 @@ class DigitalDesign(ABC):
         """
         return None
 
+    def librelane_extra_flags(self) -> list[str]:
+        """Design-specific LibreLane CLI flags.
+
+        Appended to the PDK-level ``librelane_extra_flags`` (e.g.
+        ``--manual-pdk`` for GF180). Use for per-design workarounds
+        such as ``--skip`` directives when a design is known to fail
+        an upstream-broken signoff step.
+
+        Returns ``[]`` by default.
+        """
+        return []
+
     def default_config(self) -> dict[str, object]:
         """Return a reasonable default design point.
 

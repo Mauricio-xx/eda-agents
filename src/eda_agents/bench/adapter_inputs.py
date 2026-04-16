@@ -182,6 +182,20 @@ class DigitalAutoresearchInputs(BaseModel):
     design_dir: str | None = None
     budget: int = Field(default=2, ge=1, le=10)
     mock_metrics_path: str | None = None
+    # S10h: select a specific DigitalDesign subclass instead of the
+    # default GenericDesign wrapper. Needed for designs that carry a
+    # nix-shell wrapper or custom prompt metadata (e.g.
+    # ``fazyrv_hachure`` on GF180MCU). When unset the adapter falls
+    # back to ``GenericDesign(config_path=...)``.
+    design_class: str | None = Field(
+        default=None,
+        description=(
+            "Optional DigitalDesign subclass name. Supported: "
+            "'fazyrv_hachure'. When provided, the adapter instantiates "
+            "that class with design-specific defaults instead of "
+            "GenericDesign."
+        ),
+    )
 
 
 class LlmSpecToSizingInputs(BaseModel):

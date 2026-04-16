@@ -243,58 +243,112 @@ def digital_autoresearch_adapter(task: BenchTask, work_dir: Path) -> AdapterResu
 
     import asyncio
 
-    if not inputs.design_dir:
-        return AdapterResult(
-            status=BenchStatus.FAIL_INFRA,
-            backend_used="librelane",
-            errors=["digital_autoresearch_adapter: inputs.design_dir is required"],
-        )
-
-    design_dir = _resolve_bench_design_dir(inputs.design_dir)
-    if not design_dir.is_dir():
-        return AdapterResult(
-            status=BenchStatus.FAIL_INFRA,
-            backend_used="librelane",
-            errors=[f"design_dir not found: {design_dir}"],
-        )
-
-    config_path = design_dir / "config.yaml"
-    if not config_path.is_file():
-        config_path = design_dir / "config.json"
-    if not config_path.is_file():
-        return AdapterResult(
-            status=BenchStatus.FAIL_INFRA,
-            backend_used="librelane",
-            errors=[f"neither config.yaml nor config.json under {design_dir}"],
-        )
-
     from eda_agents.agents.digital_autoresearch import DigitalAutoresearchRunner
     from eda_agents.core.designs.generic import GenericDesign
 
     pdk_name = task.pdk or "gf180mcu"
     pdk_root = _resolve_librelane_pdk_root(pdk_name)
 
-    # In mock mode we don't need LibreLane — but GenericDesign still
-    # wants a PDK config for prompt metadata. Pass the requested PDK
-    # name and let GenericDesign fall back to its default root when
-    # none is reachable.
-    try:
-        design = GenericDesign(
-            config_path=config_path,
-            pdk_root=pdk_root,
-            pdk_config=pdk_name,
-        )
-    except Exception as exc:  # noqa: BLE001
-        return AdapterResult(
-            status=BenchStatus.FAIL_INFRA,
-            backend_used="librelane",
-            errors=[f"GenericDesign init failed: {type(exc).__name__}: {exc}"],
-        )
+    # S10h: when ``design_class`` is requested, instantiate the
+    # matching DigitalDesign subclass instead of the GenericDesign
+    # wrapper. These designs know their own config_path / project_dir
+    # / shell_wrapper so ``inputs.design_dir`` becomes optional. The
+    # GenericDesign path still requires design_dir + config.{yaml,json}.
+    design_class = (inputs.design_class or "").strip().lower()
+    config_path: Path
+    if design_class:
+        try:
+            if design_class == "fazyrv_hachure":
+                from eda_agents.core.designs.fazyrv_hachure import (
+                    FazyRvHachureDesign,
+                )
+                design = FazyRvHachureDesign(macro="frv_1")
+            else:
+                return AdapterResult(
+                    status=BenchStatus.FAIL_INFRA,
+                    backend_used="librelane",
+                    errors=[
+                        f"digital_autoresearch_adapter: unknown design_class="
+                        f"{inputs.design_class!r}. Supported: 'fazyrv_hachure'."
+                    ],
+                )
+        except Exception as exc:  # noqa: BLE001
+            return AdapterResult(
+                status=BenchStatus.FAIL_INFRA,
+                backend_used="librelane",
+                errors=[
+                    f"{design_class} init failed: "
+                    f"{type(exc).__name__}: {exc}"
+                ],
+            )
+        config_path = design.librelane_config()
+        if not config_path.is_file():
+            return AdapterResult(
+                status=BenchStatus.FAIL_INFRA,
+                backend_used="librelane",
+                errors=[
+                    f"{design_class}: librelane_config() not found at "
+                    f"{config_path}"
+                ],
+            )
+    else:
+        if not inputs.design_dir:
+            return AdapterResult(
+                status=BenchStatus.FAIL_INFRA,
+                backend_used="librelane",
+                errors=["digital_autoresearch_adapter: inputs.design_dir is required"],
+            )
+        design_dir = _resolve_bench_design_dir(inputs.design_dir)
+        if not design_dir.is_dir():
+            return AdapterResult(
+                status=BenchStatus.FAIL_INFRA,
+                backend_used="librelane",
+                errors=[f"design_dir not found: {design_dir}"],
+            )
+        config_path = design_dir / "config.yaml"
+        if not config_path.is_file():
+            config_path = design_dir / "config.json"
+        if not config_path.is_file():
+            return AdapterResult(
+                status=BenchStatus.FAIL_INFRA,
+                backend_used="librelane",
+                errors=[
+                    f"neither config.yaml nor config.json under {design_dir}"
+                ],
+            )
+        try:
+            design = GenericDesign(
+                config_path=config_path,
+                pdk_root=pdk_root,
+                pdk_config=pdk_name,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return AdapterResult(
+                status=BenchStatus.FAIL_INFRA,
+                backend_used="librelane",
+                errors=[
+                    f"GenericDesign init failed: "
+                    f"{type(exc).__name__}: {exc}"
+                ],
+            )
 
     mock_path: Path | None = None
     if inputs.mock_metrics_path:
         mock_path = Path(inputs.mock_metrics_path)
         if not mock_path.is_absolute():
+            # Only GenericDesign knows a design_dir root to anchor
+            # relative paths; design_class paths must supply absolute
+            # mock paths (they typically run live anyway).
+            if design_class:
+                return AdapterResult(
+                    status=BenchStatus.FAIL_INFRA,
+                    backend_used="librelane",
+                    errors=[
+                        f"mock_metrics_path must be absolute when "
+                        f"design_class={inputs.design_class!r} "
+                        f"(no design_dir anchor)."
+                    ],
+                )
             mock_path = (design_dir / mock_path).resolve()
         if not mock_path.is_file():
             return AdapterResult(
@@ -309,7 +363,11 @@ def digital_autoresearch_adapter(task: BenchTask, work_dir: Path) -> AdapterResu
     if mock_path is None:
         import os as _os
 
-        if pdk_root is None:
+        # Design-class designs carry their own bundled PDK
+        # (e.g. fazyrv's ``gf180mcu/`` submodule). Accept either the
+        # adapter-resolved wafer-space root or the design's own root.
+        design_pdk = design.pdk_root() if hasattr(design, "pdk_root") else None
+        if pdk_root is None and not design_pdk:
             return AdapterResult(
                 status=BenchStatus.FAIL_INFRA,
                 backend_used="librelane",

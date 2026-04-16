@@ -124,6 +124,19 @@ class FazyRvHachureDesign(DigitalDesign):
             return f"nix-shell {self._repo_dir} --run"
         return None
 
+    def librelane_extra_flags(self) -> list[str]:
+        # Upstream Magic.StreamOut + KLayout.DRC deck wiring is broken
+        # on the leo/gf180mcu LibreLane branch fazyrv pins — the
+        # project's own Makefile skips both via ``make macro-nodrc``
+        # (``--skip KLayout.DRC --skip Magic.DRC``). Mirror that here
+        # so the autoresearch loop finishes through CTS + routing and
+        # reports meaningful WNS/area/power metrics instead of
+        # blowing up at step 65 on a ``None`` DRC deck path.
+        return [
+            "--skip", "KLayout.DRC",
+            "--skip", "Magic.DRC",
+        ]
+
     def flow_type(self):
         return "Chip" if not self._macro else "Classic"
 
