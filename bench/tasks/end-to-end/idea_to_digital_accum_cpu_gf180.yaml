@@ -1,0 +1,91 @@
+id: e2e_idea_to_digital_accum_cpu_gf180
+family: end-to-end
+category: digital
+domain: digital
+pdk: gf180mcu
+difficulty: medium
+expected_backend: dry-run
+harness: callable
+topology: accum_cpu
+inputs:
+  callable: eda_agents.bench.adapters:run_idea_to_digital_chip
+  description: |
+    Simple 8-bit accumulator-based CPU ("acpu") with Harvard memory.
+
+    Interfaces:
+      - clk: clock (rising-edge).
+      - rst_n: active-low async reset.
+      - Instruction memory port (read-only):
+          imem_addr[7:0]  (output): program counter.
+          imem_rdata[15:0] (input): 16-bit instruction word at that PC.
+      - Data memory port (read/write):
+          dmem_addr[7:0]   (output): effective address.
+          dmem_rdata[7:0]  (input):  data at that address on reads.
+          dmem_wdata[7:0]  (output): data written on stores.
+          dmem_we          (output): write-enable (1 cycle on stores).
+      - halt (output): 1 after a HALT instruction executes.
+
+    Architecture:
+      - 8-bit accumulator (acc).
+      - 8-bit program counter (pc).
+      - 1-bit flags: Z (zero), N (negative / sign of acc).
+      - No other GPRs; all arithmetic goes through acc.
+      - Single-cycle (no pipeline). Each instruction takes exactly
+        one clock cycle to fetch + execute.
+
+    Instruction encoding (16 bits: [15:12]=opcode, [11:8]=unused,
+    [7:0]=immediate or address depending on opcode):
+
+      0x0 NOP         acc, pc unchanged (pc++).
+      0x1 LDI  imm    acc <- imm (imem_rdata[7:0]).
+      0x2 LDA  addr   acc <- dmem[addr].
+      0x3 STA  addr   dmem[addr] <- acc.
+      0x4 ADDI imm    acc <- acc + imm.
+      0x5 ADDM addr   acc <- acc + dmem[addr].
+      0x6 SUBI imm    acc <- acc - imm.
+      0x7 ANDI imm    acc <- acc & imm.
+      0x8 ORI  imm    acc <- acc | imm.
+      0x9 XORI imm    acc <- acc ^ imm.
+      0xA JMP  addr   pc <- addr (unconditional).
+      0xB JZ   addr   if (Z==1) pc <- addr; else pc <- pc+1.
+      0xC JN   addr   if (N==1) pc <- addr; else pc <- pc+1.
+      0xD SHL         acc <- acc << 1.
+      0xE SHR         acc <- acc >> 1.
+      0xF HALT        halt <- 1; pc stays put.
+
+    After each instruction:
+      - Z <- (acc == 8'b0).
+      - N <- acc[7].
+      - pc increments unless the opcode explicitly wrote it.
+
+    Testbench requirements:
+      - Preload a small program through imem_rdata (driven as a
+        ROM-style combinational lookup from imem_addr). Include
+        coverage for at least: LDI, ADDI, SUBI, ANDI, ORI, XORI,
+        JMP, JZ taken & not-taken, JN taken & not-taken, LDA+STA
+        round-trip through dmem, SHL, SHR, HALT.
+      - dmem should be a small 8-bit-wide register file
+        (addressable via dmem_addr) with synchronous write.
+      - The cocotb / iverilog testbench MUST print "PASS" only when
+        every instruction under test matched its expected post-state
+        (acc, Z, N, or dmem[addr] as applicable). Print "FAIL" with
+        the failing instruction and expected/actual values otherwise.
+      - Gate-level-safe: no # delays driving DUT inputs, stimulus
+        on posedge clk, no check in the first cycle after reset.
+  design_name: acpu
+  pdk: gf180mcu
+  complexity: complex
+  dry_run: true
+expected_metrics:
+  prompt_length: {min: 3000, unit: chars}
+scoring:
+  - compile
+  - metrics_in_range
+weight: 2.0
+timeout_s: 120
+notes: |
+  S11 Fase 2 dry gate. Target: ~2-5k gate small CPU. Complexity
+  label is "complex" (highest tier) but we still try single-shot per
+  the Fase 1 finding (ALU went through in one turn). If Fase 2 live
+  does not pass, the IdeaToRTLLoop becomes justified — and the
+  ALU-level test already proved the infrastructure is good.

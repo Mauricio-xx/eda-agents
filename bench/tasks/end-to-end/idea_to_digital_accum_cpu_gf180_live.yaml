@@ -1,0 +1,113 @@
+id: e2e_idea_to_digital_accum_cpu_gf180_live
+family: end-to-end
+category: digital
+domain: digital
+pdk: gf180mcu
+difficulty: hard
+expected_backend: librelane
+harness: callable
+topology: accum_cpu
+inputs:
+  callable: eda_agents.bench.adapters:run_idea_to_digital_chip
+  description: |
+    Simple 8-bit accumulator-based CPU ("acpu") with Harvard memory.
+
+    Interfaces:
+      - clk: clock (rising-edge).
+      - rst_n: active-low async reset.
+      - Instruction memory port (read-only):
+          imem_addr[7:0]  (output): program counter.
+          imem_rdata[15:0] (input): 16-bit instruction word at that PC.
+      - Data memory port (read/write):
+          dmem_addr[7:0]   (output): effective address.
+          dmem_rdata[7:0]  (input):  data at that address on reads.
+          dmem_wdata[7:0]  (output): data written on stores.
+          dmem_we          (output): write-enable (1 cycle on stores).
+      - halt (output): 1 after a HALT instruction executes.
+
+    Architecture:
+      - 8-bit accumulator (acc).
+      - 8-bit program counter (pc).
+      - 1-bit flags: Z (zero), N (negative / sign of acc).
+      - No other GPRs; all arithmetic goes through acc.
+      - Single-cycle (no pipeline). Each instruction takes exactly
+        one clock cycle to fetch + execute.
+
+    Instruction encoding (16 bits: [15:12]=opcode, [11:8]=unused,
+    [7:0]=immediate or address depending on opcode):
+
+      0x0 NOP         acc, pc unchanged (pc++).
+      0x1 LDI  imm    acc <- imm (imem_rdata[7:0]).
+      0x2 LDA  addr   acc <- dmem[addr].
+      0x3 STA  addr   dmem[addr] <- acc.
+      0x4 ADDI imm    acc <- acc + imm.
+      0x5 ADDM addr   acc <- acc + dmem[addr].
+      0x6 SUBI imm    acc <- acc - imm.
+      0x7 ANDI imm    acc <- acc & imm.
+      0x8 ORI  imm    acc <- acc | imm.
+      0x9 XORI imm    acc <- acc ^ imm.
+      0xA JMP  addr   pc <- addr (unconditional).
+      0xB JZ   addr   if (Z==1) pc <- addr; else pc <- pc+1.
+      0xC JN   addr   if (N==1) pc <- addr; else pc <- pc+1.
+      0xD SHL         acc <- acc << 1.
+      0xE SHR         acc <- acc >> 1.
+      0xF HALT        halt <- 1; pc stays put.
+
+    After each instruction:
+      - Z <- (acc == 8'b0).
+      - N <- acc[7].
+      - pc increments unless the opcode explicitly wrote it.
+
+    Testbench requirements:
+      - Wrap the CPU inside a synthesisable top that instantiates:
+          (a) a small instruction ROM indexed by imem_addr, pre-loaded
+              with a program that exercises every opcode at least once;
+          (b) a small data RAM addressed by dmem_addr with synchronous
+              write on dmem_we.
+        That wrapper (top-level DESIGN_NAME = acpu) is what LibreLane
+        hardens. LibreLane will include the ROM/RAM inferred as flops;
+        that is acceptable for a small demo CPU.
+      - The cocotb / iverilog testbench drives only clk + rst_n and
+        observes halt, then reads out final dmem contents through
+        a few post-halt cycles or through additional observation
+        ports. Either approach is fine — whichever is simpler.
+      - The testbench MUST print "PASS" when the program ran to HALT
+        AND the expected final state was observed (at least: final
+        acc value, final Z/N flags, and a specific dmem location
+        whose contents the program wrote).
+      - Gate-level-safe: no # delays driving DUT inputs, stimulus
+        on posedge clk, no correctness check in the first cycle
+        after reset.
+  design_name: acpu
+  pdk: gf180mcu
+  complexity: complex
+  dry_run: false
+  skip_gl_sim: false
+  allow_dangerous: true
+  max_budget_usd: 15.0
+  timeout_s: 5400
+  librelane_python: /home/montanares/git/librelane/.venv/bin/python
+expected_metrics:
+  gds_exists: {min: 1, unit: bool}
+  gl_post_synth_ok: {min: 1, unit: bool}
+  gl_post_pnr_ok: {min: 1, unit: bool}
+scoring:
+  - compile
+  - sim_run
+  - metrics_in_range
+weight: 4.0
+timeout_s: 5400
+notes: |
+  S11 Fase 2 LIVE probe. Target: small accumulator-based CPU with a
+  16-op ISA, on-die instruction ROM + data RAM wrapper so LibreLane
+  has a closed design to harden. This is the complex-tier gate in
+  the session plan. Single-shot first per the Fase 1 finding; if
+  this fails, the iterative IdeaToRTLLoop gets implemented next.
+
+  Budget $15 (higher than ALU's $10) because the CPU + memories
+  takes more turns to write. Timeout 90 min (LibreLane for ~5k gates
+  + memory macros is comfortably within that on GF180).
+
+  Env requirements same as the ALU live task: Claude CLI,
+  EDA_AGENTS_ALLOW_DANGEROUS=1, GF180 PDK, LibreLane venv. Short-
+  circuits to SKIPPED if any are missing.
