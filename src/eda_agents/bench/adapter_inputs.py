@@ -184,6 +184,87 @@ class DigitalAutoresearchInputs(BaseModel):
     mock_metrics_path: str | None = None
 
 
+class IdeaToDigitalChipInputs(BaseModel):
+    """Inputs for ``run_idea_to_digital_chip`` (S11 Fase 0)."""
+
+    model_config = _COMMON_CFG
+
+    callable: str  # namespace-checked by resolve_callable upstream
+    description: str = Field(
+        ...,
+        min_length=8,
+        description=(
+            "Natural-language description of the digital block "
+            "(e.g. '4-bit sync counter with enable, async-low reset')."
+        ),
+    )
+    design_name: str = Field(
+        ...,
+        min_length=1,
+        description="Top module name; drives filenames and DESIGN_NAME.",
+    )
+    pdk: str = Field(
+        default="gf180mcu",
+        description="PDK key: gf180mcu | ihp_sg13g2.",
+    )
+    complexity: str = Field(
+        default="simple",
+        description="simple | medium | complex. Gates the Fase-1 loop hook.",
+    )
+    pdk_root: str | None = Field(
+        default=None,
+        description="Explicit PDK_ROOT path; falls back to env/default.",
+    )
+    librelane_python: str = Field(
+        default="python3",
+        description="Python interpreter that can run `python3 -m librelane`.",
+    )
+    timeout_s: int = Field(
+        default=3600, ge=60, le=14400,
+        description="Claude Code CLI subprocess timeout (seconds).",
+    )
+    max_budget_usd: float | None = Field(
+        default=None, gt=0.0,
+        description="Upper LLM spend per run.",
+    )
+    model: str | None = None
+    dry_run: bool = Field(
+        default=True,
+        description=(
+            "When True, the adapter only builds the prompt — does not "
+            "launch Claude Code. Keep True on CI hosts."
+        ),
+    )
+    skip_gl_sim: bool = Field(
+        default=False,
+        description="Skip post-synth + post-PnR GL sim after the flow.",
+    )
+    allow_dangerous: bool = Field(
+        default=False,
+        description=(
+            "First gate for Claude CLI --dangerously-skip-permissions. "
+            "Also requires EDA_AGENTS_ALLOW_DANGEROUS=1 in the env. "
+            "Off by default — live tasks must opt in explicitly."
+        ),
+    )
+
+    @field_validator("pdk")
+    @classmethod
+    def _known_pdk(cls, v: str) -> str:
+        allowed = {"gf180mcu", "ihp_sg13g2"}
+        if v not in allowed:
+            raise ValueError(f"pdk {v!r}; allowed: {sorted(allowed)}")
+        return v
+
+    @field_validator("complexity")
+    @classmethod
+    def _known_complexity(cls, v: str) -> str:
+        allowed = {"simple", "medium", "complex"}
+        if v not in allowed:
+            raise ValueError(f"complexity {v!r}; allowed: {sorted(allowed)}")
+        return v
+
+
 class LlmSpecToSizingInputs(BaseModel):
     """Inputs for ``llm_spec_to_sizing_adapter`` (gap #8)."""
 
@@ -211,6 +292,7 @@ __all__ = [
     "DigitalFlowInputs",
     "DryRunInputs",
     "GlSimPostSynthInputs",
+    "IdeaToDigitalChipInputs",
     "LlmSpecToSizingInputs",
     "MillerDesignParams",
     "PreSimGateInputs",
