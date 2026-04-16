@@ -137,3 +137,85 @@ class TestGLayoutIntegration:
         assert Path(result.gds_path).is_file()
         assert result.netlist_path
         assert Path(result.netlist_path).is_file()
+
+
+@pytest.mark.glayout
+class TestGLayoutPdkDispatch:
+    """S11 Fase 4: PDK dispatch through generalised glayout_driver.
+
+    The driver now routes spec['pdk'] to either gf180_mapped_pdk or
+    sg13g2_mapped_pdk, and accepts diff_pair / current_mirror / FVF as
+    composite components. These tests prove the plumbing runs real
+    gLayout on both PDKs — they skip gracefully when ``.venv-glayout``
+    isn't set up.
+    """
+
+    @pytest.fixture(autouse=True)
+    def check_prereqs(self):
+        # Try the worktree-local venv first, then fall back to the main
+        # repo's venv (which is where .venv-glayout actually lives).
+        local = Path(".venv-glayout")
+        main = Path("/home/montanares/personal_exp/eda-agents/.venv-glayout")
+        if not local.is_dir() and not main.is_dir():
+            pytest.skip("no .venv-glayout found (tried local + main repo)")
+
+    def _runner(self, pdk: str) -> GLayoutRunner:
+        local = Path(".venv-glayout")
+        venv = str(local) if local.is_dir() else (
+            "/home/montanares/personal_exp/eda-agents/.venv-glayout"
+        )
+        return GLayoutRunner(glayout_venv=venv, pdk=pdk)
+
+    def test_nmos_gf180(self, tmp_path):
+        result = self._runner("gf180mcu").generate_component(
+            component="nmos",
+            params={"width": 1.0, "length": 0.28, "fingers": 2},
+            output_dir=tmp_path,
+        )
+        assert result.success, f"gf180 nmos failed: {result.error}"
+        assert Path(result.gds_path).is_file()
+
+    def test_nmos_sg13g2(self, tmp_path):
+        result = self._runner("ihp_sg13g2").generate_component(
+            component="nmos",
+            params={"width": 1.0, "length": 0.13, "fingers": 2},
+            output_dir=tmp_path,
+        )
+        assert result.success, f"sg13g2 nmos failed: {result.error}"
+        assert Path(result.gds_path).is_file()
+
+    def test_diff_pair_sg13g2(self, tmp_path):
+        result = self._runner("ihp_sg13g2").generate_component(
+            component="diff_pair",
+            params={"width": 5.0, "length": 1.0, "fingers": 4},
+            output_dir=tmp_path,
+        )
+        assert result.success, f"sg13g2 diff_pair failed: {result.error}"
+        assert Path(result.gds_path).is_file()
+
+    def test_opamp_rejects_sg13g2(self, tmp_path):
+        # opamp_twostage is gf180-only until the SG13G2 upstream port
+        # lands. The driver must surface a clear error rather than
+        # crash mid-composite-build.
+        result = self._runner("ihp_sg13g2").generate_component(
+            component="opamp_twostage",
+            params={},
+            output_dir=tmp_path,
+        )
+        assert not result.success
+        assert "gf180mcu-only" in (result.error or "")
+
+    def test_unknown_pdk_errors_cleanly(self, tmp_path):
+        runner = GLayoutRunner(
+            glayout_venv=(
+                "/home/montanares/personal_exp/eda-agents/.venv-glayout"
+            ),
+            pdk="skywater-alternate",
+        )
+        result = runner.generate_component(
+            component="nmos",
+            params={"width": 1.0},
+            output_dir=tmp_path,
+        )
+        assert not result.success
+        assert "not importable" in (result.error or "") or "PDK" in (result.error or "")
