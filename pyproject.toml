@@ -46,6 +46,9 @@ adk = [
 coordination = [
     "context-teleport>=0.5.0",
 ]
+mcp = [
+    "fastmcp>=0.1.0",
+]
 adc = [
     "adctoolbox>=0.6.4",
 ]
@@ -73,6 +76,7 @@ markers = [
     "xspice: requires ngspice source tree with cmpp + C toolchain for .cm code-model builds (deselect with -m 'not xspice')",
     "bridge: end-to-end EDA bridge demo (deselect with -m 'not bridge')",
     "bench: eda-agents benchmark suite end-to-end (deselect with -m 'not bench')",
+    "mcp: requires fastmcp for MCP server tests (deselect with -m 'not mcp')",
 ]
 
 [tool.ruff]

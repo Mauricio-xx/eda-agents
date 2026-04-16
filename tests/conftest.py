@@ -1,5 +1,6 @@
 """Shared test fixtures for eda-agents."""
 
+import importlib.util
 import os
 
 import pytest
@@ -16,8 +17,14 @@ def _pdk_available(pdk: PdkConfig) -> bool:
     return os.path.isfile(model_path)
 
 
+def _has_mcp() -> bool:
+    """Detect the optional ``fastmcp`` dependency used by the MCP server."""
+    return importlib.util.find_spec("fastmcp") is not None
+
+
 ihp_available = _pdk_available(IHP_SG13G2)
 gf180_available = _pdk_available(GF180MCU_D)
+HAS_MCP = _has_mcp()
 
 
 @pytest.fixture(params=["ihp_sg13g2", "gf180mcu"])
