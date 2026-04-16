@@ -36,6 +36,13 @@ bench/results/*
 !bench/results/s9_initial_smoke/**
 !bench/results/gap_closure_llm_proof/
 !bench/results/gap_closure_llm_proof/**
+# Wave-3 parallel workers proof (gap #9). Keep summary + report only,
+# not the per-task artefact trees — bench/results/**/*.dat re-asserts
+# the ngspice-scratch hygiene for this directory below.
+!bench/results/gap_closure_parallel/
+!bench/results/gap_closure_parallel/summary.json
+!bench/results/gap_closure_parallel/report.md
+!bench/results/gap_closure_parallel/README.md
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat

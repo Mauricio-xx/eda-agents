@@ -426,6 +426,36 @@ def test_run_batch_writes_per_task_json_and_summary(tmp_path):
         assert (run_dir / f"{t.id}.json").is_file()
 
 
+def test_run_batch_workers_consistent(tmp_path):
+    """Gap #9: workers=1 and workers=2 must produce the same summary.
+
+    Exercises 3 dry-run tasks twice — once sequentially, once through
+    the JobRegistry parallel path — and compares the pass/fail counts
+    and per-task statuses. This is the regression the bench needed
+    before documenting --workers as stable.
+    """
+    tasks = [
+        _dry_task(id="e2e_dry_a"),
+        _dry_task(id="e2e_dry_b"),
+        _dry_task(
+            id="e2e_dry_fail",
+            scoring=["metrics_in_range"],
+            expected_metrics={"Adc_dB": {"min": 9999.0}},
+        ),
+    ]
+    seq = run_batch(tasks, output_root=tmp_path / "seq", workers=1)
+    par = run_batch(tasks, output_root=tmp_path / "par", workers=2)
+
+    assert seq.total == par.total == 3
+    assert seq.passed == par.passed == 2
+    assert seq.failed == par.failed == 1
+    assert seq.errored == par.errored == 0
+    # Per-task statuses align (order may differ under JobRegistry).
+    seq_map = {r.task_id: r.status for r in seq.results}
+    par_map = {r.task_id: r.status for r in par.results}
+    assert seq_map == par_map
+
+
 def test_render_markdown_report_includes_pass_rate():
     task = _dry_task()
     summary = run_batch([task], output_root=Path("/tmp/_bench_render_test"), workers=1)
