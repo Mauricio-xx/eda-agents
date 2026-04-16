@@ -442,6 +442,9 @@ class TestBenchAdapterDry:
              "ihp_sg13g2", "simple"),
             ("idea_to_digital_alu8_gf180.yaml", "e2e_idea_to_digital_alu8_gf180",
              "gf180mcu", "medium"),
+            ("idea_to_digital_accum_cpu_gf180.yaml",
+             "e2e_idea_to_digital_accum_cpu_gf180",
+             "gf180mcu", "complex"),
         ],
     )
     def test_dry_variants_pass(self, tmp_path, yaml_name, task_id, pdk, complexity):
