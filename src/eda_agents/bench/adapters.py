@@ -45,6 +45,7 @@ from eda_agents.bench.adapter_inputs import (
     DryRunInputs,
     GlSimPostSynthInputs,
     PreSimGateInputs,
+    Sar11bEnobInputs,
 )
 from eda_agents.bench.models import BenchStatus, BenchTask
 
@@ -538,6 +539,115 @@ def run_gl_sim_post_synth(
 
 
 # ---------------------------------------------------------------------------
+# SAR ADC 11-bit ENOB measurement (gap #6)
+# ---------------------------------------------------------------------------
+
+
+def run_sar11_enob_measurement(
+    task: BenchTask, work_dir: Path
+) -> AdapterResult:
+    """End-to-end: build the 11-bit SAR deck, simulate, extract ENOB.
+
+    Exercises :class:`eda_agents.topologies.sar_adc_11bit.SARADC11BitTopology`
+    against ngspice + PSP103 OSDI + Verilator. SPICE runtime is several
+    minutes on typical hardware — the YAML sets ``timeout_s=900``.
+
+    Skips gracefully when ngspice / openvaf / verilator are absent.
+    """
+    import asyncio
+    import shutil as _shutil
+
+    from eda_agents.core.spice_runner import SpiceRunner
+    from eda_agents.topologies.sar_adc_11bit import SARADC11BitTopology
+
+    try:
+        inputs = Sar11bEnobInputs.model_validate(task.inputs)
+    except ValidationError as exc:
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="ngspice-osdi",
+            errors=[_format_validation_error(exc, "run_sar11_enob_measurement")],
+        )
+
+    missing = [t for t in ("ngspice", "openvaf", "verilator") if not _shutil.which(t)]
+    if missing:
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="ngspice-osdi",
+            errors=[f"missing tools on PATH: {', '.join(missing)}"],
+        )
+
+    pdk_name = task.pdk or "ihp_sg13g2"
+    topo = SARADC11BitTopology(pdk=pdk_name)
+    params = dict(topo.default_params())
+    # Allow the YAML to override individual topology knobs.
+    params.update(inputs.topology_params or {})
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        cir = topo.generate_system_netlist(params, work_dir)
+    except Exception as exc:  # noqa: BLE001
+        return AdapterResult(
+            status=BenchStatus.FAIL_COMPILE,
+            backend_used="ngspice-osdi",
+            errors=[f"generate_system_netlist failed: {type(exc).__name__}: {exc}"],
+            compile_ok=False,
+        )
+
+    runner = SpiceRunner(preload_pdk_osdi=True)
+    try:
+        sp = asyncio.run(runner.run_async(cir, work_dir))
+    except RuntimeError:
+        # Under an existing event loop (shouldn't happen from bench) fall
+        # back to the sync path.
+        sp = runner.run(cir, work_dir=work_dir)
+
+    artifacts = [str(cir)]
+    notes: list[str] = []
+    if not sp.success:
+        return AdapterResult(
+            status=BenchStatus.FAIL_SIM,
+            backend_used="ngspice-osdi",
+            artifacts=artifacts,
+            errors=[sp.error or "ngspice failed"],
+            compile_ok=True,
+            sim_ok=False,
+            raw_text=sp.stdout_tail or "",
+        )
+
+    metrics_raw = topo.extract_enob(work_dir)
+    # Surface a clean metrics dict for audit + report. Use the canonical
+    # key "ENOB" / "SNDR_dBc" (matching expected_metrics contract).
+    metrics: dict[str, Any] = {}
+    if "enob" in metrics_raw:
+        metrics["ENOB"] = float(metrics_raw["enob"])
+    if "sndr_dB" in metrics_raw:
+        metrics["SNDR_dBc"] = float(metrics_raw["sndr_dB"])
+    if "sfdr_dB" in metrics_raw:
+        metrics["SFDR_dBc"] = float(metrics_raw["sfdr_dB"])
+    if "thd_dB" in metrics_raw:
+        metrics["THD_dBc"] = float(metrics_raw["thd_dB"])
+    for pass_through in ("n_samples", "code_span", "unique_codes"):
+        if pass_through in metrics_raw:
+            metrics[pass_through] = float(metrics_raw[pass_through])
+    notes.append(
+        f"sar11_enob: ENOB={metrics.get('ENOB', float('nan')):.2f} "
+        f"SNDR={metrics.get('SNDR_dBc', float('nan')):.1f} dB "
+        f"codes={metrics.get('unique_codes', 0):.0f}"
+    )
+    return AdapterResult(
+        status=BenchStatus.PASS,
+        backend_used="ngspice-osdi",
+        metrics=metrics,
+        artifacts=artifacts,
+        notes=notes,
+        compile_ok=True,
+        sim_ok=True,
+        raw_text=sp.stdout_tail or "",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Helper exposed to tests / runner
 # ---------------------------------------------------------------------------
 
@@ -579,5 +689,6 @@ __all__ = [
     "resolve_callable",
     "run_gl_sim_post_synth",
     "run_pre_sim_gate_on_inline_netlist",
+    "run_sar11_enob_measurement",
     "run_task",
 ]

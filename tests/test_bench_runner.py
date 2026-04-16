@@ -399,6 +399,60 @@ def test_render_markdown_report_includes_pass_rate():
 # ---------------------------------------------------------------------------
 
 
+def test_sar11b_adapter_skips_cleanly_when_tools_missing(tmp_path, monkeypatch):
+    """Gap #6 adapter: no ngspice/openvaf/verilator on PATH -> FAIL_INFRA."""
+    from eda_agents.bench.adapters import run_sar11_enob_measurement
+
+    # Force the tool detection to report every binary missing.
+    import eda_agents.bench.adapters as _adapters
+    monkeypatch.setattr(_adapters.shutil, "which", lambda _: None)
+    task = BenchTask.model_validate(
+        {
+            "id": "e2e_sar11_mock",
+            "family": "end-to-end",
+            "category": "adc",
+            "domain": "mixed",
+            "pdk": "ihp_sg13g2",
+            "difficulty": "hard",
+            "expected_backend": "ngspice-osdi",
+            "harness": "callable",
+            "inputs": {
+                "callable": "eda_agents.bench.adapters:run_sar11_enob_measurement",
+            },
+            "scoring": ["compile", "sim_run"],
+        }
+    )
+    res = run_sar11_enob_measurement(task, tmp_path)
+    assert res.status is BenchStatus.FAIL_INFRA
+    assert any("missing tools" in e for e in res.errors)
+
+
+def test_sar11b_adapter_rejects_bogus_inputs(tmp_path):
+    """Gap #6 typed-input rejection propagates through the adapter."""
+    from eda_agents.bench.adapters import run_sar11_enob_measurement
+
+    task = BenchTask.model_validate(
+        {
+            "id": "e2e_sar11_typo",
+            "family": "end-to-end",
+            "category": "adc",
+            "domain": "mixed",
+            "pdk": "ihp_sg13g2",
+            "difficulty": "hard",
+            "expected_backend": "ngspice-osdi",
+            "harness": "callable",
+            "inputs": {
+                "callable": "eda_agents.bench.adapters:run_sar11_enob_measurement",
+                "N_sample": 64,  # typo: real field is N_samples
+            },
+            "scoring": ["compile", "sim_run"],
+        }
+    )
+    res = run_sar11_enob_measurement(task, tmp_path)
+    assert res.status is BenchStatus.FAIL_INFRA
+    assert any("N_sample" in e for e in res.errors)
+
+
 def test_seed_tasks_have_known_harnesses():
     """Every seed task's harness must be in HARNESS_DISPATCH."""
     from eda_agents.bench import load_tasks_from_dir
