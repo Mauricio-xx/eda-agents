@@ -86,6 +86,10 @@ bench/results/*
 !bench/results/s10c_20260416T183436Z_analysis.md
 !bench/results/s10c_20260416T185823Z_comparison.md
 !bench/results/s10c_20260416T185823Z_analysis.md
+# S10g LLM-sizing A/B — Miller OTA one-shot, first POSITIVE signal
+# for skill injection (+10% Pass@1 abs over 10-seed pairs).
+!bench/results/s10g_20260416T195409Z_comparison.md
+!bench/results/s10g_20260416T195409Z_analysis.md
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat
