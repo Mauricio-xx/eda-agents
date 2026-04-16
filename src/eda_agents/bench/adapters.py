@@ -824,10 +824,12 @@ def _call_openrouter(
     user_prompt: str,
     max_tokens: int,
     temperature: float,
-) -> str:
+) -> tuple[str, int]:
     """Single chat-completion call through OpenRouter's OpenAI-compatible API.
 
-    Raises ``RuntimeError`` (not openai.XxxError / httpx.HTTPStatusError /
+    Returns ``(content, total_tokens)`` where ``total_tokens`` is 0 when
+    the backend did not populate ``response.usage``. Raises
+    ``RuntimeError`` (not openai.XxxError / httpx.HTTPStatusError /
     ImportError) so the adapter can funnel every infra-level failure
     into one ``FAIL_INFRA`` branch.
     """
@@ -860,7 +862,11 @@ def _call_openrouter(
             max_tokens=max_tokens,
             temperature=temperature,
         )
-        return resp.choices[0].message.content or ""
+        total_tokens = 0
+        usage = getattr(resp, "usage", None)
+        if usage is not None:
+            total_tokens = int(getattr(usage, "total_tokens", 0) or 0)
+        return resp.choices[0].message.content or "", total_tokens
     except Exception as exc:  # noqa: BLE001 — funnel to RuntimeError
         raise RuntimeError(
             f"OpenRouter call failed (model={model_id!r}): "
@@ -893,10 +899,37 @@ def llm_spec_to_sizing_adapter(
         )
 
     work_dir.mkdir(parents=True, exist_ok=True)
+
+    # S10g: optional skill injection. The S9 gap #8 task used a
+    # hardcoded methodology-free system prompt; S10c declared that the
+    # ``miller_ota`` topology's methodology lives in
+    # ``analog.miller_ota_design`` + ``analog.gmid_sizing``. When
+    # ``EDA_AGENTS_INJECT_SKILLS`` is enabled the adapter prepends the
+    # rendered skills so the A/B actually exercises the S10c content.
+    # Escape hatch ``EDA_AGENTS_INJECT_SKILLS=0`` restores the pre-S10c
+    # behaviour for direct comparison.
+    skills_prefix = ""
+    import os as _os
+    if _os.environ.get("EDA_AGENTS_INJECT_SKILLS", "1") != "0":
+        from eda_agents.skills.registry import render_relevant_skills
+        from eda_agents.topologies import get_topology_by_name
+
+        try:
+            topology = get_topology_by_name("miller_ota")
+            rendered = render_relevant_skills(
+                topology.relevant_skills(), topology
+            )
+            if rendered:
+                skills_prefix = rendered + "\n\n"
+        except Exception:  # noqa: BLE001 — never block the bench on skill lookup
+            skills_prefix = ""
+
+    system_prompt = f"{skills_prefix}{_LLM_SYSTEM_PROMPT}"
+
     try:
-        raw = _call_openrouter(
+        raw, total_tokens = _call_openrouter(
             model=inputs.model,
-            system_prompt=_LLM_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             user_prompt=(
                 "Spec (YAML):\n"
                 + inputs.spec_yaml
@@ -964,13 +997,21 @@ def llm_spec_to_sizing_adapter(
     sim_dir.mkdir(parents=True, exist_ok=True)
     sim_res = analytical_miller_design(synthetic_task, sim_dir)
     # Stitch the LLM artifacts into the result so the report shows both.
+    skills_injected = skills_prefix != ""
     notes = sim_res.notes + [
-        f"LLM model={inputs.model} params={design_params}"
+        f"LLM model={inputs.model} params={design_params}",
+        f"skills_injected={skills_injected}",
     ]
+    metrics = dict(sim_res.metrics)
+    # Surface the LLM cost on the BenchResult so the S10g A/B comparator
+    # can read bloat + Pass@1 from the same JSON without re-parsing
+    # the response file.
+    metrics["total_tokens"] = float(total_tokens)
+    metrics["skills_injected"] = 1.0 if skills_injected else 0.0
     return AdapterResult(
         status=sim_res.status,
         backend_used=f"llm+{sim_res.backend_used}",
-        metrics=dict(sim_res.metrics),
+        metrics=metrics,
         artifacts=[str(response_path), *sim_res.artifacts],
         errors=list(sim_res.errors),
         notes=notes,

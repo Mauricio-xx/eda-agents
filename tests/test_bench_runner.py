@@ -543,7 +543,7 @@ def test_llm_adapter_parses_canned_response_and_invokes_designer(tmp_path, monke
         '{"gmid_input": 12.0, "gmid_load": 10.0, '
         '"L_input": 1.0e-6, "L_load": 1.0e-6, "Cc": 1.0e-12}'
     )
-    monkeypatch.setattr(adapters, "_call_openrouter", lambda **kw: canned)
+    monkeypatch.setattr(adapters, "_call_openrouter", lambda **kw: (canned, 0))
     task = BenchTask.model_validate(
         {
             "id": "spec_llm_canned",
@@ -583,7 +583,9 @@ def test_llm_adapter_rejects_malformed_json(tmp_path, monkeypatch):
     from eda_agents.bench import adapters
 
     monkeypatch.setattr(
-        adapters, "_call_openrouter", lambda **kw: "I am not returning JSON today."
+        adapters,
+        "_call_openrouter",
+        lambda **kw: ("I am not returning JSON today.", 0),
     )
     task = BenchTask.model_validate(
         {
@@ -615,7 +617,7 @@ def test_llm_adapter_rejects_out_of_range_json(tmp_path, monkeypatch):
         '{"gmid_input": 999.0, "gmid_load": 10.0, '
         '"L_input": 1.0e-6, "L_load": 1.0e-6, "Cc": 1.0e-12}'
     )
-    monkeypatch.setattr(adapters, "_call_openrouter", lambda **kw: canned)
+    monkeypatch.setattr(adapters, "_call_openrouter", lambda **kw: (canned, 0))
     task = BenchTask.model_validate(
         {
             "id": "spec_llm_oor",

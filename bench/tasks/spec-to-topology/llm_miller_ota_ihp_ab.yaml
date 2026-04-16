@@ -1,0 +1,45 @@
+id: spec_llm_miller_ota_ihp_ab
+family: spec-to-topology
+category: ota
+domain: voltage
+pdk: ihp_sg13g2
+difficulty: medium
+expected_backend: ngspice-osdi
+harness: callable
+topology: miller_ota
+inputs:
+  callable: eda_agents.bench.adapters:llm_spec_to_sizing_adapter
+  model: google/gemini-2.5-flash
+  temperature: 0.7
+  spec_yaml: |
+    block: miller_ota
+    process: ihp_sg13g2
+    supply:
+      vdd: 1.2
+      vss: 0.0
+    specs:
+      dc_gain: {min: 25, unit: dB}
+      gbw: {min: 500e3, unit: Hz}
+      phase_margin: {min: 45, unit: deg}
+expected_metrics:
+  Adc_dB: {min: 25.0, unit: dB}
+  GBW_Hz: {min: 5.0e5, unit: Hz}
+scoring:
+  - compile
+  - sim_run
+  - metrics_in_range
+weight: 2.0
+timeout_s: 300
+notes: |
+  S10g A/B variant of spec_llm_miller_ota_ihp. Identical spec and
+  audit, but ``temperature: 0.7`` so repeated invocations produce
+  independent LLM proposals. The existing deterministic task is
+  preserved untouched for the S9 gap #8 evidence trail; this one is
+  only invoked by ``scripts/run_s10g_llm_sizing_ab.sh``.
+
+  When ``EDA_AGENTS_INJECT_SKILLS=1`` (default), the adapter prepends
+  ``analog.miller_ota_design`` + ``analog.gmid_sizing`` to the
+  system prompt via ``render_relevant_skills``. With
+  ``EDA_AGENTS_INJECT_SKILLS=0`` the adapter falls back to the
+  pre-S10c prompt. This gating is the A/B's independent variable;
+  Pass@1 and total_tokens are the dependents.
