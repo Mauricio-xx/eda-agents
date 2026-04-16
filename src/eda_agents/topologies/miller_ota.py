@@ -97,78 +97,16 @@ def _gamman_ic(ic: float, n: float) -> float:
 
 
 # ---------------------------------------------------------------------------
-# IHP SG13G2 process parameters (from ihp130g2_sekv.py)
+# Process parameters — now centralised in process_params.py so each PDK
+# has its own sEKV table. The ``ProcessParams`` name stays in this module
+# as an alias for backward compatibility with any caller that imports
+# ``from eda_agents.topologies.miller_ota import ProcessParams``.
 # ---------------------------------------------------------------------------
 
-@dataclass(frozen=True)
-class ProcessParams:
-    """IHP SG13G2 130nm BiCMOS sEKV process parameters."""
-
-    # Physical constants
-    kB: float = 1.38064852e-23
-    q_e: float = 1.60217662e-19
-    T: float = 300.15  # 27C
-    epsilon0: float = 8.854e-12
-    epsilonox: float = 3.9
-
-    # Process
-    tox: float = 2.2404e-9
-    VDD: float = 1.2
-    Lmin: float = 130e-9
-    Wmin: float = 150e-9
-    z1: float = 340e-9  # junction perimeter constant
-
-    # nMOS
-    DLn: float = 58.846e-9
-    DWn: float = -20.0e-9
-    n0n: float = 1.22
-    Ispecsqn: float = 708.3e-9  # A / (W/L)
-    VT0n: float = 0.246
-    lambdan: float = 0.8e6  # 1/m
-    KFn: float = 2.208e-24
-    AVTn: float = 5.0e-9
-    Abetan: float = 0.01e-6
-
-    # Overlap/fringing caps (nMOS)
-    CGSOn: float = 4.535e-10
-    CGDOn: float = 4.535e-10
-    CGSFn: float = 2.0e-10
-    CGDFn: float = 2.0e-10
-
-    # Junction caps (nMOS)
-    CJn: float = 9.764e-4
-    CJSWSTIn: float = 2.528e-11
-    CJSWGATn: float = 3.0e-11
-
-    # pMOS
-    DLp: float = 50.508e-9
-    DWp: float = 30.0e-9
-    n0p: float = 1.23
-    Ispecsqp: float = 244.6e-9
-    VT0p: float = 0.365
-    lambdap: float = 6.078e6
-    KFp: float = 12.0e-24
-    AVTp: float = 5.0e-9
-    Abetap: float = 0.01e-6
-
-    # Overlap/fringing caps (pMOS)
-    CGSOp: float = 4.426e-10
-    CGDOp: float = 4.426e-10
-    CGSFp: float = 1.0e-10
-    CGDFp: float = 1.0e-10
-
-    # Junction caps (pMOS)
-    CJp: float = 8.631e-4
-    CJSWSTIp: float = 3.192e-11
-    CJSWGATp: float = 2.747e-11
-
-    @property
-    def UT(self) -> float:
-        return self.kB * self.T / self.q_e
-
-    @property
-    def Cox(self) -> float:
-        return self.epsilonox * self.epsilon0 / self.tox
+from eda_agents.topologies.process_params import (  # noqa: E402
+    ProcessParams,
+    resolve_process_params,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -388,9 +326,22 @@ class MillerOTADesigner:
         process: ProcessParams | None = None,
         pdk: PdkConfig | str | None = None,
     ):
-        self.specs = specs or MillerOTASpecs()
-        self.proc = process or ProcessParams()
         self.pdk = resolve_pdk(pdk)
+        # Resolve sEKV params from the active PDK registry name unless
+        # the caller passed an explicit ProcessParams override. Before
+        # gap #1 this defaulted to IHP regardless of PDK, which is how
+        # spec_miller_ota_gf180_easy used to produce sub-Wmin transistors.
+        if process is not None:
+            self.proc = process
+        else:
+            self.proc = resolve_process_params(self.pdk.name)
+        # When no spec was supplied, align the testbench / headroom VDD
+        # with the PDK's nominal supply so a GF180 designer does not
+        # build a 1.2 V testbench for a 3.3 V PDK.
+        if specs is not None:
+            self.specs = specs
+        else:
+            self.specs = MillerOTASpecs(VDD=self.proc.VDD)
 
     def analytical_design(
         self,
