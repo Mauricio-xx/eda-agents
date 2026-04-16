@@ -593,6 +593,72 @@ def test_sar11b_adapter_rejects_bogus_inputs(tmp_path):
     assert any("N_sample" in e for e in res.errors)
 
 
+def test_librelane_flow_adapter_rejects_bogus_inputs(tmp_path):
+    """Gap #5: typed-input rejection on DigitalFlowInputs typos."""
+    from eda_agents.bench.adapters import run_librelane_flow_task
+
+    task = BenchTask.model_validate(
+        {
+            "id": "e2e_counter_typo",
+            "family": "end-to-end",
+            "category": "digital",
+            "domain": "digital",
+            "pdk": "gf180mcu",
+            "difficulty": "easy",
+            "expected_backend": "librelane",
+            "harness": "callable",
+            "inputs": {
+                "callable": "eda_agents.bench.adapters:run_librelane_flow_task",
+                "design_dir": "bench/designs/counter_bench",
+                "stop_after_step": "ROUTE",  # typo: real field is stop_after
+            },
+            "scoring": ["compile"],
+        }
+    )
+    res = run_librelane_flow_task(task, tmp_path)
+    assert res.status is BenchStatus.FAIL_INFRA
+    assert any("stop_after_step" in e or "Extra inputs" in e for e in res.errors)
+
+
+def test_librelane_flow_adapter_skips_when_pdk_absent(tmp_path, monkeypatch):
+    """Gap #5: no PDK root -> FAIL_INFRA (SKIPPED in summary)."""
+    from eda_agents.bench.adapters import run_librelane_flow_task
+
+    import eda_agents.bench.adapters as _adapters
+    monkeypatch.setattr(_adapters, "_resolve_librelane_pdk_root", lambda _: None)
+    task = BenchTask.model_validate(
+        {
+            "id": "e2e_counter_nopdk",
+            "family": "end-to-end",
+            "category": "digital",
+            "domain": "digital",
+            "pdk": "gf180mcu",
+            "difficulty": "easy",
+            "expected_backend": "librelane",
+            "harness": "callable",
+            "inputs": {
+                "callable": "eda_agents.bench.adapters:run_librelane_flow_task",
+                "design_dir": "bench/designs/counter_bench",
+            },
+            "scoring": ["compile"],
+        }
+    )
+    res = run_librelane_flow_task(task, tmp_path)
+    assert res.status is BenchStatus.FAIL_INFRA
+    assert any("PDK" in e or "pdk" in e for e in res.errors)
+
+
+def test_bench_cache_root_prefers_repo_bench_over_package_bench():
+    """Gap #5: cache resolver must not pick src/eda_agents/bench by name."""
+    from eda_agents.bench.adapters import _bench_librelane_cache_root
+
+    root = _bench_librelane_cache_root()
+    assert root.name == "librelane_runs"
+    # The resolver should have found the repo-root bench/ (with tasks/),
+    # not the package dir that also ends in `bench/`.
+    assert (root.parent.parent / "tasks").is_dir(), f"unexpected cache root: {root}"
+
+
 def test_seed_tasks_have_known_harnesses():
     """Every seed task's harness must be in HARNESS_DISPATCH."""
     from eda_agents.bench import load_tasks_from_dir

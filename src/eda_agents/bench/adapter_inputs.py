@@ -162,7 +162,15 @@ class DigitalFlowInputs(BaseModel):
         ...,
         description="Path to a LibreLane project directory holding config.yaml + rtl/.",
     )
-    stop_after: str = Field(default="ROUTE")
+    stop_after: str = Field(
+        default="Checker.KLayoutDRC",
+        description=(
+            "LibreLane step ID where the flow stops. Defaults to "
+            "Checker.KLayoutDRC so the run produces signoff .lyrdb "
+            "files for the DRC audit. Full Classic steps list: "
+            "https://librelane.readthedocs.io/"
+        ),
+    )
     cache_run_dir: bool = True
 
 

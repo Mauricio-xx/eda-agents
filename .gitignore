@@ -21,6 +21,12 @@ data/gf180-template/
 trackd_results/
 .venv-glayout/
 
+# LibreLane run artifacts from bench runs. The adapter symlinks its
+# run_dir under bench/cache/librelane_runs/, but the actual runs live
+# inside bench/designs/<name>/runs/ — never commit either.
+bench/designs/**/runs/
+bench/cache/
+
 # Bench runs: only the frozen S9 baseline, the S9-gap-closure LLM
 # live-run proof, and a curated README are tracked. Local re-runs stay
 # gitignored.

@@ -42,6 +42,7 @@ from pydantic import ValidationError
 from eda_agents.bench.adapter_inputs import (
     AnalogRolesInputs,
     AnalyticalMillerInputs,
+    DigitalFlowInputs,
     DryRunInputs,
     GlSimPostSynthInputs,
     LlmSpecToSizingInputs,
@@ -851,6 +852,269 @@ def run_sar11_enob_measurement(
 
 
 # ---------------------------------------------------------------------------
+# LibreLane RTL-to-GDS callable adapter (gap #5)
+# ---------------------------------------------------------------------------
+
+
+BENCH_LIBRELANE_CACHE_ENV = "EDA_AGENTS_BENCH_LIBRELANE_CACHE"
+
+
+def _bench_librelane_cache_root() -> Path:
+    """Root directory where the bench caches hardened LibreLane runs.
+
+    Defaults to ``<worktree>/bench/cache/librelane_runs`` resolved from
+    this file, so tests picked up by ``pytest`` from anywhere inside the
+    repo still see the same cache as ``scripts/run_bench.py``. Overridable
+    via ``EDA_AGENTS_BENCH_LIBRELANE_CACHE`` for CI.
+    """
+    import os
+
+    override = os.environ.get(BENCH_LIBRELANE_CACHE_ENV)
+    if override:
+        return Path(override).resolve()
+    here = Path(__file__).resolve()
+    # Prefer the repo-root ``bench/`` (with ``bench/tasks/`` inside)
+    # over the package-internal ``src/eda_agents/bench/`` that happens
+    # to share the same name.
+    for parent in here.parents:
+        candidate = parent / "bench"
+        if candidate.is_dir() and (candidate / "tasks").is_dir():
+            return candidate / "cache" / "librelane_runs"
+    return Path.cwd() / "bench" / "cache" / "librelane_runs"
+
+
+def _resolve_librelane_pdk_root(pdk_name: str) -> str | None:
+    """Find a PDK_ROOT that contains the requested PDK's LibreLane tech.
+
+    Mirrors :func:`eda_agents.core.pdk.resolve_pdk_root` but widened to
+    accept the wafer-space GF180 fork (the upstream LibreLane v3 config
+    lives in the fork, not in ciel's stock install). Returns ``None``
+    when no suitable root is found so the adapter can SKIP cleanly.
+    """
+    import os
+
+    candidates: list[Path] = []
+    env_val = os.environ.get("PDK_ROOT")
+    if env_val:
+        candidates.append(Path(env_val))
+    if pdk_name.startswith("gf180"):
+        candidates.extend([
+            Path("/home/montanares/git/wafer-space-gf180mcu"),
+            Path.home() / "pdks",
+        ])
+    elif pdk_name.startswith("ihp"):
+        candidates.append(Path("/home/montanares/git/IHP-Open-PDK"))
+
+    target_dir = "gf180mcuD" if pdk_name.startswith("gf180") else "ihp-sg13g2"
+    for root in candidates:
+        if (root / target_dir).is_dir():
+            return str(root)
+    return None
+
+
+def run_librelane_flow_task(
+    task: BenchTask, work_dir: Path
+) -> AdapterResult:
+    """Run a LibreLane RTL-to-GDS flow on a :class:`GenericDesign`.
+
+    Closes gap #5. The task YAML points ``inputs.design_dir`` at a
+    project directory containing a LibreLane ``config.yaml`` + ``rtl/``
+    tree. The adapter spins up a fresh run tagged
+    ``bench-<task.id>`` under that project's ``runs/`` directory, lets
+    LibreLane harden through ``inputs.stop_after`` (default ``ROUTE``),
+    and reports two structured metrics:
+
+    * ``run_time_s`` — wall-clock flow time.
+    * ``DRC_violations`` — parsed from the run's ``*.lyrdb`` files via
+      ``LibreLaneRunner.read_drc``. ``-1`` means "no DRC report found",
+      which the audit treats as out-of-range against ``{max: 0}``.
+
+    When ``inputs.cache_run_dir=True`` (default) and the flow succeeds,
+    the produced run directory is symlinked under
+    ``bench/cache/librelane_runs/<design>/`` so :func:`run_gl_sim_post_synth`
+    (gap #2) can pick it up without the bench needing to re-harden.
+
+    Skips cleanly (``FAIL_INFRA`` → SKIPPED in summary) when LibreLane,
+    its Python interpreter, or the PDK is not available.
+    """
+    try:
+        inputs = DigitalFlowInputs.model_validate(task.inputs)
+    except ValidationError as exc:
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="librelane",
+            errors=[_format_validation_error(exc, "run_librelane_flow_task")],
+        )
+
+    from eda_agents.core.designs.generic import GenericDesign
+    from eda_agents.core.librelane_runner import LibreLaneRunner
+
+    pdk_name = task.pdk or "gf180mcu"
+    pdk_root = _resolve_librelane_pdk_root(pdk_name)
+    if pdk_root is None:
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="librelane",
+            errors=[
+                f"LibreLane PDK root for {pdk_name!r} not found — set PDK_ROOT "
+                "or install the GF180/IHP PDK. Skipping gap #5 gracefully."
+            ],
+        )
+
+    # Resolve design_dir relative to the repo root (same heuristic as
+    # _bench_librelane_cache_root — walk up looking for a repo root
+    # whose ``bench/`` dir contains ``bench/tasks/``) so YAMLs can use
+    # repo-relative paths without false matches against
+    # ``src/eda_agents/bench``.
+    design_dir = Path(inputs.design_dir)
+    if not design_dir.is_absolute():
+        here = Path(__file__).resolve()
+        resolved = None
+        for parent in here.parents:
+            if (parent / "bench" / "tasks").is_dir():
+                candidate = parent / inputs.design_dir
+                if candidate.is_dir():
+                    resolved = candidate.resolve()
+                    break
+        design_dir = resolved if resolved else design_dir.resolve()
+
+    if not design_dir.is_dir():
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="librelane",
+            errors=[f"design_dir not found: {design_dir}"],
+        )
+
+    config_path = design_dir / "config.yaml"
+    if not config_path.is_file():
+        config_path = design_dir / "config.json"
+    if not config_path.is_file():
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="librelane",
+            errors=[f"neither config.yaml nor config.json under {design_dir}"],
+        )
+
+    try:
+        design = GenericDesign(
+            config_path=config_path,
+            pdk_root=pdk_root,
+            pdk_config=pdk_name,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="librelane",
+            errors=[f"GenericDesign init failed: {type(exc).__name__}: {exc}"],
+        )
+
+    # LibreLane v3 needs yosys >= 0.60 and recent OpenROAD — Ubuntu's
+    # system packages are typically too old (yosys 0.43, openroad v2.0).
+    # Reuse the digital_autoresearch helper so the bench behaves
+    # identically to the autoresearch flow on the same host.
+    from eda_agents.agents.digital_autoresearch import detect_nix_eda_tool_dirs
+
+    import os as _os
+
+    env_extra: dict[str, str] = {}
+    nix_dirs = detect_nix_eda_tool_dirs()
+    if nix_dirs:
+        env_extra["PATH"] = ":".join(nix_dirs) + ":" + _os.environ.get("PATH", "")
+
+    # LibreLane resolves the PDK variant from the ``PDK`` env var before
+    # it consults the config file. Nudge it toward the target PDK so
+    # the hardened run matches ``task.pdk`` instead of whatever the
+    # host-global PDK was.
+    if pdk_name.startswith("gf180"):
+        env_extra["PDK"] = "gf180mcuD"
+    elif pdk_name.startswith("ihp"):
+        env_extra["PDK"] = "ihp-sg13g2"
+
+    tag = f"bench-{task.id}"
+    runner = LibreLaneRunner(
+        project_dir=design.project_dir(),
+        config_file=config_path.name,
+        pdk_root=pdk_root,
+        timeout_s=task.timeout_s,
+        shell_wrapper=design.shell_wrapper(),
+        env_extra=env_extra,
+    )
+    setup_problems = runner.validate_setup()
+    if setup_problems:
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="librelane",
+            errors=[f"LibreLane setup: {'; '.join(setup_problems)}"],
+        )
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+    flow = runner.run_flow(tag=tag, to=inputs.stop_after, overwrite=True)
+
+    metrics: dict[str, Any] = {
+        "run_time_s": float(flow.run_time_s or 0.0),
+    }
+    drc = runner.read_drc(flow.run_dir or None) if flow.run_dir else None
+    if drc is not None:
+        metrics["DRC_violations"] = float(drc.total_violations)
+
+    artifacts: list[str] = []
+    for path_attr in ("gds_path", "def_path", "netlist_path", "run_dir"):
+        val = getattr(flow, path_attr, None)
+        if val:
+            artifacts.append(str(val))
+
+    notes: list[str] = [f"librelane_tag={tag}"]
+    if flow.run_dir:
+        notes.append(f"run_dir={flow.run_dir}")
+    if drc is not None:
+        notes.append(
+            f"DRC: {drc.total_violations} violations"
+            if not drc.clean else "DRC clean"
+        )
+
+    if not flow.success:
+        return AdapterResult(
+            status=BenchStatus.FAIL_SIM,
+            backend_used="librelane",
+            metrics=metrics,
+            artifacts=artifacts,
+            errors=[flow.error or "LibreLane flow failed"],
+            notes=notes,
+            compile_ok=True,
+            sim_ok=False,
+            raw_text=(flow.log_tail or "")[-2000:],
+        )
+
+    # Publish the hardened run under the bench cache so downstream
+    # tasks (gap #2 GL sim) can find it without touching the task YAMLs.
+    if inputs.cache_run_dir and flow.run_dir:
+        try:
+            cache_root = _bench_librelane_cache_root()
+            dest_dir = cache_root / design.project_name().replace("-", "_") / "runs"
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            link = dest_dir / tag
+            if link.is_symlink() or link.exists():
+                link.unlink()
+            link.symlink_to(Path(flow.run_dir).resolve())
+            notes.append(f"cache_link={link}")
+        except OSError as exc:
+            # Caching is a convenience, not a contract — log but don't
+            # downgrade the PASS.
+            notes.append(f"cache_link_failed: {exc}")
+
+    return AdapterResult(
+        status=BenchStatus.PASS,
+        backend_used="librelane",
+        metrics=metrics,
+        artifacts=artifacts,
+        notes=notes,
+        compile_ok=True,
+        sim_ok=True,
+        raw_text=(flow.log_tail or "")[-2000:],
+    )
+
+
+# ---------------------------------------------------------------------------
 # Helper exposed to tests / runner
 # ---------------------------------------------------------------------------
 
@@ -892,6 +1156,7 @@ __all__ = [
     "llm_spec_to_sizing_adapter",
     "resolve_callable",
     "run_gl_sim_post_synth",
+    "run_librelane_flow_task",
     "run_pre_sim_gate_on_inline_netlist",
     "run_sar11_enob_measurement",
     "run_task",

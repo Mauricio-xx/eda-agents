@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from eda_agents.bench.adapter_inputs import (
     AnalogRolesInputs,
     AnalyticalMillerInputs,
+    DigitalFlowInputs,
     DryRunInputs,
     GlSimPostSynthInputs,
     LlmSpecToSizingInputs,
@@ -188,6 +189,28 @@ def test_llm_inputs_model_default():
     )
     assert "gemini" in inp.model.lower()
     assert inp.temperature == 0.0
+
+
+def test_digital_flow_inputs_defaults():
+    inp = DigitalFlowInputs.model_validate(
+        {
+            "callable": "x:y",
+            "design_dir": "bench/designs/counter_bench",
+        }
+    )
+    assert inp.stop_after == "Checker.KLayoutDRC"
+    assert inp.cache_run_dir is True
+
+
+def test_digital_flow_inputs_rejects_typo():
+    with pytest.raises(ValidationError):
+        DigitalFlowInputs.model_validate(
+            {
+                "callable": "x:y",
+                "design_dir": "bench/designs/counter_bench",
+                "stop_after_step": "ROUTE",  # typo: real field is stop_after
+            }
+        )
 
 
 # ---------------------------------------------------------------------------
