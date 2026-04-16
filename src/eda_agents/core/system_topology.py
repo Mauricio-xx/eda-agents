@@ -203,6 +203,15 @@ class SystemTopology(ABC):
         params = (sizing or {}).get("_system_params", self.default_params())
         return self.check_system_validity(spice_result, params)
 
+    def relevant_skills(self) -> list[str | tuple[str, dict]]:
+        """Names of skills an LLM runner should inject into the system prompt.
+
+        Mirrors :meth:`CircuitTopology.relevant_skills` so system-level
+        topologies (e.g. SAR ADCs) can declare the same hook consumed by
+        LLM harnesses in S10c.
+        """
+        return []
+
     def agent_assignment_strategy(self) -> str:
         """Preferred agent assignment: 'per_block' or 'co_tuning'.
 

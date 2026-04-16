@@ -68,6 +68,9 @@ class FazyRvHachureDesign(DigitalDesign):
             return f"fazyrv-hachure-{self._macro}"
         return "fazyrv-hachure-chip"
 
+    def relevant_skills(self) -> list[str | tuple[str, dict]]:
+        return ["digital.synthesis", "digital.physical", "digital.signoff"]
+
     def specification(self) -> str:
         return (
             "FazyRV-Hachure: 7-variant bit-serial RISC-V SoC (RV32I) "

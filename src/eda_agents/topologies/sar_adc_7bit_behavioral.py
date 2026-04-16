@@ -353,6 +353,9 @@ class SAR7BitBehavioralTopology(SystemTopology):
     def topology_name(self) -> str:
         return "sar_adc_7bit_behavioral"
 
+    def relevant_skills(self) -> list[str | tuple[str, dict]]:
+        return ["analog.sar_adc_design"]
+
     def block_names(self) -> list[str]:
         return ["comparator", "cdac"]
 

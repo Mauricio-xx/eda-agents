@@ -42,6 +42,9 @@ class MillerOTATopology(CircuitTopology):
     def topology_name(self) -> str:
         return "miller_ota"
 
+    def relevant_skills(self) -> list[str | tuple[str, dict]]:
+        return ["analog.gmid_sizing"]
+
     def design_space(self) -> dict[str, tuple[float, float]]:
         return {
             "gmid_input": (5.0, 25.0),

@@ -118,6 +118,9 @@ class GenericDesign(DigitalDesign):
         name = self._config.get("DESIGN_NAME", "unknown")
         return str(name).replace("_", "-")
 
+    def relevant_skills(self) -> list[str | tuple[str, dict]]:
+        return ["digital.synthesis", "digital.physical"]
+
     def specification(self) -> str:
         name = self._config.get("DESIGN_NAME", "unknown")
         clock = self._config.get("CLOCK_PERIOD", "?")
