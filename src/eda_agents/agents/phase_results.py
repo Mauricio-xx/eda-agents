@@ -99,6 +99,12 @@ class AutoresearchResult:
     top_n: list[dict] = field(default_factory=list)
     history: list[dict] = field(default_factory=list)
     tsv_path: str = ""
+    # Sum of ``total_tokens`` reported by the LLM backend across every
+    # proposal call made during the run. Stays 0 when no LLM is
+    # involved (mock metrics, analytical callables) or when the
+    # backend does not populate ``response.usage`` — callers should
+    # treat a 0 as "not measured" rather than "zero tokens used".
+    total_tokens: int = 0
 
     @property
     def improvement_rate(self) -> float:

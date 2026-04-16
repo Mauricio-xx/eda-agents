@@ -177,6 +177,12 @@ class DigitalAutoresearchRunner:
         else:
             self.run_rtl_sim = run_rtl_sim
 
+        # Cumulative token counter populated by ``_propose_params`` from
+        # the LLM backend's ``response.usage``. Reset at the start of
+        # every ``run()`` so repeated calls don't leak across runs; the
+        # field is surfaced on :class:`AutoresearchResult.total_tokens`.
+        self._cumulative_tokens = 0
+
     # ------------------------------------------------------------------
     # program.md
     # ------------------------------------------------------------------
@@ -323,6 +329,14 @@ class DigitalAutoresearchRunner:
                 response = await litellm.acompletion(**kwargs)
             else:
                 raise
+
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            total = getattr(usage, "total_tokens", None)
+            if total is None and isinstance(usage, dict):
+                total = usage.get("total_tokens")
+            if total:
+                self._cumulative_tokens += int(total)
 
         content = response.choices[0].message.content or ""
         content = extract_json_from_response(content)
@@ -1001,6 +1015,10 @@ class DigitalAutoresearchRunner:
         """
         work_dir.mkdir(parents=True, exist_ok=True)
 
+        # Reset the per-run LLM token counter so repeated ``run()`` calls
+        # on the same instance report their own totals.
+        self._cumulative_tokens = 0
+
         program_store = self._make_program_store(work_dir)
         program_store.init()
 
@@ -1346,6 +1364,7 @@ class DigitalAutoresearchRunner:
                 top_n=[],
                 history=history,
                 tsv_path=str(tsv_path),
+                total_tokens=self._cumulative_tokens,
             )
 
         return AutoresearchResult(
@@ -1358,4 +1377,5 @@ class DigitalAutoresearchRunner:
             top_n=top_n,
             history=history,
             tsv_path=str(tsv_path),
+            total_tokens=self._cumulative_tokens,
         )
