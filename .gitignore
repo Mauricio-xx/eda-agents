@@ -77,6 +77,11 @@ bench/results/*
 !bench/results/s9_residual_final_evidence/README.md
 !bench/results/s9_residual_final_evidence/summary.json
 !bench/results/s9_residual_final_evidence/report.md
+# S10c skill-injection A/B evidence (2026-04-16). Narrow allowlist:
+# only the comparator markdown + the honest analysis note are tracked;
+# the 8 per-seed run directories stay gitignored.
+!bench/results/s10c_20260416T183436Z_comparison.md
+!bench/results/s10c_20260416T183436Z_analysis.md
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat
