@@ -441,6 +441,6 @@ def generate_sar_adc_netlist(
         ".end",
     ])
 
-    cir_path = work_dir / "sar_adc_8bit.cir"
+    cir_path = work_dir / "sar_adc_7bit.cir"
     cir_path.write_text("\n".join(lines) + "\n")
     return cir_path

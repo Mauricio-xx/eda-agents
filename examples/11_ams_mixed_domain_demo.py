@@ -62,7 +62,7 @@ from eda_agents.core.stages.xspice_compile import (
     XSpiceCompiler,
     load_codemodel_line,
 )
-from eda_agents.topologies.sar_adc_8bit_behavioral import (
+from eda_agents.topologies.sar_adc_7bit_behavioral import (
     behavioral_comparator_cards,
 )
 from eda_agents.utils.vlnggen import check_prerequisites, compile_verilog

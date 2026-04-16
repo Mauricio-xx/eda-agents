@@ -221,9 +221,13 @@ class SystemSpiceHandler:
         enob_data: dict[str, float] = {}
         if spice_result.success:
             try:
-                # Import here to avoid circular deps and numpy requirement at module level
+                # Import here to avoid circular deps and numpy requirement
+                # at module level. Cover both the canonical SAR7BitTopology
+                # and the legacy SARADCTopology alias so pre-rename callers
+                # keep working with zero code change.
+                from eda_agents.topologies.sar_adc_7bit import SAR7BitTopology
                 from eda_agents.topologies.sar_adc_8bit import SARADCTopology
-                if isinstance(self.topology, SARADCTopology):
+                if isinstance(self.topology, (SAR7BitTopology, SARADCTopology)):
                     enob_data = self.topology.extract_enob(sim_dir)
                     # Store ENOB in spice_result measurements for FoM
                     spice_result.measurements.update(enob_data)

@@ -1,65 +1,52 @@
-# SAR ADC naming convention — cleanup backlog
+# SAR ADC naming convention — **RESOLVED (S9-gap-closure, gap #3)**
 
-The "8-bit" label on `SARADCTopology` and
-`SARADC8BitBehavioralTopology` is **misleading**. Both topologies
-inherit the AnalogAcademy convention where the bit count refers to
-the D output bus width, not the converter's effective resolution.
+**Status**: Closed. The canonical names
+:class:`SAR7BitTopology` and :class:`SAR7BitBehavioralTopology` live
+in ``src/eda_agents/topologies/sar_adc_7bit.py`` and
+``sar_adc_7bit_behavioral.py``. The legacy
+``sar_adc_8bit`` / ``sar_adc_8bit_behavioral`` modules remain as
+thin deprecation shims that re-export the canonical classes as
+``SARADCTopology`` / ``SARADC8BitBehavioralTopology`` and emit a
+``DeprecationWarning`` on instantiation (not on import, so the shim
+does not break bulk-imports).
 
-| Topology                       | Bit count in name | Effective resolution | Why |
-|--------------------------------|-------------------|----------------------|-----|
-| `SARADCTopology` (8b, transistor) | 8                 | 7                    | FSM iterates 7 times (`counter < 7`); CDAC dummy shares LSB switch (`B6`), so B6 controls 2 unit caps. Net: 7 distinct binary weights. |
-| `SARADC8BitBehavioralTopology`    | 8                 | 7                    | Reuses the AA CDAC + FSM verbatim, only swaps the comparator. Same 7-effective-bit ceiling. |
-| `SARADC11BitTopology`             | 11                | 11                   | Designed from scratch in S7 with the dummy tied permanently to vcm and 11 distinct B switches. True 11-bit. |
+## What changed
 
-## Why this is preserved (for now)
+| Before                                                | After                                                        |
+|-------------------------------------------------------|--------------------------------------------------------------|
+| `topologies/sar_adc_8bit.py::SARADCTopology`          | `topologies/sar_adc_7bit.py::SAR7BitTopology` (canonical)    |
+| `topologies/sar_adc_8bit_behavioral.py::SARADC8BitBehavioralTopology` | `topologies/sar_adc_7bit_behavioral.py::SAR7BitBehavioralTopology` (canonical) |
+| `sar_adc_8bit.cir` emitted by the netlist generator   | `sar_adc_7bit.cir`                                           |
+| `topology_name()` returned `"sar_adc_8bit(_behavioral)"` | `"sar_adc_7bit(_behavioral)"`                                |
 
-The AA-derived 8-bit topology is the **only silicon-traceable** SAR
-in-tree. Renaming the class, the file, and the AA-shipped Verilog
-module would create churn across:
+The legacy symbols still import cleanly; instantiating the shim class
+(`SARADCTopology()` / `SARADC8BitBehavioralTopology()`) emits a
+`DeprecationWarning` pointing at the canonical names.
 
-- `topologies/sar_adc_8bit.py` (class, module path)
-- `topologies/sar_adc_8bit_behavioral.py` (class, module path)
-- `topologies/sar_adc_netlist.py` (helper functions named after 8-bit)
-- `agents/system_handler.py` (isinstance check on `SARADCTopology`)
-- `examples/13b_sar_adc_8bit_behavioral.py`
-- `tests/test_sar_adc_8bit_behavioral.py`
-- Every doc / handoff / commit message that references "8-bit SAR"
-- The upstream AnalogAcademy Verilog (which we depend on by path)
+## Why 7, not 8
 
-It also breaks the easy mental link from "AA Module 3 — 8-bit SAR
-ADC" to the topology in this repo. Until S9 (benchmark suite) has
-landed — at which point we will be running a lot more SAR variants
-side-by-side — the AA-named class stays put.
+- The upstream SAR FSM (`sar_logic.v`) iterates 7 times (`counter < 7`),
+  so D[7] always stays 0.
+- The upstream CDAC reuses the LSB switch for the dummy cap (8 caps,
+  7 distinct binary-weighted controls).
+- Net effective resolution = 7 bits, despite the 8-wire D bus.
 
-## What a clean rename would look like
+`SARADC11BitTopology` is unaffected — it was designed from scratch
+with 11 true binary weights and keeps its name.
 
-When we do this, the right move is probably:
+## Coverage
 
-1. Add `SAR7BitTopology` and `SAR7BitBehavioralTopology` as the
-   canonical names; keep `SARADCTopology` /
-   `SARADC8BitBehavioralTopology` as deprecated aliases that emit
-   `DeprecationWarning` on first use, pointing at the new names.
-2. Rename `topologies/sar_adc_8bit.py` -> `topologies/sar_adc_7bit.py`
-   with a `sar_adc_8bit.py` shim re-exporting the alias.
-3. Update `examples/13b_*` and `tests/test_*8bit_behavioral*`
-   filenames + test class names; keep the alias-based imports in the
-   examples for one release.
-4. Drop the aliases the release after.
+- `tests/test_sar_adc_7bit_behavioral.py` — canonical API coverage
+  (the same scenarios the old 8-bit test exercised).
+- `tests/test_sar_adc_8bit_behavioral.py` — now shim-specific: verifies
+  import is silent, re-exports align, and instantiation emits
+  `DeprecationWarning`.
+- `src/eda_agents/agents/system_handler.py` isinstance check covers
+  both the canonical class and the legacy alias so pre-rename callers
+  keep working with zero code change.
 
-Alternative: leave the misleading names alone forever and rely on
-this doc + the docstring callouts to make the convention loud. Pick
-one when S9 reshuffles SAR work.
+## Follow-up (deferred, low-priority)
 
-## Until then
-
-- The `SARADCTopology` class docstring opens with the
-  "*effectively 7-bit*" warning. Same for the behavioural variant.
-- `docs/skills/sar_adc/core-architecture.md` table row spells out
-  "Effectively 7-bit" for both 8-bit topologies and "True 11-bit"
-  for `SARADC11BitTopology`.
-- `docs/skills/sar_adc/sar-logic.md` records the per-topology
-  iteration count and bit-weighting formula explicitly so anyone
-  writing a new SAR variant knows which convention to follow.
-- The upstream `sar_logic.v` file is not modified (it is third-party
-  code under AA's licence terms); the convention difference is
-  documented from the eda-agents side only.
+- Drop the shim modules in a future session once external callers
+  have migrated (search outside this repo).
+- Upstream `sar_logic.v` is third-party and stays on the AA naming.
