@@ -20,6 +20,9 @@ SESSION_HANDOFF.md
 data/gf180-template/
 trackd_results/
 .venv-glayout/
+# Autoresearch digital default output dir (when a test / script runs
+# with no explicit work_dir). Never committed.
+autoresearch_digital/
 
 # LibreLane run artifacts from bench runs. The adapter symlinks its
 # run_dir under bench/cache/librelane_runs/, but the actual runs live
