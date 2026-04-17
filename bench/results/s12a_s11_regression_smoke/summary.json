@@ -1,0 +1,65 @@
+{
+  "by_family": {
+    "end-to-end": {
+      "error": 0,
+      "fail": 0,
+      "pass": 1,
+      "skipped": 0,
+      "total": 1
+    }
+  },
+  "errored": 0,
+  "failed": 0,
+  "pass_rate": 1.0,
+  "passed": 1,
+  "results": [
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_s11_regression_smoke/e2e_idea_to_digital_counter_live/config.yaml",
+        "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_s11_regression_smoke/e2e_idea_to_digital_counter_live/runs/RUN_2026-04-17_19-04-18/final/gds/counter4.gds",
+        "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_s11_regression_smoke/e2e_idea_to_digital_counter_live/runs/RUN_2026-04-17_19-04-18",
+        "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_s11_regression_smoke/e2e_idea_to_digital_counter_live/idea_to_chip_result.json"
+      ],
+      "backend_used": "idea-to-chip",
+      "duration_s": 155.67066885437816,
+      "errors": [],
+      "finished": "2026-04-17T17:05:44.611779+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "cost_usd": 0.68122875,
+        "gds_exists": 1.0,
+        "gl_post_pnr_ok": 1.0,
+        "gl_post_synth_ok": 1.0,
+        "num_turns": 11.0,
+        "prompt_length": 11692.0,
+        "wall_time_s": 155.2817978542298
+      },
+      "notes": [
+        "pdk=gf180mcu",
+        "design_name=counter4",
+        "dry_run=False",
+        "complexity=simple",
+        "tb_framework=iverilog",
+        "adapter_runtime_s=155.67",
+        "gds_exists=1 in range (margin=0)",
+        "gl_post_synth_ok=1 in range (margin=0)",
+        "gl_post_pnr_ok=1 in range (margin=0)"
+      ],
+      "pdk_used": "gf180mcu",
+      "scores": {
+        "audit_passed": null,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-17T17:03:08.941095+00:00",
+      "status": "PASS",
+      "task_id": "e2e_idea_to_digital_counter_live"
+    }
+  ],
+  "run_id": "s12a_s11_regression_smoke",
+  "skipped": 0,
+  "total": 1
+}

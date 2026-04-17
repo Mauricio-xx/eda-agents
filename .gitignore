@@ -240,6 +240,24 @@ bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/.ven
 bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/*.log
 bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/*.error.log
 
+# S12-A — S11 regression smoke. Proves single-shot iverilog path
+# byte-equivalence under live LLM after Gap 2 + Gap 1 land.
+!bench/results/s12a_s11_regression_smoke/
+!bench/results/s12a_s11_regression_smoke/README.md
+!bench/results/s12a_s11_regression_smoke/summary.json
+!bench/results/s12a_s11_regression_smoke/report.md
+!bench/results/s12a_s11_regression_smoke/e2e_idea_to_digital_counter_live/
+!bench/results/s12a_s11_regression_smoke/e2e_idea_to_digital_counter_live/idea_to_chip_result.json
+!bench/results/s12a_s11_regression_smoke/e2e_idea_to_digital_counter_live/config.yaml
+bench/results/s12a_s11_regression_smoke/e2e_idea_to_digital_counter_live/runs/
+bench/results/s12a_s11_regression_smoke/e2e_idea_to_digital_counter_live/src/
+bench/results/s12a_s11_regression_smoke/e2e_idea_to_digital_counter_live/tb/
+bench/results/s12a_s11_regression_smoke/e2e_idea_to_digital_counter_live.json
+bench/results/s12a_s11_regression_smoke/e2e_idea_to_digital_counter_live/.claude/
+bench/results/s12a_s11_regression_smoke/e2e_idea_to_digital_counter_live/.venv/
+bench/results/s12a_s11_regression_smoke/e2e_idea_to_digital_counter_live/*.log
+bench/results/s12a_s11_regression_smoke/e2e_idea_to_digital_counter_live/*.error.log
+
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat
