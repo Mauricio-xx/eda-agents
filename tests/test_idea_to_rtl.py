@@ -445,6 +445,9 @@ class TestBenchAdapterDry:
             ("idea_to_digital_accum_cpu_gf180.yaml",
              "e2e_idea_to_digital_accum_cpu_gf180",
              "gf180mcu", "complex"),
+            ("idea_to_digital_fft4_gf180.yaml",
+             "e2e_idea_to_digital_fft4_gf180",
+             "gf180mcu", "complex"),
         ],
     )
     def test_dry_variants_pass(self, tmp_path, yaml_name, task_id, pdk, complexity):
