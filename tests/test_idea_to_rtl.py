@@ -72,6 +72,21 @@ class TestIdeaToRTLResult:
         assert good.all_passed is True
         assert bad.all_passed is False
 
+    def test_all_passed_true_when_gl_sim_skipped_flag_set(self):
+        # Fase 1.5 cocotb path: GlSimRunner can't do gate-level against
+        # a cocotb testbench yet, so run_post_flow_gl_sim_check returns
+        # skipped=True. That must NOT be treated as a failure.
+        r = IdeaToRTLResult(
+            success=True,
+            work_dir=Path("/tmp"),
+            gl_sim={
+                "all_passed": None,
+                "skipped": True,
+                "reason": "cocotb_tb_no_gl_sim_support",
+            },
+        )
+        assert r.all_passed is True
+
 
 # ---------------------------------------------------------------------------
 # Description augmentation
@@ -450,6 +465,31 @@ class TestGlSimHelperErrors:
             pdk_root="/tmp/fake",
         )
         assert "Testbench not found" in report["error"]
+
+    def test_cocotb_testbench_skips_cleanly(self, tmp_path):
+        # Fase 1.5: when tb_framework=cocotb is used, the agent writes
+        # test_<design>.py instead of tb_<design>.v. GlSimRunner's
+        # post-synth/post-PnR path is iverilog-only, so we must return
+        # an explicit skipped marker rather than silently passing or
+        # noisily failing.
+        (tmp_path / "config.yaml").write_text(
+            yaml.safe_dump({"DESIGN_NAME": "widget"})
+        )
+        run_dir = tmp_path / "runs" / "RUN_1"
+        run_dir.mkdir(parents=True)
+        tb_dir = tmp_path / "tb"
+        tb_dir.mkdir(parents=True)
+        (tb_dir / "test_widget.py").write_text("# cocotb test\n")
+
+        report = run_post_flow_gl_sim_check(
+            work_dir=tmp_path,
+            pdk_key="gf180mcu",
+            pdk_root="/tmp/fake",
+        )
+        assert report["skipped"] is True
+        assert report["all_passed"] is None
+        assert report["reason"] == "cocotb_tb_no_gl_sim_support"
+        assert "cocotb" in report["note"].lower()
 
     def test_print_gl_sim_report_handles_skip(self, capsys):
         report = {"all_passed": False, "error": "config.yaml not found"}

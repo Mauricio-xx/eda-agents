@@ -76,10 +76,23 @@ class IdeaToRTLResult:
 
     @property
     def all_passed(self) -> bool:
-        """Overall gate: success AND (gl_sim skipped OR gl_sim passed)."""
+        """Overall gate: success AND (gl_sim skipped OR gl_sim passed).
+
+        Three cases, in order:
+          1. harness failure            -> False (always).
+          2. gl_sim is None             -> True  (gl_sim explicitly skipped
+                                                  via ``skip_gl_sim=True``).
+          3. gl_sim["skipped"] is True  -> True  (gl_sim ran but was
+                                                  not applicable, e.g.
+                                                  cocotb testbench with
+                                                  no GL sim support yet).
+          4. gl_sim["all_passed"]       -> that boolean.
+        """
         if not self.success:
             return False
         if self.gl_sim is None:
+            return True
+        if self.gl_sim.get("skipped"):
             return True
         return bool(self.gl_sim.get("all_passed", False))
 
@@ -359,7 +372,26 @@ def run_post_flow_gl_sim_check(
     run_dir = runs[-1]
 
     tb_path = work_dir / "tb" / f"tb_{design_name}.v"
+    cocotb_tb = work_dir / "tb" / f"test_{design_name}.py"
     if not tb_path.is_file():
+        if cocotb_tb.is_file():
+            # The agent wrote a cocotb testbench instead of a plain-
+            # Verilog one. GlSimRunner's post-synth / post-PnR path is
+            # iverilog-only today; cocotb gate-level sim is S12+ work.
+            # Surface this as an explicit skip, not a silent PASS.
+            return {
+                "all_passed": None,
+                "skipped": True,
+                "reason": "cocotb_tb_no_gl_sim_support",
+                "note": (
+                    f"Found cocotb test file at {cocotb_tb}; GL sim "
+                    "against post-synth and post-PnR netlists for "
+                    "cocotb testbenches is not implemented in "
+                    "GlSimRunner yet. The agent's pre-synth cocotb "
+                    "simulation + LibreLane signoff STA + DRC/LVS "
+                    "are the verification floor for this run."
+                ),
+            }
         return {
             "all_passed": False,
             "error": f"Testbench not found at {tb_path}",
