@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "all_passed": true,
+  "work_dir": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live",
+  "design_name": "fft4",
+  "prompt_length": 13229,
+  "wall_time_s": 409.10087016411126,
+  "num_turns": 7,
+  "cost_usd": 2.09971725,
+  "result_text_tail": "All clean. Final report below.\n\n## FINAL REPORT\n\n**1. Design name and description**\n`fft4` \u2014 4-point radix-2 DIT FFT, 8-bit signed real inputs \u2192 four 10-bit signed complex outputs. Pure adds/subtracts; twiddles {1,\u22121,j,\u2212j} require no multipliers. Registered inputs and outputs give single-cycle latency with `valid_out` flagging post-reset validity.\n\n**2. RTL interface and cell count**\n- Ports: `clk`, `rst_n`, `in0..in3[7:0]`, `out{0..3}_{re,im}[9:0]`, `valid_out`.\n- Total placed instances: 2970 (1305 stdcells; 47 sequential cells, 308 multi-input combinational cells, 14 buffers, 167 timing repair buffers).\n- Core area 300\u00d7300 \u00b5m; stdcell utilization 21.5%.\n- Verilator lint clean; functional TB PASS on all five vectors (zero, impulse, DC, `{1,0,-1,0}`, `{100,50,-50,-100}`).\n\n**3. Timing**\n- WNS setup: 27.349 ns (worst corner `max_ss_125C_4v50`). Nom_tt_025C_5v00 setup WNS = 33.29 ns. Setup violations = 0.\n- WHS hold: 10.178 ns (worst corner `min_ff_n40C_5v50`). Hold violations = 0.\n- `CLOCK_PERIOD=50 ns` closes with comfortable headroom.\n\n**4. DRC** \u2014 Magic DRC errors = 0; final routing DRC = 0 (converged at iteration 3); antenna violations = 0 (34 antenna diodes inserted).\n\n**5. LVS** \u2014 device difference = 0; net difference = 0; unmatched devices/nets/pins = 0; property fails = 0.\n\n**6. GDS** \u2014 `runs/RUN_2026-04-17_09-50-42/final/gds/fft4.gds` (KLayout-streamed, as configured).\n\n**7. Verdict** \u2014 **SIGNOFF CLEAN.** Setup/hold closed across all PVT corners, zero DRC/LVS/antenna violations, power 4.43 mW.\n\nDONE",
+  "error": null,
+  "config_path": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live/config.yaml",
+  "gds_path": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live/runs/RUN_2026-04-17_09-50-42/final/gds/fft4.gds",
+  "run_dir": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live/runs/RUN_2026-04-17_09-50-42",
+  "gl_sim": {
+    "all_passed": true,
+    "run_dir": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live/runs/RUN_2026-04-17_09-50-42",
+    "post_synth": {
+      "success": true,
+      "error": null,
+      "run_time_s": 0.2112207803875208
+    },
+    "post_pnr": {
+      "success": true,
+      "error": null,
+      "run_time_s": 0.2865986619144678,
+      "sdf_warnings": 0
+    }
+  }
+}
