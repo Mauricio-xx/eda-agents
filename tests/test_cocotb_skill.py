@@ -71,6 +71,15 @@ class TestCocotbSkillBody:
         # Explicitly forbids bare Timer stimulus patterns.
         assert "NEVER drive DUT inputs with a bare Timer" in body
 
+    def test_warns_about_readonly_write_footgun(self, body):
+        # Added after a live cocotb probe failed with mystery off-by-one
+        # because Claude wrote `dut.en.value = 1` after `await ReadOnly()`
+        # — cocotb silently drops those writes. The skill must flag
+        # this footgun prominently and show the correct cycle shape.
+        assert "READONLY IS READ-ONLY" in body
+        assert "silently drops" in body or "silently drop" in body
+        assert "off-by-one" in body
+
     def test_mentions_cocotb_summary_line(self, body):
         # CocotbDriver parses this specific regex; the skill must point
         # the agent at it so they don't invent their own PASS/FAIL

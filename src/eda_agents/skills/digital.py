@@ -317,10 +317,8 @@ PYTHON TESTBENCH CONTRACT (tb/test_<design>.py):
       # 1. Start the clock BEFORE releasing reset. 10 ns period = 100 MHz.
       cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
 
-      # 2. Drive reset low with a Timer (stimulus-only, never as a delay
-      #    on DUT inputs that have already been clocked).
+      # 2. Drive reset low and all other inputs to a safe default.
       dut.rst_n.value = 0
-      # drive all other inputs to a safe default
       dut.en.value = 0           # example
       dut.a.value = 0            # example
       # Hold reset for >= 5 clocks.
@@ -333,14 +331,20 @@ PYTHON TESTBENCH CONTRACT (tb/test_<design>.py):
       #    reset as `x` and `===`/`!==` checks will false-fail if you
       #    sample too early.
       await RisingEdge(dut.clk)
+      await ReadOnly()
+      assert int(dut.count.value) == 0  # example post-reset invariant
 
-      # 4. Drive stimulus ON posedge clk (not on a bare Timer).
+      # 4. The CANONICAL drive-then-check cycle. DO NOT write values
+      #    while still inside ReadOnly (see "READONLY IS READ-ONLY"
+      #    below) — ReadOnly silently drops writes and you will get
+      #    mystery off-by-one failures.
       for vec in VECTORS:
-          dut.a.value = vec["a"]
-          dut.en.value = 1
-          await RisingEdge(dut.clk)
-          # If the DUT is one-cycle latency:
-          await ReadOnly()
+          await RisingEdge(dut.clk)   # exits ReadOnly into the next
+                                      # Active region
+          dut.a.value = vec["a"]      # writes here land at the NEXT
+          dut.en.value = 1            # scheduled time step
+          await RisingEdge(dut.clk)   # DUT samples these values here
+          await ReadOnly()            # settle
           actual = int(dut.result.value)
           assert actual == vec["expected"], (
               f"vector {vec}: got {actual}, expected {vec['expected']}"
@@ -390,8 +394,35 @@ GATE-LEVEL-SAFE CONSTRAINTS (NON-NEGOTIABLE):
     propagate correctly. Use 0 or 1 explicitly.
   * NEVER put `initial` blocks in the cocotb file. All stimulus runs
     inside `@cocotb.test()` coroutines.
-  * `ReadOnly()` before sampling outputs is a good habit — it
-    guarantees the combinational logic has settled post-edge.
+
+READONLY IS READ-ONLY (MOST COMMON COCOTB FOOTGUN):
+
+  The ReadOnly phase exists so you can safely SAMPLE output signals
+  after the Active region has finished all non-blocking updates.
+  cocotb **silently drops** any writes attempted during ReadOnly —
+  no exception, no warning, the value just never reaches the DUT.
+  This manifests as mystery off-by-one simulation failures like
+  "expected count=1 got count=0" where the register looks like it
+  missed an enable pulse.
+
+  Correct cycle shape:
+
+      await RisingEdge(dut.clk)         # -> now in the Active region
+      dut.a.value = new_a               # writes OK here
+      dut.en.value = 1
+      await RisingEdge(dut.clk)         # DUT samples at this edge
+      await ReadOnly()                  # settle, then sample outputs
+      actual = int(dut.q.value)
+      # !! DO NOT write values here; ReadOnly will drop them silently.
+      # If you need to change stimulus again, the NEXT await
+      # RisingEdge() exits ReadOnly automatically — do writes there.
+
+  Symptom catalog:
+    - First iteration assertion fails with an off-by-one; subsequent
+      iterations also fail. Root cause: stimulus set during a prior
+      ReadOnly phase never reached the DUT.
+    - Your `en.value = 1` appears in the waveform as still 0 at the
+      clock edge you expected it sampled. Same root cause.
 
 COCOTB VERSION:
 
