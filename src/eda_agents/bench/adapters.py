@@ -1449,6 +1449,7 @@ def run_idea_to_digital_chip(
                 max_budget_usd=inputs.max_budget_usd,
                 model=inputs.model,
                 allow_dangerous=inputs.allow_dangerous,
+                tb_framework=inputs.tb_framework,
             )
         )
     except Exception as exc:  # noqa: BLE001 — surface to bench runner
@@ -1494,6 +1495,7 @@ def run_idea_to_digital_chip(
         f"design_name={inputs.design_name}",
         f"dry_run={inputs.dry_run}",
         f"complexity={inputs.complexity}",
+        f"tb_framework={inputs.tb_framework}",
     ]
     if result.error:
         notes.append(f"error={result.error[:200]}")

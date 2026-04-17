@@ -105,6 +105,7 @@ async def generate_rtl_draft(
     model: str | None = None,
     skip_gl_sim: bool = False,
     dry_run: bool = False,
+    tb_framework: str = "iverilog",
 ) -> IdeaToRTLResult:
     """Generate RTL + testbench + config + GDS from a natural language spec.
 
@@ -148,6 +149,12 @@ async def generate_rtl_draft(
         Build the prompt + validate inputs without launching the CLI.
         Returns ``success=True`` when the prompt is well-formed so
         callers can sanity-check setup cheaply.
+    tb_framework:
+        Testbench flavour — ``"iverilog"`` (default, plain Verilog TB
+        driven by iverilog/vvp) or ``"cocotb"`` (cocotb + Makefile,
+        guided by the ``digital.cocotb_testbench`` skill). Same
+        post-synth / post-PnR GlSimRunner check either way; cocotb
+        just changes what the agent writes in Phase 2.5.
     """
     work_dir = Path(work_dir).resolve()
     pdk_config = resolve_pdk(pdk) if not isinstance(pdk, PdkConfig) else pdk
@@ -172,6 +179,7 @@ async def generate_rtl_draft(
         pdk_root=resolved_root,
         pdk_config=pdk_config,
         librelane_python=librelane_python,
+        tb_framework=tb_framework,
     )
 
     if dry_run:

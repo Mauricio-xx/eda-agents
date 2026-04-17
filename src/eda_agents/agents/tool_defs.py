@@ -1124,6 +1124,7 @@ def build_from_spec_prompt(
     pdk_root: str,
     librelane_python: str = "python3",
     pdk_config: PdkConfig | str | None = None,
+    tb_framework: str = "iverilog",
 ) -> str:
     """Build a prompt for CC CLI to create a design from a natural language spec.
 
@@ -1143,10 +1144,24 @@ def build_from_spec_prompt(
     pdk_config : PdkConfig | str | None
         PDK selection. Falls back to EDA_AGENTS_PDK env var, then to the
         resolve_pdk() default.
+    tb_framework : {"iverilog", "cocotb"}
+        Testbench flavour for Phase 2.5. ``iverilog`` (default) is the
+        legacy plain-Verilog TB the agent has used historically.
+        ``cocotb`` swaps in a cocotb-based TB plus a cocotb-config
+        Makefile, with gate-level-safe rules inlined from the
+        ``digital.cocotb_testbench`` skill. Same post-synth / post-PnR
+        GlSimRunner path either way.
     """
     from eda_agents.agents.digital_autoresearch import detect_nix_eda_tool_dirs
     from eda_agents.agents.librelane_config_templates import get_config_template
     from eda_agents.core.pdk import resolve_pdk
+    from eda_agents.skills.registry import get_skill
+
+    if tb_framework not in ("iverilog", "cocotb"):
+        raise ValueError(
+            f"tb_framework must be 'iverilog' or 'cocotb', got "
+            f"{tb_framework!r}"
+        )
 
     cfg = resolve_pdk(pdk_config)
     config_template, defaults = get_config_template(cfg)
@@ -1189,39 +1204,8 @@ def build_from_spec_prompt(
         if librelane_sitepackages else ""
     )
 
-    return f"""You are a digital design automation agent. Your task is to take a
-circuit specification and produce a complete RTL-to-GDS implementation
-on {cfg.display_name}, from scratch.
-
-SPECIFICATION:
-{spec}
-
-WORKING DIRECTORY: {work_dir}
-PDK_ROOT: {pdk_root}
-PDK: {librelane_pdk}
-
-CRITICAL ENVIRONMENT RULE:
-Always pass explicit PDK vars in every shell command:
-  PDK_ROOT={pdk_root} PDK={librelane_pdk}
-{nix_env_note}
-
-WORKFLOW:
-Execute these phases in order. Fix errors before proceeding.
-
-Phase 1 - WRITE RTL:
-  Create the Verilog source file at {work_dir}/src/<design_name>.v
-  Requirements:
-  - Synthesizable Verilog (no $display, no initial blocks, no delays)
-  - Clear module interface with clock and reset if needed
-  - Use 'clk' for clock, 'rst_n' for active-low async reset (convention)
-  - Include all combinational and sequential logic
-  - Module name must match the filename (without .v)
-
-Phase 2 - LINT:
-  Run: verilator --lint-only -sv {work_dir}/src/<design_name>.v
-  Fix ALL errors and warnings. Re-lint until clean.
-
-Phase 2.5 - WRITE TESTBENCH AND SIMULATE:
+    if tb_framework == "iverilog":
+        testbench_phase = f"""Phase 2.5 - WRITE TESTBENCH AND SIMULATE:
   Create {work_dir}/tb/tb_<design_name>.v with a basic testbench:
   - Module name must be `tb`.
   - Instantiate the DUT with the instance name `dut` (e.g.
@@ -1257,7 +1241,69 @@ Phase 2.5 - WRITE TESTBENCH AND SIMULATE:
   The simulation MUST pass before proceeding. Fix RTL or testbench if it
   fails. This testbench will be reused later to verify that RTL
   optimizations preserve functional correctness AND that the post-synth
-  and post-PnR netlists still simulate correctly.
+  and post-PnR netlists still simulate correctly."""
+    else:  # cocotb
+        cocotb_guide = get_skill("digital.cocotb_testbench").render()
+        testbench_phase = f"""Phase 2.5 - WRITE COCOTB TESTBENCH AND SIMULATE:
+  Write a cocotb testbench under {work_dir}/tb/ following the rules
+  below verbatim. The same testbench will also run against the
+  post-synth gate-level netlist AND the post-PnR SDF-annotated
+  netlist, so any non-gate-level-safe pattern will false-fail later.
+
+  The cocotb DUT instance path that the eda-agents GlSimRunner
+  anchors on is `tb.dut` (implicit for cocotb: the Python test
+  module becomes the top and the DUT you instantiate has instance
+  name `dut`). Do NOT change this convention.
+
+  Files to create:
+    {work_dir}/tb/test_<design_name>.py  — cocotb Python test.
+    {work_dir}/tb/Makefile                — cocotb Makefile.
+
+  Runner invocation (from the agent's Bash tool):
+    cd {work_dir}/tb && make sim
+
+  The simulation MUST pass before proceeding. cocotb's summary line
+  (`** TESTS=<n> PASS=<n> FAIL=0 SKIP=0`) is the PASS anchor —
+  eda-agents' CocotbDriver regex parses exactly that line. Do not
+  invent your own PASS/FAIL print format.
+
+  ----- BEGIN digital.cocotb_testbench SKILL BODY -----
+{cocotb_guide}
+  ----- END digital.cocotb_testbench SKILL BODY -----"""
+
+    return f"""You are a digital design automation agent. Your task is to take a
+circuit specification and produce a complete RTL-to-GDS implementation
+on {cfg.display_name}, from scratch.
+
+SPECIFICATION:
+{spec}
+
+WORKING DIRECTORY: {work_dir}
+PDK_ROOT: {pdk_root}
+PDK: {librelane_pdk}
+
+CRITICAL ENVIRONMENT RULE:
+Always pass explicit PDK vars in every shell command:
+  PDK_ROOT={pdk_root} PDK={librelane_pdk}
+{nix_env_note}
+
+WORKFLOW:
+Execute these phases in order. Fix errors before proceeding.
+
+Phase 1 - WRITE RTL:
+  Create the Verilog source file at {work_dir}/src/<design_name>.v
+  Requirements:
+  - Synthesizable Verilog (no $display, no initial blocks, no delays)
+  - Clear module interface with clock and reset if needed
+  - Use 'clk' for clock, 'rst_n' for active-low async reset (convention)
+  - Include all combinational and sequential logic
+  - Module name must match the filename (without .v)
+
+Phase 2 - LINT:
+  Run: verilator --lint-only -sv {work_dir}/src/<design_name>.v
+  Fix ALL errors and warnings. Re-lint until clean.
+
+{testbench_phase}
 
 Phase 3 - GENERATE LIBRELANE CONFIG:
   Create {work_dir}/config.yaml with the following template, filling in

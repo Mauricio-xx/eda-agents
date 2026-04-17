@@ -223,6 +223,44 @@ Tests: `tests/test_recommend_topology.py` — 10 cases with OpenRouter
 mocked. Manual live smoke-tests in the repo root README are the
 high-trust validation; mocks verify schema + error paths.
 
+## Cocotb testbench framework (opt-in Phase 2.5 swap)
+
+`digital.cocotb_testbench` is a zero-arg skill that teaches the
+agent to write a gate-level-safe cocotb testbench + cocotb-config
+Makefile. Same TB runs against RTL, post-synth, and post-PnR
+(SDF-annotated) netlists; the latter two are driven by the existing
+`GlSimRunner`.
+
+Opt in from any entrypoint via the `tb_framework="cocotb"` knob
+(default is `"iverilog"` to preserve the legacy plain-Verilog TB):
+
+```python
+# Library
+await generate_rtl_draft(..., tb_framework="cocotb")
+
+# MCP tool
+await mcp.call_tool("generate_rtl_draft", {..., "tb_framework": "cocotb"})
+
+# Bench YAML
+inputs:
+  tb_framework: cocotb   # in addition to the usual keys
+```
+
+When the flag is on, `build_from_spec_prompt` inlines the skill body
+inside Phase 2.5 and the agent writes `tb/test_<design>.py` +
+`tb/Makefile` instead of `tb/tb_<design>.v`. The runner still
+locates the DUT through the `tb.dut` hierarchical path — that
+convention is preserved by cocotb's default test-module-is-top
+behaviour.
+
+When the flag is off (default), Phase 2.5 keeps emitting a plain
+Verilog TB as before; all S11 Fase 0/1/2 evidence was produced with
+the default, so nothing that was green stops being green.
+
+Callers MAY also get the skill body stand-alone via
+`render_skill("digital.cocotb_testbench")` and concatenate it into
+a custom prompt outside the from-spec path.
+
 ## Analog side: Fase 4 layout dispatch
 
 `scripts/glayout_driver.py` was generalised to route `spec['pdk']` to

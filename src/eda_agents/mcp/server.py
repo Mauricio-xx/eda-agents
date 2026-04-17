@@ -205,6 +205,7 @@ async def generate_rtl_draft(
     cli_path: str = "claude",
     max_budget_usd: float | None = None,
     model: str | None = None,
+    tb_framework: str = "iverilog",
 ) -> dict[str, Any]:
     """Run the NL idea -> digital GDS pipeline (S11 Fase 0).
 
@@ -245,6 +246,11 @@ async def generate_rtl_draft(
     librelane_python, timeout_s, cli_path, max_budget_usd, model:
         Pass-throughs (see
         :func:`eda_agents.agents.idea_to_rtl.generate_rtl_draft`).
+    tb_framework:
+        ``"iverilog"`` (default) or ``"cocotb"``. Swaps Phase 2.5 of
+        the from-spec prompt between the plain-Verilog TB + iverilog
+        and the cocotb + Makefile path guided by the
+        ``digital.cocotb_testbench`` skill.
 
     Returns
     -------
@@ -259,6 +265,14 @@ async def generate_rtl_draft(
             "error": (
                 f"unknown complexity {complexity!r}; "
                 "allowed: simple, medium, complex"
+            ),
+        }
+    if tb_framework not in ("iverilog", "cocotb"):
+        return {
+            "success": False,
+            "error": (
+                f"unknown tb_framework {tb_framework!r}; "
+                "allowed: iverilog, cocotb"
             ),
         }
     try:
@@ -276,6 +290,7 @@ async def generate_rtl_draft(
             cli_path=cli_path,
             max_budget_usd=max_budget_usd,
             model=model,
+            tb_framework=tb_framework,
         )
     except Exception as exc:  # noqa: BLE001 — surface all failures to caller
         return {

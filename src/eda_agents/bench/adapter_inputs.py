@@ -247,6 +247,15 @@ class IdeaToDigitalChipInputs(BaseModel):
             "Off by default — live tasks must opt in explicitly."
         ),
     )
+    tb_framework: str = Field(
+        default="iverilog",
+        description=(
+            "Testbench flavour for Phase 2.5 of the from-spec prompt. "
+            "'iverilog' (default, plain Verilog TB + iverilog/vvp) or "
+            "'cocotb' (cocotb Python TB + cocotb-config Makefile). "
+            "Same post-synth / post-PnR GlSimRunner check either way."
+        ),
+    )
 
     @field_validator("pdk")
     @classmethod
@@ -262,6 +271,14 @@ class IdeaToDigitalChipInputs(BaseModel):
         allowed = {"simple", "medium", "complex"}
         if v not in allowed:
             raise ValueError(f"complexity {v!r}; allowed: {sorted(allowed)}")
+        return v
+
+    @field_validator("tb_framework")
+    @classmethod
+    def _known_tb_framework(cls, v: str) -> str:
+        allowed = {"iverilog", "cocotb"}
+        if v not in allowed:
+            raise ValueError(f"tb_framework {v!r}; allowed: {sorted(allowed)}")
         return v
 
 

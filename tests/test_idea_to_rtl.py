@@ -138,6 +138,46 @@ class TestGenerateRtlDraftDry:
                 dry_run=True,
             )
 
+    async def test_dry_run_with_cocotb_injects_skill(self, tmp_path):
+        # S11 Fase 1.5: tb_framework='cocotb' routes through the
+        # digital.cocotb_testbench skill. Prompt length bump is the
+        # easiest proxy — matches test_cocotb_swaps_phase25 coverage
+        # but at the library entrypoint.
+        r_iv = await generate_rtl_draft(
+            description="4-bit counter with enable",
+            design_name="counter4",
+            work_dir=tmp_path / "iv",
+            pdk="gf180mcu",
+            pdk_root="/tmp/fake_pdk",
+            dry_run=True,
+        )
+        r_co = await generate_rtl_draft(
+            description="4-bit counter with enable",
+            design_name="counter4",
+            work_dir=tmp_path / "co",
+            pdk="gf180mcu",
+            pdk_root="/tmp/fake_pdk",
+            dry_run=True,
+            tb_framework="cocotb",
+        )
+        assert r_iv.success and r_co.success
+        assert r_co.prompt_length > r_iv.prompt_length + 3000
+
+    async def test_dry_run_with_invalid_tb_framework_reports_error(self, tmp_path):
+        # Unknown tb_framework must surface through generate_rtl_draft
+        # as an error rather than crash. The library already checks at
+        # build_from_spec_prompt — we just verify the path.
+        with pytest.raises(ValueError, match="tb_framework"):
+            await generate_rtl_draft(
+                description="x",
+                design_name="y",
+                work_dir=tmp_path,
+                pdk="gf180mcu",
+                pdk_root="/tmp/fake",
+                dry_run=True,
+                tb_framework="verilator",
+            )
+
     async def test_dry_run_with_no_default_root_reports_error(self, tmp_path, monkeypatch):
         # Strip PDK_ROOT and default_pdk_root so resolve_pdk_root fails.
         from eda_agents.core.pdk import IHP_SG13G2
@@ -616,3 +656,42 @@ class TestMCPTool:
         data = result.structured_content
         assert data["success"] is False
         assert "complexity" in data["error"]
+
+    async def test_unknown_tb_framework_reports_error(self, tmp_path):
+        from eda_agents.mcp.server import mcp
+
+        result = await mcp.call_tool(
+            "generate_rtl_draft",
+            {
+                "description": "4-bit counter",
+                "design_name": "counter",
+                "work_dir": str(tmp_path),
+                "pdk": "gf180mcu",
+                "pdk_root": "/tmp/fake_pdk",
+                "dry_run": True,
+                "tb_framework": "verilator",
+            },
+        )
+        data = result.structured_content
+        assert data["success"] is False
+        assert "tb_framework" in data["error"]
+
+    async def test_cocotb_tb_framework_via_mcp(self, tmp_path):
+        from eda_agents.mcp.server import mcp
+
+        result = await mcp.call_tool(
+            "generate_rtl_draft",
+            {
+                "description": "4-bit counter",
+                "design_name": "counter",
+                "work_dir": str(tmp_path),
+                "pdk": "gf180mcu",
+                "pdk_root": "/tmp/fake_pdk",
+                "dry_run": True,
+                "tb_framework": "cocotb",
+            },
+        )
+        data = result.structured_content
+        assert data["success"] is True
+        # Prompt with cocotb skill inlined is ~5k longer than plain.
+        assert data["prompt_length"] > 13000
