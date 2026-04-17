@@ -1,0 +1,52 @@
+{
+  "success": true,
+  "all_passed": true,
+  "work_dir": "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live",
+  "design_name": "mac8_pipelined",
+  "prompt_length": 20239,
+  "wall_time_s": 2002.742331857793,
+  "num_turns": 46,
+  "cost_usd": 8.088347500000001,
+  "result_text_tail": "All signoff stages clean. Let me write the final report.\n\n## Final Report\n\n**1. Design:** `mac8_pipelined` \u2014 8-bit pipelined signed multiply-accumulate unit with saturating 32-bit accumulator and 4-clock input-to-output latency.\n\n**2. RTL Interface** (`src/mac8_pipelined.v`):\n```\ninputs:  clk, rst_n, start, flush, a[7:0], b[7:0], in_valid\noutputs: acc_out[31:0], out_valid, wrap_detect\n```\nPipeline: `a_s1 \u2192 prod_s2 \u2192 prod_s3 \u2192 prod_s4 \u2192 acc`. Saturates at \u00b12^31 with 1-cycle `wrap_detect` pulse on transition into saturation.\n\n**3. Cocotb verification:** `TESTS=1 PASS=1 FAIL=0` \u2014 16 explicit vectors (pos\u00b7pos, pos\u00b7neg, multi-cycle accumulation, mid-stream flush), a 4-clock latency check, and a full organic saturation burst (~133k cycles) verifying wrap_detect fires exactly once.\n\n**4. Synthesis / PnR metrics** (LibreLane GF180MCU, run `RUN_2026-04-17_14-48-09`):\n- Instance count: **3555**\n- Setup WNS: **19.79 ns** (on 50 ns clock) \u2014 timing closed\n- Setup TNS: 0\n- Hold WNS: **0.415 ns** \u2014 closed\n- Hold TNS: 0\n- Wirelength: 28952 \u00b5m\n\n**5. DRC:** Magic DRC = **0 violations** (KLayout DRC and XOR disabled in config per template).\n\n**6. LVS:** Netgen \u2014 **Circuits match uniquely.**\n\n**7. GDS:** `runs/RUN_2026-04-17_14-48-09/final/gds/mac8_pipelined.gds`\n\n**Minor non-fatal warnings:** 9 max-slew, 1 max-cap, 1 max-fanout violations reported by signoff checkers. None block tape-out given the large positive WNS; these are typical for a first-pass flow with default repair thresholds.\n\n**Overall verdict: SIGNOFF CLEAN** \u2014 timing closed, DRC clean, LVS match, cocotb passes 1.3M ns of stimulus including full saturation exercise.\n\nDONE",
+  "error": null,
+  "config_path": "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/config.yaml",
+  "gds_path": "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/runs/RUN_2026-04-17_14-48-09/final/gds/mac8_pipelined.gds",
+  "run_dir": "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/runs/RUN_2026-04-17_14-48-09",
+  "gl_sim": {
+    "all_passed": true,
+    "run_dir": "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/runs/RUN_2026-04-17_14-48-09",
+    "post_synth": {
+      "success": true,
+      "error": null,
+      "run_time_s": 29.464888667687774
+    },
+    "post_pnr": {
+      "success": true,
+      "error": null,
+      "run_time_s": 27.445925478823483,
+      "sdf_warnings": 0
+    }
+  },
+  "loop_result": {
+    "iterations": [
+      {
+        "turn": 1,
+        "success": true,
+        "all_passed": true,
+        "sim_status": "missing",
+        "flow_status": "pass",
+        "gl_sim_status": "pass",
+        "failure_excerpt": "[agent report tail]\n**1. Design:** `mac8_pipelined` \u2014 8-bit pipelined signed multiply-accumulate unit with saturating 32-bit accumulator and 4-clock input-to-output latency.\n\n**2. RTL Interface** (`src/mac8_pipelined.v`):\n```\ninputs:  clk, rst_n, start, flush, a[7:0], b[7:0], in_valid\noutputs: acc_out[31:0], out_valid, wrap_detect\n```\nPipeline: `a_s1 \u2192 prod_s2 \u2192 prod_s3 \u2192 prod_s4 \u2192 acc`. Saturates at \u00b12^31 with 1-cycle `wrap_detect` pulse on transition into saturation.\n\n**3. Cocotb verification:** `TESTS=1 PASS=1 FAIL=0` \u2014 16 explicit vectors (pos\u00b7pos, pos\u00b7neg, multi-cycle accumulation, mid-stream flush), a 4-clock latency check, and a full organic saturation burst (~133k cycles) verifying wrap_detect fires exactly once.\n\n**4. Synthesis / PnR metrics** (LibreLane GF180MCU, run `RUN_2026-04-17_14-48-09`):\n- Instance count: **3555**\n- Setup WNS: **19.79 ns** (on 50 ns clock) \u2014 timing closed\n- Setup TNS: 0\n- Hold WNS: **0.415 ns** \u2014 closed\n- Hold TNS: 0\n- Wirelength: 28952 \u00b5m\n\n**5. DRC:** Magic DRC = **0 violations** (KLayout DRC and XOR disabled in config per template).\n\n**6. LVS:** Netgen \u2014 **Circuits match uniquely.**\n\n**7. GDS:** `runs/RUN_2026-04-17_14-48-09/final/gds/mac8_pipelined.gds`\n\n**Minor non-fatal warnings:** 9 max-slew, 1 max-cap, 1 max-fanout violations reported by signoff checkers. None block tape-out given the large positive WNS; these are typical for a first-pass flow with default repair thresholds.\n\n**Overall verdict: SIGNOFF CLEAN** \u2014 timing closed, DRC clean, LVS match, cocotb passes 1.3M ns of stimulus including full saturation exercise.\n\nDONE",
+        "cost_usd": 8.088347500000001,
+        "duration_s": 2059.745144698769,
+        "num_turns": 46,
+        "work_subdir": "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/runs/RUN_2026-04-17_14-48-09",
+        "error": null
+      }
+    ],
+    "total_cost_usd": 8.088347500000001,
+    "converged_turn": 1,
+    "budget_exhausted": false,
+    "reason": "converged"
+  }
+}

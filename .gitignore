@@ -219,6 +219,27 @@ bench/results/s12a_cocotb_gl_sim_live/e2e_idea_to_digital_counter_cocotb_live/.v
 bench/results/s12a_cocotb_gl_sim_live/e2e_idea_to_digital_counter_cocotb_live/*.log
 bench/results/s12a_cocotb_gl_sim_live/e2e_idea_to_digital_counter_cocotb_live/*.error.log
 
+# S12-A Gap 1 — IdeaToRTLLoop medium-target LIVE GATE GREEN (Pass@1).
+# Same narrow allowlist pattern: README + summary + report + result
+# JSON + config. Loop converged turn 1 so loop_result.json is part
+# of idea_to_chip_result.json — no separate file needed.
+!bench/results/s12a_medium_live/
+!bench/results/s12a_medium_live/README.md
+!bench/results/s12a_medium_live/summary.json
+!bench/results/s12a_medium_live/report.md
+!bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/
+!bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/idea_to_chip_result.json
+!bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/config.yaml
+!bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/loop_result.json
+bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/runs/
+bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/src/
+bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/tb/
+bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live.json
+bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/.claude/
+bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/.venv/
+bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/*.log
+bench/results/s12a_medium_live/e2e_idea_to_digital_mac_pipelined_gf180_live/*.error.log
+
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat
