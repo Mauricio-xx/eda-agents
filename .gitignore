@@ -201,6 +201,23 @@ bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/.claude/
 bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/.venv/
 bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/*.log
 bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/*.error.log
+# S12-C LIVE IHP SG13G2 counter — first live gate on IHP. Same narrow
+# allowlist: README + summary + report + result JSON + config.
+!bench/results/s12c_ihp_live/
+!bench/results/s12c_ihp_live/README.md
+!bench/results/s12c_ihp_live/summary.json
+!bench/results/s12c_ihp_live/report.md
+!bench/results/s12c_ihp_live/e2e_idea_to_digital_counter_ihp_live/
+!bench/results/s12c_ihp_live/e2e_idea_to_digital_counter_ihp_live/idea_to_chip_result.json
+!bench/results/s12c_ihp_live/e2e_idea_to_digital_counter_ihp_live/config.yaml
+bench/results/s12c_ihp_live/e2e_idea_to_digital_counter_ihp_live/runs/
+bench/results/s12c_ihp_live/e2e_idea_to_digital_counter_ihp_live/src/
+bench/results/s12c_ihp_live/e2e_idea_to_digital_counter_ihp_live/tb/
+bench/results/s12c_ihp_live/e2e_idea_to_digital_counter_ihp_live.json
+bench/results/s12c_ihp_live/e2e_idea_to_digital_counter_ihp_live/.claude/
+bench/results/s12c_ihp_live/e2e_idea_to_digital_counter_ihp_live/.venv/
+bench/results/s12c_ihp_live/e2e_idea_to_digital_counter_ihp_live/*.log
+bench/results/s12c_ihp_live/e2e_idea_to_digital_counter_ihp_live/*.error.log
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat
