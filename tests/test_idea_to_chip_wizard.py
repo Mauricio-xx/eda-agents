@@ -53,6 +53,38 @@ class TestWizardDigital:
         assert payload["success"] is True
         assert payload["design_name"] == "counter4"
 
+    def test_digital_dry_run_with_cocotb_tb_framework(self, tmp_path):
+        out_dir = tmp_path / "work"
+        result = _run_wizard([
+            "--digital", "--dry-run",
+            "--description", "4-bit sync counter with enable",
+            "--design-name", "counter4",
+            "--pdk", "gf180mcu",
+            "--pdk-root", "/tmp/fake_pdk",
+            "--work-dir", str(out_dir),
+            "--tb-framework", "cocotb",
+            "--yes",
+        ])
+        assert result.returncode == 0, result.stderr
+        # The wizard prints the tb_framework row AND warns the user
+        # about the cocotb GL-sim gap so a novice is not surprised
+        # by the reduced verification rigour downstream.
+        assert "tb_framework  : cocotb" in result.stdout
+        assert "skips post-synth" in result.stdout
+
+    def test_digital_invalid_tb_framework_rejected(self, tmp_path):
+        result = _run_wizard([
+            "--digital", "--dry-run",
+            "--description", "x", "--design-name", "y",
+            "--pdk", "gf180mcu", "--pdk-root", "/tmp/fake",
+            "--work-dir", str(tmp_path),
+            "--tb-framework", "verilator",
+            "--yes",
+        ])
+        assert result.returncode != 0
+        assert "invalid choice" in result.stderr.lower() or \
+               "verilator" in result.stderr.lower()
+
     def test_digital_dry_run_missing_description(self, tmp_path):
         # Feed an empty description via stdin — wizard should abort cleanly.
         result = subprocess.run(

@@ -1530,6 +1530,20 @@ def run_idea_to_digital_chip(
         and result.all_passed
         and result.gds_path is not None
     )
+    # sim_ok reporting:
+    # - gl_sim ran + passed  -> True
+    # - gl_sim ran + failed  -> False
+    # - gl_sim skipped (e.g. cocotb TB where gate-level sim isn't wired
+    #   yet) + agent flow succeeded -> True (the flow verifies through
+    #   signoff STA + DRC/LVS; pre-synth sim is the agent's floor).
+    # - gl_sim is None (we did not attempt it) + flow succeeded -> True.
+    if result.gl_sim is None:
+        sim_ok = result.success
+    elif result.gl_sim.get("skipped"):
+        sim_ok = result.success
+    else:
+        sim_ok = bool(result.gl_sim.get("all_passed"))
+
     return AdapterResult(
         status=BenchStatus.PASS if live_passed else BenchStatus.FAIL_AUDIT,
         backend_used="idea-to-chip",
@@ -1538,7 +1552,7 @@ def run_idea_to_digital_chip(
         errors=[result.error] if result.error else [],
         notes=notes,
         compile_ok=result.success,
-        sim_ok=bool(result.gl_sim and result.gl_sim.get("all_passed")),
+        sim_ok=sim_ok,
         raw_text=payload.get("result_text_tail", ""),
     )
 

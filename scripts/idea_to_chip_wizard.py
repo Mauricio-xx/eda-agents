@@ -96,6 +96,11 @@ async def run_digital(args) -> int:
     pdk = args.pdk or _prompt_choice(
         "Target PDK", ["gf180mcu", "ihp_sg13g2"], default="gf180mcu"
     )
+    # Default to iverilog silently; users who want cocotb pass
+    # --tb-framework cocotb on the CLI. Keeping this non-interactive
+    # preserves the one-shot wizard pattern and avoids a new prompt
+    # that would surprise users who never heard of cocotb.
+    tb_framework = args.tb_framework or "iverilog"
     work_dir = Path(args.work_dir or f"/tmp/idea_to_chip_{design_name}").resolve()
     pdk_root = _resolve_pdk_root(pdk, args.pdk_root)
 
@@ -104,8 +109,13 @@ async def run_digital(args) -> int:
     print(f"  design_name   : {design_name}")
     print(f"  pdk           : {pdk}")
     print(f"  pdk_root      : {pdk_root or '(will use default)'}")
+    print(f"  tb_framework  : {tb_framework}")
     print(f"  work_dir      : {work_dir}")
     print(f"  dry_run       : {args.dry_run}")
+    if tb_framework == "cocotb":
+        print("  note          : cocotb path skips post-synth/post-PnR GL "
+              "sim (S12+ scope). Agent's pre-synth cocotb sim + "
+              "LibreLane signoff STA are the verification floor.")
     print()
     if not args.yes:
         if _prompt_choice("Proceed?", ["y", "n"], default="y") != "y":
@@ -126,6 +136,7 @@ async def run_digital(args) -> int:
             timeout_s=args.timeout,
             max_budget_usd=args.max_budget,
             skip_gl_sim=args.skip_gl_sim,
+            tb_framework=tb_framework,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"\nFAIL: {type(exc).__name__}: {exc}")
@@ -269,6 +280,10 @@ async def amain() -> int:
     parser.add_argument("--allow-dangerous", action="store_true")
     parser.add_argument("--skip-gl-sim", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--tb-framework", default=None,
+                        choices=["iverilog", "cocotb"],
+                        help="Digital TB framework (default: iverilog). "
+                             "cocotb currently skips post-synth/post-PnR GL sim.")
     parser.add_argument("-y", "--yes", action="store_true",
                         help="Skip the interactive 'proceed?' confirmation")
 

@@ -592,6 +592,109 @@ class TestBenchAdapterDry:
         assert any("EDA_AGENTS_ALLOW_DANGEROUS" in e for e in result.errors)
 
 
+class TestBenchAdapterCocotbSkipPath:
+    """Fase 1.5: the adapter must treat a cocotb-skipped gl_sim as a
+    clean PASS when the agent's own flow completed, not as a FAIL_AUDIT.
+    """
+
+    def _fake_idea_result(self, tmp_path, gl_sim=None, gds_exists=True):
+        from eda_agents.agents.idea_to_rtl import IdeaToRTLResult
+
+        gds = tmp_path / "final.gds"
+        if gds_exists:
+            gds.write_bytes(b"fake gds")
+        return IdeaToRTLResult(
+            success=True,
+            work_dir=tmp_path,
+            prompt_length=15000,
+            wall_time_s=180.0,
+            num_turns=6,
+            cost_usd=0.74,
+            result_text="SIGNOFF CLEAN\nDONE",
+            design_name="counter4_cocotb",
+            config_path=tmp_path / "config.yaml",
+            gds_path=gds if gds_exists else None,
+            run_dir=tmp_path / "runs" / "RUN_1",
+            gl_sim=gl_sim,
+        )
+
+    def test_cocotb_skipped_gl_sim_reports_pass(self, tmp_path, monkeypatch):
+        # Short-circuit generate_rtl_draft to yield a fake successful
+        # IdeaToRTLResult with gl_sim.skipped=True — same shape the live
+        # cocotb wiring probe produced.
+        from eda_agents.agents import idea_to_rtl as idea_to_rtl_mod
+        from eda_agents.bench import adapters as adapters_mod
+
+        fake = self._fake_idea_result(
+            tmp_path,
+            gl_sim={
+                "all_passed": None,
+                "skipped": True,
+                "reason": "cocotb_tb_no_gl_sim_support",
+                "note": "...",
+            },
+        )
+
+        async def _fake_generate(*_args, **_kwargs):
+            return fake
+
+        # generate_rtl_draft is imported lazily inside the adapter, so
+        # patching the source module is what matters.
+        monkeypatch.setattr(
+            "eda_agents.agents.idea_to_rtl.generate_rtl_draft",
+            _fake_generate,
+        )
+
+        task = load_task(_TASK_DIR / "idea_to_digital_counter_cocotb_live.yaml")
+        # Force dry path past the CLI-presence check so the adapter
+        # advances to the generate_rtl_draft call.
+        import shutil
+        monkeypatch.setattr(shutil, "which", lambda _name: "/fake/claude")
+        monkeypatch.setenv("EDA_AGENTS_ALLOW_DANGEROUS", "1")
+
+        result = run_idea_to_digital_chip(task, tmp_path / "adapter_work")
+        assert result.status is BenchStatus.PASS, (
+            f"adapter should treat cocotb gl_sim_skipped as PASS "
+            f"(errors={result.errors}, notes={result.notes})"
+        )
+        assert result.sim_ok is True
+        assert result.compile_ok is True
+        assert result.metrics["gl_sim_skipped"] == 1.0
+        assert result.metrics["gds_exists"] == 1.0
+
+    def test_failed_gl_sim_still_fails_audit(self, tmp_path, monkeypatch):
+        # Sanity: when gl_sim actually failed (not skipped), the
+        # adapter must still report FAIL.
+        from eda_agents.bench import adapters as adapters_mod
+
+        fake = self._fake_idea_result(
+            tmp_path,
+            gl_sim={
+                "all_passed": False,
+                "post_synth": {"success": False, "error": "bad"},
+                "post_pnr": {"success": False, "error": "bad"},
+            },
+        )
+
+        async def _fake_generate(*_args, **_kwargs):
+            return fake
+
+        # generate_rtl_draft is imported lazily inside the adapter, so
+        # patching the source module is what matters.
+        monkeypatch.setattr(
+            "eda_agents.agents.idea_to_rtl.generate_rtl_draft",
+            _fake_generate,
+        )
+        import shutil
+        monkeypatch.setattr(shutil, "which", lambda _name: "/fake/claude")
+        monkeypatch.setenv("EDA_AGENTS_ALLOW_DANGEROUS", "1")
+
+        task = load_task(_TASK_DIR / "idea_to_digital_counter_live.yaml")
+        result = run_idea_to_digital_chip(task, tmp_path / "adapter_work")
+        assert result.status is BenchStatus.FAIL_AUDIT
+        assert result.sim_ok is False
+
+
 class TestBenchAdapterValidation:
     def test_missing_required_fields_fails_infra(self, tmp_path):
         from eda_agents.bench.models import (
