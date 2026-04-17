@@ -563,8 +563,19 @@ class GlSimRunner:
 
         run_env = os.environ.copy()
         if self.librelane_python:
-            venv_bin = str(Path(self.librelane_python).resolve().parent)
-            run_env["PATH"] = venv_bin + os.pathsep + run_env.get("PATH", "")
+            # NOTE: do NOT call .resolve() here — venv pythons are
+            # symlinks back to the system interpreter, so resolving
+            # would land us in /usr/bin and the venv's
+            # ``cocotb-config`` (which is what the Makefile shells
+            # out to find cocotb's Makefile.sim) would never be on
+            # PATH. Use the lexical parent of the configured path.
+            librelane_python_path = Path(self.librelane_python)
+            # Skip the prepend for bare command names ("python3"):
+            # the parent of those is ``.`` which is both useless and
+            # a known privilege-escalation footgun in PATH.
+            if "/" in self.librelane_python or librelane_python_path.is_absolute():
+                venv_bin = str(librelane_python_path.parent)
+                run_env["PATH"] = venv_bin + os.pathsep + run_env.get("PATH", "")
 
         cmd = ["make", "sim"]
         logger.info(

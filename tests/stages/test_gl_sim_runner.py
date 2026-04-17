@@ -14,6 +14,7 @@ runs, not here.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -603,6 +604,79 @@ class TestCocotbPostSynth:
         assert calls[0]["cwd"] == run_dir / "gl_sim" / "post_synth"
         # PATH was prepended with the librelane venv bin
         assert calls[0]["env"]["PATH"].startswith("/path/to/librelane/.venv/bin")
+
+    def test_path_prepend_uses_lexical_parent_not_resolved_symlink(
+        self, tmp_path, pdk_config
+    ):
+        """Regression: production venv pythons are symlinks back to the
+        system interpreter, so ``Path.resolve().parent`` would land in
+        ``/usr/bin`` instead of the venv's bin/. Cocotb-config lives in
+        the venv only, so the wrong PATH silently fails ``make sim``
+        (exit code 2) the way the first S12-A live attempt did. Lock
+        the lexical-parent contract here so this can't re-break.
+        """
+        project, design, run_dir, pdk_root = self._setup(tmp_path, pdk_config)
+        env = _make_cocotb_env(stdout="** TESTS=1 PASS=1 FAIL=0 SKIP=0 **\n")
+
+        # Build a fake venv whose python is a symlink to a script in
+        # an unrelated dir (mimics the real /usr/bin symlink target).
+        real_dir = tmp_path / "system" / "bin"
+        real_dir.mkdir(parents=True)
+        real_python = real_dir / "python3.12"
+        real_python.write_text("#!/bin/sh\nexit 0\n")
+        real_python.chmod(0o755)
+
+        venv_bin = tmp_path / "fake_venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        venv_python = venv_bin / "python"
+        venv_python.symlink_to(real_python)
+
+        runner = GlSimRunner(
+            design=design, env=env, run_dir=run_dir,
+            pdk_config=pdk_config, pdk_root=pdk_root,
+            librelane_python=str(venv_python),
+        )
+        runner.run_post_synth()
+
+        calls = env._captured  # noqa: SLF001
+        path = calls[0]["env"]["PATH"]
+        prepended = path.split(os.pathsep)[0]
+        # The PATH segment we add must be the LEXICAL parent — the
+        # venv's bin dir — not the real interpreter's directory.
+        assert prepended == str(venv_bin), (
+            f"PATH prepended {prepended!r}, expected the venv bin "
+            f"{str(venv_bin)!r}. If this asserts the resolved parent, "
+            "cocotb-config will not be findable in production."
+        )
+        assert prepended != str(real_dir)
+
+    def test_path_prepend_skipped_for_bare_python_command(
+        self, tmp_path, pdk_config
+    ):
+        """A bare ``python3`` (no path separator) means the caller is
+        relying on whatever PATH is already set up. The prepend logic
+        must NOT inject ``.`` (parent of a bare name) — that is both
+        useless and a privilege-escalation footgun.
+        """
+        project, design, run_dir, pdk_root = self._setup(tmp_path, pdk_config)
+        env = _make_cocotb_env(stdout="** TESTS=1 PASS=1 FAIL=0 SKIP=0 **\n")
+
+        runner = GlSimRunner(
+            design=design, env=env, run_dir=run_dir,
+            pdk_config=pdk_config, pdk_root=pdk_root,
+            librelane_python="python3",
+        )
+        runner.run_post_synth()
+
+        calls = env._captured  # noqa: SLF001
+        path = calls[0]["env"]["PATH"]
+        # PATH must be the inherited os.environ PATH unchanged — no
+        # leading "." segment.
+        first = path.split(os.pathsep)[0]
+        assert first != ".", (
+            "PATH was prepended with '.' — bare-command librelane_python "
+            "should leave PATH alone."
+        )
 
     def test_writes_makefile_with_verilog_sources(self, tmp_path, pdk_config):
         project, design, run_dir, pdk_root = self._setup(tmp_path, pdk_config)
