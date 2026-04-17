@@ -114,6 +114,122 @@ def _import_mimcap():
     raise ImportError("Cannot import mimcap from glayout")
 
 
+# ---------------------------------------------------------------------------
+# PDK dispatch (S11 Fase 4): route by spec['pdk'] name.
+# ---------------------------------------------------------------------------
+
+
+def _resolve_pdk(pdk_name: str):
+    """Return the gLayout PDK object for the named PDK, or None.
+
+    Maps canonical eda-agents PDK names to the gLayout module paths:
+
+      - ``gf180mcu``     -> ``glayout.pdk.gf180_mapped:gf180_mapped_pdk``
+      - ``ihp_sg13g2``   -> ``glayout.pdk.sg13g2_mapped:sg13g2_mapped_pdk``
+      - (fallback for backwards compat: legacy gLayout layouts)
+
+    Returns ``None`` if the PDK is not importable in the active
+    ``.venv-glayout`` — the caller surfaces that as a spec error.
+    """
+    candidates: dict[str, tuple[tuple[str, str], ...]] = {
+        "gf180mcu": (
+            ("glayout.pdk.gf180_mapped", "gf180_mapped_pdk"),
+            ("glayout.pdk.gf180_mapped", "gf180"),
+            ("glayout.flow.pdk.gf180_mapped", "gf180"),
+        ),
+        "ihp_sg13g2": (
+            ("glayout.pdk.sg13g2_mapped", "sg13g2_mapped_pdk"),
+            ("glayout.pdk.sg13g2_mapped", "sg13g2"),
+            # gLayout also exposes an ihp130 alias on the SG13G2 branch.
+            ("glayout", "sg13g2"),
+            ("glayout", "ihp130"),
+        ),
+        # Kept for completeness; not exercised by the eda-agents suite today.
+        "sky130": (
+            ("glayout.pdk.sky130_mapped", "sky130_mapped_pdk"),
+            ("glayout", "sky130"),
+        ),
+    }
+
+    for module_path, attr in candidates.get(pdk_name, ()):
+        try:
+            mod = __import__(module_path, fromlist=[attr])
+            return getattr(mod, attr)
+        except (ImportError, AttributeError):
+            continue
+    return None
+
+
+def _import_block(name: str, module_candidates):
+    """Best-effort import: tries each (module, attr) until one works."""
+    for module_path, attr in module_candidates:
+        try:
+            mod = __import__(module_path, fromlist=[attr])
+            return getattr(mod, attr)
+        except (ImportError, AttributeError):
+            continue
+    return None
+
+
+def _generate_diff_pair(pdk_obj, params: dict):
+    """Generate a gLayout differential pair (SG13G2-clean, also works on gf180)."""
+    fn = _import_block("diff_pair", (
+        ("glayout.blocks.elementary.diff_pair", "diff_pair"),
+        ("glayout.flow.blocks.elementary.diff_pair", "diff_pair"),
+    ))
+    if fn is None:
+        raise ImportError("Cannot import diff_pair block from gLayout")
+    kwargs = {}
+    if "width" in params:
+        kwargs["width"] = float(params["width"])
+    if "length" in params:
+        kwargs["length"] = float(params["length"])
+    if "fingers" in params:
+        kwargs["fingers"] = int(params["fingers"])
+    return fn(pdk=pdk_obj, **kwargs)
+
+
+def _generate_current_mirror(pdk_obj, params: dict):
+    fn = _import_block("current_mirror", (
+        ("glayout.blocks.elementary.current_mirror", "current_mirror"),
+        ("glayout.flow.blocks.elementary.current_mirror", "current_mirror"),
+    ))
+    if fn is None:
+        raise ImportError("Cannot import current_mirror block from gLayout")
+    kwargs = {}
+    if "width" in params:
+        kwargs["width"] = float(params["width"])
+    if "length" in params:
+        kwargs["length"] = float(params["length"])
+    if "fingers" in params:
+        kwargs["fingers"] = int(params["fingers"])
+    if "multipliers" in params:
+        kwargs["multipliers"] = int(params["multipliers"])
+    if "type" in params:
+        kwargs["type"] = str(params["type"])
+    return fn(pdk=pdk_obj, **kwargs)
+
+
+def _generate_fvf(pdk_obj, params: dict):
+    """Flipped voltage follower composite (SG13G2 LVS-clean; also gf180)."""
+    fn = _import_block("flipped_voltage_follower", (
+        ("glayout.blocks.elementary.FVF.fvf", "flipped_voltage_follower"),
+        ("glayout.flow.blocks.elementary.FVF.fvf", "flipped_voltage_follower"),
+    ))
+    if fn is None:
+        raise ImportError(
+            "Cannot import flipped_voltage_follower (FVF) block from gLayout"
+        )
+    kwargs = {}
+    if "width" in params:
+        kwargs["width"] = float(params["width"])
+    if "length" in params:
+        kwargs["length"] = float(params["length"])
+    if "fingers" in params:
+        kwargs["fingers"] = int(params["fingers"])
+    return fn(pdk=pdk_obj, **kwargs)
+
+
 def _generate_opamp(pdk_obj, params: dict):
     """Generate a two-stage opamp using gLayout's opamp_twostage().
 
@@ -167,39 +283,47 @@ def generate(spec: dict) -> dict:
     component = spec["component"]
     params = spec.get("params", {})
     output_dir = Path(spec["output_dir"])
-    _ = spec.get("pdk", "gf180mcu")  # reserved for multi-PDK support
+    pdk_name = spec.get("pdk", "gf180mcu")
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Import gLayout components -- try current import paths first, then legacy
+    # gdstk is required for port-label post-processing.
     try:
         import gdstk  # noqa: F401
     except ImportError:
         return {"success": False, "error": "gdstk not installed in this venv"}
 
-    pdk_obj = None
-    # Try multiple module paths and symbol names (API changed across gLayout versions)
-    _pdk_candidates = [
-        ("glayout.pdk.gf180_mapped", "gf180_mapped_pdk"),
-        ("glayout.pdk.gf180_mapped", "gf180"),
-        ("glayout.flow.pdk.gf180_mapped", "gf180"),
-    ]
-    for pdk_module, pdk_attr in _pdk_candidates:
-        try:
-            mod = __import__(pdk_module, fromlist=[pdk_attr])
-            pdk_obj = getattr(mod, pdk_attr)
-            break
-        except (ImportError, AttributeError):
-            continue
-
+    pdk_obj = _resolve_pdk(pdk_name)
     if pdk_obj is None:
         return {
             "success": False,
-            "error": "gLayout PDK not found (tried glayout.pdk and glayout.flow.pdk)",
+            "error": (
+                f"gLayout PDK {pdk_name!r} not importable in this venv. "
+                f"For SG13G2, reinstall the glayout fork with the SG13G2 "
+                f"branch: "
+                f"`.venv-glayout/bin/pip install --no-deps -e "
+                f"/path/to/gLayout` (branch feature/sg13g2-pdk-support)."
+            ),
         }
 
-    # Map component names to gLayout generators
     component_lower = component.lower()
+
+    # opamp_twostage is gf180-only at the time this driver was last
+    # exercised; the SG13G2 port is WIP upstream. Fail fast rather than
+    # surface a cryptic gLayout error.
+    if (
+        component_lower in ("opamp", "opamp_twostage", "ota")
+        and pdk_name != "gf180mcu"
+    ):
+        return {
+            "success": False,
+            "error": (
+                f"opamp_twostage is gf180mcu-only today. "
+                f"Asked for pdk={pdk_name!r}. SG13G2 opamp is WIP in the "
+                "gLayout fork (branch feature/sg13g2-pdk-support) — use "
+                "diff_pair / current_mirror / fvf for that PDK instead."
+            ),
+        }
 
     try:
         if component_lower in ("nmos", "nfet"):
@@ -227,12 +351,26 @@ def generate(spec: dict) -> dict:
         elif component_lower in ("opamp", "opamp_twostage", "ota"):
             cell = _generate_opamp(pdk_obj, params)
 
+        elif component_lower in ("diff_pair", "diffpair", "differential_pair"):
+            cell = _generate_diff_pair(pdk_obj, params)
+
+        elif component_lower in (
+            "current_mirror", "cmirror", "cur_mirror",
+        ):
+            cell = _generate_current_mirror(pdk_obj, params)
+
+        elif component_lower in (
+            "fvf", "flipped_voltage_follower",
+        ):
+            cell = _generate_fvf(pdk_obj, params)
+
         else:
             return {
                 "success": False,
                 "error": (
-                    f"Unknown component: {component}. "
-                    f"Supported: nmos, pmos, mimcap, opamp"
+                    f"Unknown component: {component!r} for pdk={pdk_name!r}. "
+                    f"Supported: nmos, pmos, mimcap, opamp (gf180 only), "
+                    f"diff_pair, current_mirror, fvf."
                 ),
             }
 

@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "all_passed": true,
+  "work_dir": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live",
+  "design_name": "acpu",
+  "prompt_length": 14157,
+  "wall_time_s": 538.6514362534508,
+  "num_turns": 18,
+  "cost_usd": 1.2955897500000002,
+  "result_text_tail": "SIGNOFF CLEAN at all corners.\n\n## FINAL REPORT\n\n**1. Design:** `acpu` \u2014 8-bit accumulator CPU with Harvard memory, single-cycle, 16 opcodes. Top wraps the CPU core with a 32-entry combinational instruction ROM (pre-loaded with a self-test program that exercises every opcode) and a 16-entry reset-clearable data RAM.\n\n**2. RTL interface:**\n- Inputs: `clk`, `rst_n`\n- Outputs: `halt`, plus observation: `acc_obs[7:0]`, `pc_obs[7:0]`, `z_obs`, `n_obs`, `dmem0_obs[7:0]`, `dmem2_obs[7:0]`, `dmem3_obs[7:0]`\n- Std-cell count: 1865 (90 sequential, 331 multi-input combinational, etc.)\n- Core area: 154 103 \u00b5m\u00b2, utilization 15.6 %\n\n**3. Timing:** WNS = 0.000 ns, TNS = 0.000 ns at **every** PVT corner (including ss_125C_4v50). Clock period 50 ns (20 MHz). Hold clean.\n\n**4. DRC:** Magic 0, Route 0. (KLayout DRC not available on gf180mcuD; Magic is the signoff DRC.)\n\n**5. LVS:** 0 errors (device/net/property differences all 0).\n\n**6. GDS:** `runs/RUN_2026-04-16_23-42-37/final/gds/acpu.gds` (KLayout-streamed).\n\n**7. Verdict:** SIGNOFF CLEAN \u2014 LVS clean, Magic DRC clean, routing DRC clean, timing closed at all corners, TB PASS (acc=0xAA, Z=0, N=1, dmem[0]=0xAA, dmem[2]=0x08, dmem[3]=0x30).\n\nDONE",
+  "error": null,
+  "config_path": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live/config.yaml",
+  "gds_path": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live/runs/RUN_2026-04-16_23-42-37/final/gds/acpu.gds",
+  "run_dir": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live/runs/RUN_2026-04-16_23-42-37",
+  "gl_sim": {
+    "all_passed": true,
+    "run_dir": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live/runs/RUN_2026-04-16_23-42-37",
+    "post_synth": {
+      "success": true,
+      "error": null,
+      "run_time_s": 0.2405772740021348
+    },
+    "post_pnr": {
+      "success": true,
+      "error": null,
+      "run_time_s": 0.34979688189923763,
+      "sdf_warnings": 0
+    }
+  }
+}

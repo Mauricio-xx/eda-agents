@@ -1,0 +1,63 @@
+{
+  "by_family": {
+    "end-to-end": {
+      "error": 0,
+      "fail": 0,
+      "pass": 1,
+      "skipped": 0,
+      "total": 1
+    }
+  },
+  "errored": 0,
+  "failed": 0,
+  "pass_rate": 1.0,
+  "passed": 1,
+  "results": [
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/config.yaml",
+        "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/runs/RUN_2026-04-17_10-18-38/final/gds/counter4_cocotb.gds",
+        "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/runs/RUN_2026-04-17_10-18-38",
+        "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/idea_to_chip_result.json"
+      ],
+      "backend_used": "idea-to-chip",
+      "duration_s": 232.51427309866995,
+      "errors": [],
+      "finished": "2026-04-17T08:20:02.874430+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "cost_usd": 0.9249557499999999,
+        "gds_exists": 1.0,
+        "gl_sim_skipped": 1.0,
+        "num_turns": 17.0,
+        "prompt_length": 17766.0,
+        "wall_time_s": 232.41137540433556
+      },
+      "notes": [
+        "pdk=gf180mcu",
+        "design_name=counter4_cocotb",
+        "dry_run=False",
+        "complexity=simple",
+        "tb_framework=cocotb",
+        "adapter_runtime_s=232.51",
+        "gds_exists=1 in range (margin=0)",
+        "gl_sim_skipped=1 in range (margin=0)"
+      ],
+      "pdk_used": "gf180mcu",
+      "scores": {
+        "audit_passed": null,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-17T08:16:10.360141+00:00",
+      "status": "PASS",
+      "task_id": "e2e_idea_to_digital_counter_cocotb_live"
+    }
+  ],
+  "run_id": "s11_cocotb_final",
+  "skipped": 0,
+  "total": 1
+}

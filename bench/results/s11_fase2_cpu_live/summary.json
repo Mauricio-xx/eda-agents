@@ -1,0 +1,64 @@
+{
+  "by_family": {
+    "end-to-end": {
+      "error": 0,
+      "fail": 0,
+      "pass": 1,
+      "skipped": 0,
+      "total": 1
+    }
+  },
+  "errored": 0,
+  "failed": 0,
+  "pass_rate": 1.0,
+  "passed": 1,
+  "results": [
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live/config.yaml",
+        "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live/runs/RUN_2026-04-16_23-42-37/final/gds/acpu.gds",
+        "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live/runs/RUN_2026-04-16_23-42-37",
+        "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live/idea_to_chip_result.json"
+      ],
+      "backend_used": "idea-to-chip",
+      "duration_s": 539.3485441068187,
+      "errors": [],
+      "finished": "2026-04-16T21:44:26.673620+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "cost_usd": 1.2955897500000002,
+        "gds_exists": 1.0,
+        "gl_post_pnr_ok": 1.0,
+        "gl_post_synth_ok": 1.0,
+        "num_turns": 18.0,
+        "prompt_length": 14157.0,
+        "wall_time_s": 538.6514362534508
+      },
+      "notes": [
+        "pdk=gf180mcu",
+        "design_name=acpu",
+        "dry_run=False",
+        "complexity=complex",
+        "adapter_runtime_s=539.35",
+        "gds_exists=1 in range (margin=0)",
+        "gl_post_synth_ok=1 in range (margin=0)",
+        "gl_post_pnr_ok=1 in range (margin=0)"
+      ],
+      "pdk_used": "gf180mcu",
+      "scores": {
+        "audit_passed": null,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T21:35:27.325064+00:00",
+      "status": "PASS",
+      "task_id": "e2e_idea_to_digital_accum_cpu_gf180_live"
+    }
+  ],
+  "run_id": "s11_fase2_cpu_live",
+  "skipped": 0,
+  "total": 1
+}

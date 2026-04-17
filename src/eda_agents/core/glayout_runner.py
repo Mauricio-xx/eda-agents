@@ -204,16 +204,11 @@ class GLayoutRunner:
 
         elapsed = time.monotonic() - t0
 
-        if proc.returncode != 0:
-            return GLayoutResult(
-                success=False,
-                component=component,
-                params=params,
-                error=proc.stderr.strip()[-500:] or f"Driver exited {proc.returncode}",
-                run_time_s=elapsed,
-            )
-
-        # Parse JSON output from driver
+        # Parse JSON output from driver first — the driver writes a
+        # structured error message to stdout even when it exits non-zero
+        # (spec-level failures: unknown PDK, unknown component). Only
+        # fall back to the generic "Driver exited N" message when stdout
+        # is not well-formed JSON.
         try:
             result = json.loads(proc.stdout)
         except json.JSONDecodeError:
@@ -221,7 +216,11 @@ class GLayoutRunner:
                 success=False,
                 component=component,
                 params=params,
-                error=f"Invalid driver output: {proc.stdout[:200]}",
+                error=(
+                    proc.stderr.strip()[-500:]
+                    or proc.stdout[:200]
+                    or f"Driver exited {proc.returncode}"
+                ),
                 run_time_s=elapsed,
             )
 
@@ -230,7 +229,23 @@ class GLayoutRunner:
                 success=False,
                 component=component,
                 params=params,
-                error=result.get("error", "Unknown driver error"),
+                error=result.get(
+                    "error", f"Driver exited {proc.returncode}"
+                ),
+                run_time_s=elapsed,
+            )
+
+        if proc.returncode != 0:
+            # Structured JSON says success but the process exited non-zero.
+            # Surface that loudly — it's a driver contract violation.
+            return GLayoutResult(
+                success=False,
+                component=component,
+                params=params,
+                error=(
+                    f"Driver success=True but exit={proc.returncode}; "
+                    f"stderr={proc.stderr.strip()[-300:]}"
+                ),
                 run_time_s=elapsed,
             )
 

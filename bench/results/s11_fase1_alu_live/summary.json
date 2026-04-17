@@ -1,0 +1,64 @@
+{
+  "by_family": {
+    "end-to-end": {
+      "error": 0,
+      "fail": 0,
+      "pass": 1,
+      "skipped": 0,
+      "total": 1
+    }
+  },
+  "errored": 0,
+  "failed": 0,
+  "pass_rate": 1.0,
+  "passed": 1,
+  "results": [
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/config.yaml",
+        "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/runs/RUN_2026-04-16_23-22-40/final/gds/alu8.gds",
+        "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/runs/RUN_2026-04-16_23-22-40",
+        "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/idea_to_chip_result.json"
+      ],
+      "backend_used": "idea-to-chip",
+      "duration_s": 763.3493158547208,
+      "errors": [],
+      "finished": "2026-04-16T21:31:52.873662+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "cost_usd": 3.13940575,
+        "gds_exists": 1.0,
+        "gl_post_pnr_ok": 1.0,
+        "gl_post_synth_ok": 1.0,
+        "num_turns": 1.0,
+        "prompt_length": 11834.0,
+        "wall_time_s": 762.8237845497206
+      },
+      "notes": [
+        "pdk=gf180mcu",
+        "design_name=alu8",
+        "dry_run=False",
+        "complexity=medium",
+        "adapter_runtime_s=763.35",
+        "gds_exists=1 in range (margin=0)",
+        "gl_post_synth_ok=1 in range (margin=0)",
+        "gl_post_pnr_ok=1 in range (margin=0)"
+      ],
+      "pdk_used": "gf180mcu",
+      "scores": {
+        "audit_passed": null,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-16T21:19:09.524334+00:00",
+      "status": "PASS",
+      "task_id": "e2e_idea_to_digital_alu8_gf180_live"
+    }
+  ],
+  "run_id": "s11_fase1_alu_live",
+  "skipped": 0,
+  "total": 1
+}

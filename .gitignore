@@ -20,6 +20,9 @@ SESSION_HANDOFF.md
 data/gf180-template/
 trackd_results/
 .venv-glayout/
+# Autoresearch digital default output dir (when a test / script runs
+# with no explicit work_dir). Never committed.
+autoresearch_digital/
 
 # LibreLane run artifacts from bench runs. The adapter symlinks its
 # run_dir under bench/cache/librelane_runs/, but the actual runs live
@@ -94,6 +97,110 @@ bench/results/*
 # regression, no positive signal; same trajectory both arms).
 !bench/results/s10h_20260416T204609Z_comparison.md
 !bench/results/s10h_20260416T204609Z_analysis.md
+# S11 Fase 0 live evidence. NL idea -> digital GDS on GF180 counter4,
+# Pass@1 = 100% in 164s. Narrow allowlist: README + summary + report +
+# the structured idea_to_chip_result.json and the generated
+# LibreLane config.yaml. The agent-written RTL / testbench / runs/
+# stay gitignored (runs/ re-excluded below so the subdir allowlist
+# doesn't let the whole LibreLane tree through).
+!bench/results/s11_fase0_live/
+!bench/results/s11_fase0_live/README.md
+!bench/results/s11_fase0_live/summary.json
+!bench/results/s11_fase0_live/report.md
+!bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/
+!bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/idea_to_chip_result.json
+!bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/config.yaml
+# Re-exclude the heavy stuff (LibreLane run tree, agent-written RTL,
+# per-task JSON mirror, Claude Code's default-loaded project bundles).
+bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/runs/
+bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/src/
+bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/tb/
+bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live.json
+bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/.claude/
+bench/results/s11_fase0_live/e2e_idea_to_digital_counter_live/.venv/
+# S11 Fase 1 live evidence (ALU 8-bit on GF180). Same allowlist shape.
+!bench/results/s11_fase1_alu_live/
+!bench/results/s11_fase1_alu_live/README.md
+!bench/results/s11_fase1_alu_live/summary.json
+!bench/results/s11_fase1_alu_live/report.md
+!bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/
+!bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/idea_to_chip_result.json
+!bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/config.yaml
+bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/runs/
+bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/src/
+bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/tb/
+bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live.json
+bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/.claude/
+bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/.venv/
+bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/*.log
+bench/results/s11_fase1_alu_live/e2e_idea_to_digital_alu8_gf180_live/*.error.log
+# S11 Fase 2 live evidence (small CPU on GF180). Same allowlist shape.
+!bench/results/s11_fase2_cpu_live/
+!bench/results/s11_fase2_cpu_live/README.md
+!bench/results/s11_fase2_cpu_live/summary.json
+!bench/results/s11_fase2_cpu_live/report.md
+!bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live/
+!bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live/idea_to_chip_result.json
+!bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live/config.yaml
+bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live/runs/
+bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live/src/
+bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live/tb/
+bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live.json
+bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live/.claude/
+bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live/.venv/
+bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live/*.log
+bench/results/s11_fase2_cpu_live/e2e_idea_to_digital_accum_cpu_gf180_live/*.error.log
+# S11 Fase 2 FFT probe (INCONCLUSIVE: rate-limited). Track README +
+# summary + report + the rate-limit result JSON as honest evidence.
+!bench/results/s11_fase2_fft_live/
+!bench/results/s11_fase2_fft_live/README.md
+!bench/results/s11_fase2_fft_live/summary.json
+!bench/results/s11_fase2_fft_live/report.md
+!bench/results/s11_fase2_fft_live/e2e_idea_to_digital_fft4_gf180_live/
+!bench/results/s11_fase2_fft_live/e2e_idea_to_digital_fft4_gf180_live/idea_to_chip_result.json
+bench/results/s11_fase2_fft_live/e2e_idea_to_digital_fft4_gf180_live/runs/
+bench/results/s11_fase2_fft_live/e2e_idea_to_digital_fft4_gf180_live/src/
+bench/results/s11_fase2_fft_live/e2e_idea_to_digital_fft4_gf180_live/tb/
+bench/results/s11_fase2_fft_live/e2e_idea_to_digital_fft4_gf180_live.json
+bench/results/s11_fase2_fft_live/e2e_idea_to_digital_fft4_gf180_live/.claude/
+bench/results/s11_fase2_fft_live/e2e_idea_to_digital_fft4_gf180_live/.venv/
+bench/results/s11_fase2_fft_live/e2e_idea_to_digital_fft4_gf180_live/*.log
+bench/results/s11_fase2_fft_live/e2e_idea_to_digital_fft4_gf180_live/*.error.log
+# S11 Fase 2 FFT RETRY (GATE GREEN after rate-limit reset). Same
+# narrow allowlist: README + summary + report + result JSON + config.
+!bench/results/s11_fase2_fft_live_retry/
+!bench/results/s11_fase2_fft_live_retry/README.md
+!bench/results/s11_fase2_fft_live_retry/summary.json
+!bench/results/s11_fase2_fft_live_retry/report.md
+!bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live/
+!bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live/idea_to_chip_result.json
+!bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live/config.yaml
+bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live/runs/
+bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live/src/
+bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live/tb/
+bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live.json
+bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live/.claude/
+bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live/.venv/
+bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live/*.log
+bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live/*.error.log
+# S11 Fase 1.5 cocotb wiring — final PASS evidence after adapter fix.
+# Same narrow allowlist shape: README + summary + report + result
+# JSON + config. Runs tree stays gitignored.
+!bench/results/s11_cocotb_final/
+!bench/results/s11_cocotb_final/README.md
+!bench/results/s11_cocotb_final/summary.json
+!bench/results/s11_cocotb_final/report.md
+!bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/
+!bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/idea_to_chip_result.json
+!bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/config.yaml
+bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/runs/
+bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/src/
+bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/tb/
+bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live.json
+bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/.claude/
+bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/.venv/
+bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/*.log
+bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/*.error.log
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat

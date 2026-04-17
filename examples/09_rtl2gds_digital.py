@@ -150,9 +150,16 @@ def check_env(backend: str, model: str):
 
 
 async def run_from_spec(args):
-    """Mode 3: Generate design from natural language spec via CC CLI."""
-    from eda_agents.agents.claude_code_harness import ClaudeCodeHarness
-    from eda_agents.agents.tool_defs import build_from_spec_prompt
+    """Mode 3: Generate design from natural language spec via CC CLI.
+
+    Delegates to :func:`eda_agents.agents.idea_to_rtl.generate_rtl_draft`
+    so the example and MCP / bench adapters share one implementation.
+    """
+    from eda_agents.agents.idea_to_rtl import (
+        generate_rtl_draft,
+        print_gl_sim_report,
+        result_to_dict,
+    )
 
     if not args.pdk_root:
         print("--pdk-root is required for --spec mode")
@@ -160,29 +167,33 @@ async def run_from_spec(args):
 
     work_dir = Path(args.work_dir) if args.work_dir else Path("rtl2gds_from_spec")
 
+    # Pick a design_name from --design flag override or default to 'top'.
+    design_name = getattr(args, "spec_design_name", None) or "top"
+
     print("=" * 60)
     print("RTL-to-GDS From Spec" + (" (Dry Run)" if args.dry_run else ""))
     print("=" * 60)
     print(f"  Spec:      {args.spec}")
+    print(f"  Design:    {design_name}")
     print(f"  Work dir:  {work_dir}")
     print(f"  PDK:       {args.pdk}")
     print(f"  PDK root:  {args.pdk_root}")
     print("  Backend:   cc_cli (forced for --spec)")
 
-    prompt = build_from_spec_prompt(
-        spec=args.spec,
-        work_dir=str(work_dir),
-        pdk_root=args.pdk_root,
-        pdk_config=args.pdk,
-        librelane_python=args.librelane_python,
-    )
-
     if args.dry_run:
-        print(f"\n  Prompt length: {len(prompt)} chars")
-        print("  Prompt preview:")
-        for line in prompt.split("\n")[:10]:
-            print(f"    {line}")
-        print("    ...")
+        result = await generate_rtl_draft(
+            description=args.spec,
+            design_name=design_name,
+            work_dir=work_dir,
+            pdk=args.pdk,
+            pdk_root=args.pdk_root,
+            librelane_python=args.librelane_python,
+            dry_run=True,
+        )
+        print(f"\n  Prompt length: {result.prompt_length} chars")
+        if result.error:
+            print(f"  Error: {result.error}")
+            sys.exit(1)
         print("\n  PASS (dry run)")
         return
 
@@ -194,196 +205,48 @@ async def run_from_spec(args):
             print(f"    - {issue}")
         sys.exit(1)
 
-    work_dir.mkdir(parents=True, exist_ok=True)
-    (work_dir / "src").mkdir(exist_ok=True)
-
-    harness = ClaudeCodeHarness(
-        prompt=prompt,
+    print("\n  Launching CC CLI agent...\n")
+    result = await generate_rtl_draft(
+        description=args.spec,
+        design_name=design_name,
         work_dir=work_dir,
+        pdk=args.pdk,
+        pdk_root=args.pdk_root,
+        librelane_python=args.librelane_python,
         allow_dangerous=args.allow_dangerous,
         cli_path=args.cli_path,
         timeout_s=args.timeout,
         max_budget_usd=args.max_budget,
+        skip_gl_sim=args.skip_gl_sim,
     )
-
-    print("\n  Launching CC CLI agent...\n")
-    t0 = time.monotonic()
-    result = await harness.run()
-    elapsed = time.monotonic() - t0
 
     print("\n" + "=" * 60)
     print("Results")
     print("=" * 60)
     print(f"  Success:   {result.success}")
-    print(f"  Wall time: {elapsed:.1f}s")
+    print(f"  Wall time: {result.wall_time_s:.1f}s")
     print(f"  Turns:     {result.num_turns}")
-    print(f"  Cost:      ${result.total_cost_usd:.4f}")
+    print(f"  Cost:      ${result.cost_usd:.4f}")
 
     if result.error:
         print(f"  Error:     {result.error[:300]}")
 
-    # Show agent output (truncated)
     if result.result_text:
         lines = result.result_text.strip().split("\n")
         print(f"\n  Agent output ({len(lines)} lines):")
         for line in lines[-30:]:
             print(f"    {line}")
 
-    # Post-flow gate-level sim check against the artefacts the agent
-    # left behind. Skipped only when --skip-gl-sim is set; otherwise a
-    # failing gate exits non-zero so c5/c6 acceptance runs surface the
-    # regression immediately.
-    gl_sim_report: dict | None = None
-    if result.success and not args.skip_gl_sim:
-        gl_sim_report = _post_flow_gl_sim_check(
-            work_dir=work_dir,
-            pdk_key=args.pdk,
-            pdk_root=args.pdk_root,
-        )
-        _print_gl_sim_report(gl_sim_report)
+    if result.gl_sim is not None:
+        print_gl_sim_report(result.gl_sim)
 
-    # Save results
     results_file = work_dir / "from_spec_results.json"
-    results_file.write_text(json.dumps({
-        "spec": args.spec,
-        "success": result.success,
-        "wall_time_s": elapsed,
-        "num_turns": result.num_turns,
-        "cost_usd": result.total_cost_usd,
-        "error": result.error,
-        "result_text": result.result_text[-2000:] if result.result_text else "",
-        "gl_sim": gl_sim_report,
-    }, indent=2, default=str))
+    results_file.parent.mkdir(parents=True, exist_ok=True)
+    results_file.write_text(json.dumps(result_to_dict(result), indent=2, default=str))
     print(f"\n  Results saved: {results_file}")
 
-    if gl_sim_report and not gl_sim_report.get("all_passed", False):
+    if not result.all_passed:
         sys.exit(1)
-
-
-def _post_flow_gl_sim_check(
-    *,
-    work_dir: Path,
-    pdk_key: str,
-    pdk_root: str,
-) -> dict:
-    """Run post-synth + post-PnR GL sim against the agent's run dir.
-
-    Reads ``{work_dir}/config.yaml`` for DESIGN_NAME, locates the most
-    recent ``{work_dir}/runs/RUN_*/`` directory, reconstructs a minimal
-    DigitalDesign pointing at the agent's testbench, and invokes
-    :class:`GlSimRunner` twice. Returns a dict with per-stage success +
-    error + run-time for inclusion in the result JSON; gate failures
-    propagate to the caller's exit code.
-    """
-    import yaml
-    from eda_agents.core.digital_design import DigitalDesign, TestbenchSpec
-    from eda_agents.core.pdk import get_pdk
-    from eda_agents.core.stages.gl_sim_runner import GlSimRunner
-    from eda_agents.core.tool_environment import LocalToolEnvironment
-
-    pdk_config = get_pdk(pdk_key)
-
-    config_path = work_dir / "config.yaml"
-    if not config_path.is_file():
-        return {
-            "all_passed": False,
-            "error": f"config.yaml not found at {config_path}",
-        }
-    cfg = yaml.safe_load(config_path.read_text()) or {}
-    design_name = cfg.get("DESIGN_NAME")
-    if not design_name:
-        return {
-            "all_passed": False,
-            "error": "DESIGN_NAME missing from config.yaml",
-        }
-
-    runs_root = work_dir / "runs"
-    runs = sorted(runs_root.glob("RUN_*"), key=lambda p: p.stat().st_mtime)
-    if not runs:
-        return {
-            "all_passed": False,
-            "error": f"No LibreLane run directories under {runs_root}",
-        }
-    run_dir = runs[-1]
-
-    tb_path = work_dir / "tb" / f"tb_{design_name}.v"
-    if not tb_path.is_file():
-        return {
-            "all_passed": False,
-            "error": f"Testbench not found at {tb_path}",
-        }
-
-    class _AgentDesign(DigitalDesign):  # noqa: D401 — ad-hoc stub
-        """Minimal DigitalDesign reconstructed from agent artefacts."""
-
-        def project_name(self) -> str: return design_name
-        def specification(self) -> str: return ""
-        def design_space(self): return {}
-        def flow_config_overrides(self): return {}
-        def project_dir(self) -> Path: return work_dir
-        def librelane_config(self) -> Path: return config_path
-        def compute_fom(self, metrics) -> float: return 0.0  # noqa: ARG002
-        def check_validity(self, metrics):  # noqa: ARG002
-            return True, []
-        def prompt_description(self) -> str: return ""
-        def design_vars_description(self) -> str: return ""
-        def specs_description(self) -> str: return ""
-        def fom_description(self) -> str: return ""
-        def reference_description(self) -> str: return ""
-        def testbench(self):
-            return TestbenchSpec(
-                driver="iverilog",
-                target=str(tb_path.relative_to(work_dir)),
-            )
-
-    design = _AgentDesign()
-    runner = GlSimRunner(
-        design=design,
-        env=LocalToolEnvironment(),
-        run_dir=run_dir,
-        pdk_config=pdk_config,
-        pdk_root=pdk_root,
-        design_name=design_name,
-    )
-
-    synth_res = runner.run_post_synth()
-    pnr_res = runner.run_post_pnr()
-
-    return {
-        "all_passed": synth_res.success and pnr_res.success,
-        "run_dir": str(run_dir),
-        "post_synth": {
-            "success": synth_res.success,
-            "error": synth_res.error,
-            "run_time_s": synth_res.run_time_s,
-        },
-        "post_pnr": {
-            "success": pnr_res.success,
-            "error": pnr_res.error,
-            "run_time_s": pnr_res.run_time_s,
-            "sdf_warnings": pnr_res.metrics_delta.get("gl_sim_sdf_warnings", 0),
-        },
-    }
-
-
-def _print_gl_sim_report(report: dict) -> None:
-    print("\n" + "=" * 60)
-    print("Gate-level simulation gates")
-    print("=" * 60)
-    if "error" in report and "run_dir" not in report:
-        print(f"  SKIPPED: {report['error']}")
-        return
-    ps = report["post_synth"]
-    pp = report["post_pnr"]
-    status = lambda ok: "PASS" if ok else "FAIL"  # noqa: E731
-    print(f"  Run dir:        {report['run_dir']}")
-    print(f"  Post-synth:     {status(ps['success'])}  ({ps['run_time_s']:.1f}s)")
-    if not ps["success"]:
-        print(f"    error: {ps['error']}")
-    print(f"  Post-PnR (SDF): {status(pp['success'])}  ({pp['run_time_s']:.1f}s)")
-    if not pp["success"]:
-        print(f"    error: {pp['error']}")
-    print(f"  SDF warnings:   {pp['sdf_warnings']}")
 
 
 # ---------------------------------------------------------------------------

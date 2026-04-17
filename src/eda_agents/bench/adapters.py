@@ -46,6 +46,7 @@ from eda_agents.bench.adapter_inputs import (
     DigitalFlowInputs,
     DryRunInputs,
     GlSimPostSynthInputs,
+    IdeaToDigitalChipInputs,
     LlmSpecToSizingInputs,
     PreSimGateInputs,
     Sar11bEnobInputs,
@@ -875,61 +876,7 @@ def _parse_llm_json(text: str) -> dict[str, float]:
     return data
 
 
-def _call_openrouter(
-    *,
-    model: str,
-    system_prompt: str,
-    user_prompt: str,
-    max_tokens: int,
-    temperature: float,
-) -> tuple[str, int]:
-    """Single chat-completion call through OpenRouter's OpenAI-compatible API.
-
-    Returns ``(content, total_tokens)`` where ``total_tokens`` is 0 when
-    the backend did not populate ``response.usage``. Raises
-    ``RuntimeError`` (not openai.XxxError / httpx.HTTPStatusError /
-    ImportError) so the adapter can funnel every infra-level failure
-    into one ``FAIL_INFRA`` branch.
-    """
-    import os
-
-    try:
-        from openai import OpenAI
-    except ImportError as exc:  # pragma: no cover — dep is in base install
-        raise RuntimeError(f"openai not available: {exc}") from exc
-
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY not set")
-
-    # OpenRouter accepts model ids with or without the "openrouter/" prefix
-    # depending on the caller; strip it for the direct API call.
-    model_id = model.removeprefix("openrouter/") if model.startswith("openrouter/") else model
-
-    try:
-        client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=api_key,
-        )
-        resp = client.chat.completions.create(
-            model=model_id,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-        total_tokens = 0
-        usage = getattr(resp, "usage", None)
-        if usage is not None:
-            total_tokens = int(getattr(usage, "total_tokens", 0) or 0)
-        return resp.choices[0].message.content or "", total_tokens
-    except Exception as exc:  # noqa: BLE001 — funnel to RuntimeError
-        raise RuntimeError(
-            f"OpenRouter call failed (model={model_id!r}): "
-            f"{type(exc).__name__}: {exc}"
-        ) from exc
+from eda_agents.agents.openrouter_client import call_openrouter as _call_openrouter
 
 
 def llm_spec_to_sizing_adapter(
@@ -1452,6 +1399,223 @@ def run_librelane_flow_task(
 
 
 # ---------------------------------------------------------------------------
+# Idea -> digital chip (S11 Fase 0)
+# ---------------------------------------------------------------------------
+
+
+def run_idea_to_digital_chip(
+    task: BenchTask, work_dir: Path
+) -> AdapterResult:
+    """Drive the NL-idea -> digital GDS pipeline (S11 Fase 0).
+
+    Task YAML keeps ``harness: callable`` and points
+    ``inputs.callable`` at ``eda_agents.bench.adapters:run_idea_to_digital_chip``.
+
+    Defaults to ``dry_run=True`` so offline CI runs stay green — the
+    adapter only verifies that :func:`build_from_spec_prompt` produces
+    a well-formed prompt and that PDK-root resolution works. Tasks
+    that set ``inputs.dry_run=false`` require Claude Code CLI +
+    LibreLane + a reachable PDK; if any are missing the adapter
+    returns ``FAIL_INFRA`` (mapped to SKIPPED by the runner).
+
+    Audit signal when ``dry_run=False``:
+
+    * ``success`` (from the harness)
+    * ``gl_sim.all_passed`` (post-synth + post-PnR GL sim verdict)
+    * ``gds_exists`` (bool metric) — confirms the agent actually
+      produced a GDS at ``work_dir/runs/.../final/gds/<name>.gds``.
+    """
+    import asyncio
+    import shutil
+
+    try:
+        inputs = IdeaToDigitalChipInputs.model_validate(task.inputs)
+    except ValidationError as exc:
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="idea-to-chip",
+            errors=[_format_validation_error(exc, "run_idea_to_digital_chip")],
+        )
+
+    from eda_agents.agents.idea_to_rtl import generate_rtl_draft, result_to_dict
+
+    # Live mode needs CC CLI + PDK + LibreLane. Short-circuit to
+    # FAIL_INFRA (→ SKIPPED) when the host is not ready so we never
+    # silently report a fake PASS.
+    if not inputs.dry_run:
+        if not shutil.which("claude"):
+            return AdapterResult(
+                status=BenchStatus.FAIL_INFRA,
+                backend_used="idea-to-chip",
+                errors=[
+                    "Claude Code CLI (`claude`) not on PATH. "
+                    "Run `npm install -g @anthropic-ai/claude-code` or set "
+                    "inputs.dry_run=true for offline sanity-check."
+                ],
+            )
+        # Double-gate sanity: if the YAML asked for dangerous-skip but the
+        # env var isn't set, the CLI won't get the flag AND will hang on
+        # the first permission prompt (stdin is piped; there is no way to
+        # approve interactively). Catch that here so we fail fast rather
+        # than burning the full timeout.
+        import os as _os_adapter
+        if inputs.allow_dangerous and _os_adapter.environ.get(
+            "EDA_AGENTS_ALLOW_DANGEROUS"
+        ) != "1":
+            return AdapterResult(
+                status=BenchStatus.FAIL_INFRA,
+                backend_used="idea-to-chip",
+                errors=[
+                    "inputs.allow_dangerous=true requires "
+                    "EDA_AGENTS_ALLOW_DANGEROUS=1 in the env (double "
+                    "gate). Export the env var and retry, or set "
+                    "allow_dangerous=false if permissions are "
+                    "handled another way."
+                ],
+            )
+        pdk_root = inputs.pdk_root or _resolve_librelane_pdk_root(inputs.pdk)
+        if pdk_root is None:
+            return AdapterResult(
+                status=BenchStatus.FAIL_INFRA,
+                backend_used="idea-to-chip",
+                errors=[
+                    f"No PDK_ROOT reachable for {inputs.pdk!r}. Set "
+                    "inputs.pdk_root or install the PDK locally."
+                ],
+            )
+    else:
+        # Dry-run still needs *some* pdk_root string for prompt building;
+        # the library call resolves it via default_pdk_root fallback, so
+        # any non-empty placeholder works.
+        pdk_root = inputs.pdk_root
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        result = asyncio.run(
+            generate_rtl_draft(
+                description=inputs.description,
+                design_name=inputs.design_name,
+                work_dir=work_dir,
+                pdk=inputs.pdk,
+                pdk_root=pdk_root,
+                complexity=inputs.complexity,  # type: ignore[arg-type]
+                dry_run=inputs.dry_run,
+                skip_gl_sim=inputs.skip_gl_sim,
+                librelane_python=inputs.librelane_python,
+                timeout_s=inputs.timeout_s,
+                max_budget_usd=inputs.max_budget_usd,
+                model=inputs.model,
+                allow_dangerous=inputs.allow_dangerous,
+                tb_framework=inputs.tb_framework,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 — surface to bench runner
+        return AdapterResult(
+            status=BenchStatus.FAIL_INFRA,
+            backend_used="idea-to-chip",
+            errors=[f"generate_rtl_draft crashed: {type(exc).__name__}: {exc}"],
+        )
+
+    payload = result_to_dict(result)
+
+    metrics: dict[str, Any] = {
+        "prompt_length": float(result.prompt_length),
+        "wall_time_s": float(result.wall_time_s),
+        "cost_usd": float(result.cost_usd),
+        "num_turns": float(result.num_turns),
+        "gds_exists": 1.0 if result.gds_path else 0.0,
+    }
+    gl = result.gl_sim or {}
+    if "post_synth" in gl:
+        metrics["gl_post_synth_ok"] = 1.0 if gl["post_synth"].get("success") else 0.0
+    if "post_pnr" in gl:
+        metrics["gl_post_pnr_ok"] = 1.0 if gl["post_pnr"].get("success") else 0.0
+    if gl.get("skipped"):
+        # Cocotb TB path: GlSimRunner doesn't support cocotb yet, so
+        # surface that honestly in the metrics rather than treating it
+        # as a silent PASS. 1.0 means "skipped cleanly", 0.0 means
+        # "skipped due to infra failure". Keeping bench tasks that
+        # require gl_post_*_ok honest when they run against cocotb
+        # means those YAMLs should drop those metrics or accept this
+        # signal instead.
+        metrics["gl_sim_skipped"] = 1.0
+
+    artifacts: list[str] = []
+    if result.config_path:
+        artifacts.append(str(result.config_path))
+    if result.gds_path:
+        artifacts.append(str(result.gds_path))
+    if result.run_dir:
+        artifacts.append(str(result.run_dir))
+
+    # Persist the full result JSON so bench reports carry the
+    # structured record even when the YAML only asks for a subset of
+    # metrics.
+    result_json_path = work_dir / "idea_to_chip_result.json"
+    import json as _json
+    result_json_path.write_text(_json.dumps(payload, indent=2, default=str))
+    artifacts.append(str(result_json_path))
+
+    notes = [
+        f"pdk={inputs.pdk}",
+        f"design_name={inputs.design_name}",
+        f"dry_run={inputs.dry_run}",
+        f"complexity={inputs.complexity}",
+        f"tb_framework={inputs.tb_framework}",
+    ]
+    if result.error:
+        notes.append(f"error={result.error[:200]}")
+
+    # dry_run mode: PASS when the prompt built and path resolution succeeded.
+    if inputs.dry_run:
+        passed = result.success and result.error is None
+        return AdapterResult(
+            status=BenchStatus.PASS if passed else BenchStatus.FAIL_INFRA,
+            backend_used="idea-to-chip-dry",
+            metrics=metrics,
+            artifacts=artifacts,
+            errors=[result.error] if result.error else [],
+            notes=notes,
+            compile_ok=passed,
+            sim_ok=True,  # no sim ran in dry mode
+            raw_text=payload.get("result_text_tail", ""),
+        )
+
+    # Live mode: pass = agent success AND gl_sim OK AND GDS produced.
+    live_passed = (
+        result.success
+        and result.all_passed
+        and result.gds_path is not None
+    )
+    # sim_ok reporting:
+    # - gl_sim ran + passed  -> True
+    # - gl_sim ran + failed  -> False
+    # - gl_sim skipped (e.g. cocotb TB where gate-level sim isn't wired
+    #   yet) + agent flow succeeded -> True (the flow verifies through
+    #   signoff STA + DRC/LVS; pre-synth sim is the agent's floor).
+    # - gl_sim is None (we did not attempt it) + flow succeeded -> True.
+    if result.gl_sim is None:
+        sim_ok = result.success
+    elif result.gl_sim.get("skipped"):
+        sim_ok = result.success
+    else:
+        sim_ok = bool(result.gl_sim.get("all_passed"))
+
+    return AdapterResult(
+        status=BenchStatus.PASS if live_passed else BenchStatus.FAIL_AUDIT,
+        backend_used="idea-to-chip",
+        metrics=metrics,
+        artifacts=artifacts,
+        errors=[result.error] if result.error else [],
+        notes=notes,
+        compile_ok=result.success,
+        sim_ok=sim_ok,
+        raw_text=payload.get("result_text_tail", ""),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Helper exposed to tests / runner
 # ---------------------------------------------------------------------------
 
@@ -1493,6 +1657,7 @@ __all__ = [
     "llm_spec_to_sizing_adapter",
     "resolve_callable",
     "run_gl_sim_post_synth",
+    "run_idea_to_digital_chip",
     "run_librelane_flow_task",
     "run_pre_sim_gate_on_inline_netlist",
     "run_sar11_enob_measurement",

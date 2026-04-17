@@ -1,0 +1,21 @@
+{
+  "success": true,
+  "all_passed": true,
+  "work_dir": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live",
+  "design_name": "counter4_cocotb",
+  "prompt_length": 17766,
+  "wall_time_s": 232.41137540433556,
+  "num_turns": 17,
+  "cost_usd": 0.9249557499999999,
+  "result_text_tail": "Signoff clean across all corners. Final report below.\n\n## FINAL REPORT\n\n**Design:** `counter4_cocotb` \u2014 4-bit synchronous up-counter with active-low async reset and enable (`clk`, `rst_n`, `en` \u2192 `count[3:0]`).\n\n**RTL:** single `always @(posedge clk or negedge rst_n)` block. Cocotb test PASS (TESTS=1 PASS=1 FAIL=0 SKIP=0, 470 ns).\n\n**Cell count:** 579 total instances (233 stdcells: 4 FFs, 1 inverter, 7 multi-input gates, 10 repair buffers, 3 clock buffers, 3 antenna cells + endcap/tap/fill).\n\n**Timing (WNS, worst across all corners):**\n- Setup WNS: +35.18 ns (max_ss_125C_4v50, 50 ns period)\n- Hold WNS: +0.321 ns (min_ff_n40C_5v50)\n- All four corners (tt/ss/ff \u00d7 min/max/nom) clean.\n\n**DRC:** 0 (magic + route)\n**LVS:** 0 errors, 0 unmatched devices/nets/pins\n**Antenna:** 0 violating nets/pins\n\n**GDS:** `runs/RUN_2026-04-17_10-18-38/final/gds/counter4_cocotb.gds`\n\n**Verdict: SIGNOFF CLEAN**\n\nDONE",
+  "error": null,
+  "config_path": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/config.yaml",
+  "gds_path": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/runs/RUN_2026-04-17_10-18-38/final/gds/counter4_cocotb.gds",
+  "run_dir": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/runs/RUN_2026-04-17_10-18-38",
+  "gl_sim": {
+    "all_passed": null,
+    "skipped": true,
+    "reason": "cocotb_tb_no_gl_sim_support",
+    "note": "Found cocotb test file at /home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/tb/test_counter4_cocotb.py; GL sim against post-synth and post-PnR netlists for cocotb testbenches is not implemented in GlSimRunner yet. The agent's pre-synth cocotb simulation + LibreLane signoff STA + DRC/LVS are the verification floor for this run."
+  }
+}

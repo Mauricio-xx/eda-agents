@@ -276,3 +276,195 @@ register_skill(
         prompt_fn=_signoff_checker_prompt,
     )
 )
+
+
+def _cocotb_testbench_prompt() -> str:
+    """Zero-arg guide for writing a cocotb testbench + Makefile.
+
+    Mirrors the gate-level-safe rules in ``build_from_spec_prompt`` so
+    the same testbench runs against RTL (iverilog) and post-synth /
+    post-PnR netlists (iverilog + SDF annotation). Can be injected by
+    callers via ``render_skill('digital.cocotb_testbench')`` when the
+    verification plan calls for cocotb specifically instead of the
+    plain-Verilog fallback in the from-spec prompt.
+    """
+    return """You are writing a cocotb testbench for a digital design that
+will be simulated against three artefacts in sequence:
+
+  1. RTL sources (pre-synthesis), via iverilog.
+  2. Post-synthesis gate-level netlist (no SDF), via iverilog.
+  3. Post-PnR gate-level netlist + SDF annotation, via iverilog + vvp.
+
+The SAME testbench file must work for all three. That single-source
+constraint is the entire reason these rules exist — violate one and
+the post-PnR gate-level stage will false-fail.
+
+FILE LAYOUT:
+
+  <work_dir>/
+    src/<design>.v                 # DUT (provided / already written)
+    tb/test_<design>.py            # cocotb test module (you write)
+    tb/Makefile                    # cocotb Makefile (you write)
+
+PYTHON TESTBENCH CONTRACT (tb/test_<design>.py):
+
+  import cocotb
+  from cocotb.clock import Clock
+  from cocotb.triggers import RisingEdge, Timer, ReadOnly
+
+  @cocotb.test()
+  async def test_<something_descriptive>(dut):
+      # 1. Start the clock BEFORE releasing reset. 10 ns period = 100 MHz.
+      cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+
+      # 2. Drive reset low and all other inputs to a safe default.
+      dut.rst_n.value = 0
+      dut.en.value = 0           # example
+      dut.a.value = 0            # example
+      # Hold reset for >= 5 clocks.
+      for _ in range(5):
+          await RisingEdge(dut.clk)
+      dut.rst_n.value = 1
+
+      # 3. Wait ONE FULL clock after reset release before the first
+      #    correctness check. Post-PnR with SDF, registers come out of
+      #    reset as `x` and `===`/`!==` checks will false-fail if you
+      #    sample too early.
+      await RisingEdge(dut.clk)
+      await ReadOnly()
+      assert int(dut.count.value) == 0  # example post-reset invariant
+
+      # 4. The CANONICAL drive-then-check cycle. DO NOT write values
+      #    while still inside ReadOnly (see "READONLY IS READ-ONLY"
+      #    below) — ReadOnly silently drops writes and you will get
+      #    mystery off-by-one failures.
+      for vec in VECTORS:
+          await RisingEdge(dut.clk)   # exits ReadOnly into the next
+                                      # Active region
+          dut.a.value = vec["a"]      # writes here land at the NEXT
+          dut.en.value = 1            # scheduled time step
+          await RisingEdge(dut.clk)   # DUT samples these values here
+          await ReadOnly()            # settle
+          actual = int(dut.result.value)
+          assert actual == vec["expected"], (
+              f"vector {vec}: got {actual}, expected {vec['expected']}"
+          )
+
+      # 5. End with a clear signal that the test passed. cocotb marks
+      #    the test as failed if any assert tripped; you don't need to
+      #    print "PASS" yourself — cocotb's summary line does that.
+      #    (cocotb emits: ** TESTS=N PASS=N FAIL=0 SKIP=0 ...)
+
+MAKEFILE CONTRACT (tb/Makefile):
+
+  # iverilog is the default simulator that ships with the LibreLane
+  # venv. Keep it unless the design needs verilator-specific features.
+  SIM ?= icarus
+  TOPLEVEL_LANG ?= verilog
+  TOPLEVEL = <design>            # must match DUT top module name
+  MODULE = test_<design>         # your cocotb test file (without .py)
+  VERILOG_SOURCES = $(PWD)/../src/<design>.v
+
+  # Include cocotb's make rules. This line is mandatory.
+  include $(shell cocotb-config --makefiles)/Makefile.sim
+
+  # For gate-level runs the eda-agents GlSimRunner substitutes
+  # VERILOG_SOURCES with the post-synth / post-PnR netlist + stdcell
+  # verilog models, so the Makefile does NOT need to list those paths
+  # explicitly.
+
+RUNNING THE TESTBENCH:
+
+  cd <work_dir>/tb && make sim
+
+  cocotb's summary line on success looks like:
+    ** TESTS=<n> PASS=<n> FAIL=0 SKIP=0 ...
+
+  Parse that, not your own print statements — eda-agents' CocotbDriver
+  uses this regex.
+
+GATE-LEVEL-SAFE CONSTRAINTS (NON-NEGOTIABLE):
+
+  * NEVER drive DUT inputs with a bare Timer (e.g. `await Timer(3, "ns"); dut.a.value = 5`).
+    Use `await RisingEdge(dut.clk)` as the sync point. Post-PnR SDF
+    timing doesn't tolerate arbitrary-delay stimulus.
+  * NEVER compare against expected values in the first clock after
+    reset release. Wait one full posedge then sample.
+  * NEVER `.value = X` on an input ~ gate-level iverilog will not
+    propagate correctly. Use 0 or 1 explicitly.
+  * NEVER put `initial` blocks in the cocotb file. All stimulus runs
+    inside `@cocotb.test()` coroutines.
+
+READONLY IS READ-ONLY (MOST COMMON COCOTB FOOTGUN):
+
+  The ReadOnly phase exists so you can safely SAMPLE output signals
+  after the Active region has finished all non-blocking updates.
+  cocotb **silently drops** any writes attempted during ReadOnly —
+  no exception, no warning, the value just never reaches the DUT.
+  This manifests as mystery off-by-one simulation failures like
+  "expected count=1 got count=0" where the register looks like it
+  missed an enable pulse.
+
+  Correct cycle shape:
+
+      await RisingEdge(dut.clk)         # -> now in the Active region
+      dut.a.value = new_a               # writes OK here
+      dut.en.value = 1
+      await RisingEdge(dut.clk)         # DUT samples at this edge
+      await ReadOnly()                  # settle, then sample outputs
+      actual = int(dut.q.value)
+      # !! DO NOT write values here; ReadOnly will drop them silently.
+      # If you need to change stimulus again, the NEXT await
+      # RisingEdge() exits ReadOnly automatically — do writes there.
+
+  Symptom catalog:
+    - First iteration assertion fails with an off-by-one; subsequent
+      iterations also fail. Root cause: stimulus set during a prior
+      ReadOnly phase never reached the DUT.
+    - Your `en.value = 1` appears in the waveform as still 0 at the
+      clock edge you expected it sampled. Same root cause.
+
+COCOTB VERSION:
+
+  eda-agents targets cocotb>=1.9. The `units="ns"` kwarg to Timer /
+  Clock replaces the pre-1.5 string form; the old `TimerCycles`
+  helper is removed. Don't use deprecated APIs.
+
+TROUBLESHOOTING:
+
+  * `ModuleNotFoundError: cocotb`: the Makefile is running under the
+    wrong Python. Ensure the iverilog / cocotb binaries come from the
+    LibreLane venv, not the system Python. If needed, prepend
+    `PATH=$LIBRELANE_VENV/bin:$PATH` before `make sim`.
+  * Gate-level `x` propagation: your reset released too early, or
+    your testbench sampled before the first posedge. Add another
+    `await RisingEdge(dut.clk)` before the first check.
+  * Mismatched clock periods vs LibreLane CLOCK_PERIOD: cocotb's
+    Clock is a stimulus tool; use the SAME number as the
+    LibreLane config's CLOCK_PERIOD (ns). Mismatches cause SDF
+    annotation warnings + timing-closure confusion.
+
+WHAT NOT TO DO:
+
+  * Don't mix cocotb and plain-Verilog testbenches in the same run.
+    Pick one per design.
+  * Don't `@cocotb.test(timeout_time=...)` unless you know the design
+    needs it — the default is fine for eda-agents bench timeouts.
+  * Don't use `cocotb.fork` — it's deprecated; use `cocotb.start_soon`.
+  * Don't call `cocotb.result.TestFailure` to mark failure — raise
+    `AssertionError` / `assert`. cocotb converts the latter into a
+    proper FAIL in the summary line."""
+
+
+register_skill(
+    Skill(
+        name="digital.cocotb_testbench",
+        description=(
+            "Zero-arg system prompt: write a cocotb testbench + Makefile "
+            "for a digital DUT. Gate-level-safe rules so the SAME "
+            "testbench runs against RTL, post-synth, and post-PnR (SDF) "
+            "netlists. Targets cocotb>=1.9, SIM=icarus. Signature: ()."
+        ),
+        prompt_fn=_cocotb_testbench_prompt,
+    )
+)

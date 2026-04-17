@@ -1,0 +1,16 @@
+{
+  "success": false,
+  "all_passed": false,
+  "work_dir": "/home/montanares/git/eda-agents-worktrees/s11-idea-to-chip-spike/bench/results/s11_fase2_fft_live/e2e_idea_to_digital_fft4_gf180_live",
+  "design_name": "fft4",
+  "prompt_length": 13163,
+  "wall_time_s": 83.79234813712537,
+  "num_turns": 0,
+  "cost_usd": 0.0,
+  "result_text_tail": "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":true,\"api_error_status\":429,\"duration_ms\":80891,\"duration_api_ms\":82132,\"num_turns\":3,\"result\":\"You've hit your limit \u00b7 resets 2am (Europe/Prague)\",\"stop_reason\":\"stop_sequence\",\"session_id\":\"528370a2-efe8-482e-8b3a-1afb256c0baf\",\"total_cost_usd\":0.3625275,\"usage\":{\"input_tokens\":7,\"cache_creation_input_tokens\":22480,\"cache_read_input_tokens\":55477,\"output_tokens\":7551,\"server_tool_use\":{\"web_search_requests\":0,\"web_fetch_requests\":0},\"service_tier\":\"standard\",\"cache_creation\":{\"ephemeral_1h_input_tokens\":22480,\"ephemeral_5m_input_tokens\":0},\"inference_geo\":\"\",\"iterations\":[{\"input_tokens\":1,\"output_tokens\":7184,\"cache_read_input_tokens\":38761,\"cache_creation_input_tokens\":435,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":435},\"type\":\"message\"}],\"speed\":\"standard\"},\"modelUsage\":{\"claude-haiku-4-5-20251001\":{\"inputTokens\":5324,\"outputTokens\":31,\"cacheReadInputTokens\":0,\"cacheCreationInputTokens\":0,\"webSearchRequests\":0,\"costUSD\":0.0054789999999999995,\"contextWindow\":200000,\"maxOutputTokens\":32000},\"claude-opus-4-7[1m]\":{\"inputTokens\":7,\"outputTokens\":7551,\"cacheReadInputTokens\":55477,\"cacheCreationInputTokens\":22480,\"webSearchRequests\":0,\"costUSD\":0.3570485,\"contextWindow\":1000000,\"maxOutputTokens\":64000}},\"permission_denials\":[],\"terminal_reason\":\"completed\",\"fast_mode_state\":\"off\",\"uuid\":\"eddc2368-166b-487d-9cfb-c9cd66f84856\"}",
+  "error": "CLI exited with code 1: ",
+  "config_path": null,
+  "gds_path": null,
+  "run_dir": null,
+  "gl_sim": null
+}

@@ -1,0 +1,56 @@
+id: e2e_idea_to_digital_counter_cocotb_live
+family: end-to-end
+category: digital
+domain: digital
+pdk: gf180mcu
+difficulty: medium
+expected_backend: librelane
+harness: callable
+topology: counter_4bit
+inputs:
+  callable: eda_agents.bench.adapters:run_idea_to_digital_chip
+  description: |
+    4-bit synchronous up-counter with active-low asynchronous reset
+    and an enable input. Inputs: clk, rst_n, en. Output: count[3:0].
+    When en=1 and rst_n=1, count increments on each rising edge of
+    clk. When rst_n=0, count returns to 0 asynchronously. When en=0,
+    count holds its current value.
+  design_name: counter4_cocotb
+  pdk: gf180mcu
+  complexity: simple
+  tb_framework: cocotb
+  dry_run: false
+  skip_gl_sim: false
+  allow_dangerous: true
+  max_budget_usd: 6.0
+  timeout_s: 5400
+  librelane_python: /home/montanares/git/librelane/.venv/bin/python
+expected_metrics:
+  gds_exists: {min: 1, unit: bool}
+  gl_sim_skipped: {min: 1, unit: bool}
+scoring:
+  - compile
+  - sim_run
+  - metrics_in_range
+weight: 2.0
+timeout_s: 5400
+notes: |
+  S11 Fase 1.5 wiring probe: same counter4 description as Fase 0,
+  but tb_framework=cocotb so Phase 2.5 emits a cocotb testbench +
+  Makefile instead of a plain Verilog TB. Validates end-to-end
+  that the digital.cocotb_testbench skill inlined into the from-
+  spec prompt actually lands a signoff-clean GDS.
+
+  Audit gate on this task is INTENTIONALLY different from the
+  iverilog variants: it checks `gds_exists` + `gl_sim_skipped`.
+  GlSimRunner's post-synth / post-PnR GL sim path is iverilog-only
+  today — cocotb gate-level sim requires wiring the cocotb Makefile
+  to pick up the gate-level netlist + stdcell verilog models, which
+  is S12+ scope. Until that lands, `gl_sim_skipped=1` is the
+  honest signal: the flow completed, the agent's pre-synth cocotb
+  sim passed, and LibreLane signoff STA + DRC/LVS are the
+  verification floor.
+
+  Env requirements same as idea_to_digital_counter_live.yaml, plus
+  cocotb installed in the LibreLane venv:
+    /path/to/librelane/.venv/bin/pip install cocotb

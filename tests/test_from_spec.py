@@ -182,6 +182,72 @@ class TestFromSpecPrompt:
         )
         assert "SIGNOFF CLEAN" in prompt
 
+    def test_prompt_warns_against_tail_f(self):
+        # Regression: S11 ALU live hung when Claude started `tail -F` after
+        # LibreLane had already exited. The prompt must explicitly warn.
+        prompt = build_from_spec_prompt(
+            spec="counter", work_dir="/tmp/x", pdk_root="/pdk",
+            pdk_config="gf180mcu",
+        )
+        assert "LOG INSPECTION DISCIPLINE" in prompt
+        assert "tail -f" in prompt or "tail -F" in prompt
+
+
+class TestFromSpecTbFramework:
+    """S11 Fase 1.5: tb_framework parameter switches Phase 2.5 body."""
+
+    def test_default_is_iverilog(self):
+        prompt = build_from_spec_prompt(
+            spec="counter", work_dir="/tmp/x", pdk_root="/pdk",
+            pdk_config="gf180mcu",
+        )
+        assert "iverilog -o" in prompt
+        assert "make sim" not in prompt
+
+    def test_explicit_iverilog_matches_default(self):
+        p_def = build_from_spec_prompt(
+            spec="counter", work_dir="/tmp/x", pdk_root="/pdk",
+            pdk_config="gf180mcu",
+        )
+        p_iv = build_from_spec_prompt(
+            spec="counter", work_dir="/tmp/x", pdk_root="/pdk",
+            pdk_config="gf180mcu", tb_framework="iverilog",
+        )
+        assert p_def == p_iv
+
+    def test_cocotb_swaps_phase25(self):
+        prompt = build_from_spec_prompt(
+            spec="counter", work_dir="/tmp/x", pdk_root="/pdk",
+            pdk_config="gf180mcu", tb_framework="cocotb",
+        )
+        # Cocotb-specific anchors inlined from the skill.
+        assert "Phase 2.5 - WRITE COCOTB TESTBENCH" in prompt
+        assert "make sim" in prompt
+        assert "cocotb.start_soon" in prompt
+        assert "RisingEdge(dut.clk)" in prompt
+        assert "BEGIN digital.cocotb_testbench SKILL BODY" in prompt
+        # Iverilog-specific example should NOT appear.
+        assert "iverilog -o /tmp/x/tb/sim.out" not in prompt
+
+    def test_cocotb_prompt_is_substantially_longer(self):
+        # The inlined skill body adds ~5k chars.
+        p_iv = build_from_spec_prompt(
+            spec="counter", work_dir="/tmp/x", pdk_root="/pdk",
+            pdk_config="gf180mcu",
+        )
+        p_co = build_from_spec_prompt(
+            spec="counter", work_dir="/tmp/x", pdk_root="/pdk",
+            pdk_config="gf180mcu", tb_framework="cocotb",
+        )
+        assert len(p_co) - len(p_iv) > 3000
+
+    def test_unknown_tb_framework_rejected(self):
+        with pytest.raises(ValueError, match="tb_framework"):
+            build_from_spec_prompt(
+                spec="x", work_dir="/tmp/x", pdk_root="/pdk",
+                pdk_config="gf180mcu", tb_framework="verilator",
+            )
+
 
 class TestFromSpecDryRun:
     @pytest.mark.parametrize("pdk", ["gf180mcu", "ihp_sg13g2"])
