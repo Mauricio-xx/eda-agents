@@ -270,6 +270,16 @@ class IdeaToDigitalChipInputs(BaseModel):
             "Same post-synth / post-PnR GlSimRunner check either way."
         ),
     )
+    loop_budget: int = Field(
+        default=1, ge=1, le=20,
+        description=(
+            "Iterative idea-to-chip loop budget. ``1`` (default) keeps "
+            "S11 single-shot behaviour. ``> 1`` dispatches to the "
+            "IdeaToRTLLoop wrapper which runs propose -> sim -> "
+            "critique -> re-propose for designs that exceed the "
+            "single-turn ceiling (>~2k cells)."
+        ),
+    )
 
     @field_validator("pdk")
     @classmethod

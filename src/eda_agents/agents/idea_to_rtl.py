@@ -73,6 +73,14 @@ class IdeaToRTLResult:
     gl_sim: dict[str, Any] | None = None
     # Raw CLI JSON (useful for audit).
     raw_json: dict[str, Any] = field(default_factory=dict)
+    # Iterative-loop metadata, populated when generate_rtl_draft was
+    # called with loop_budget > 1 and dispatched to
+    # eda_agents.agents.idea_to_rtl_loop.run_idea_to_rtl_loop.
+    # Carries the per-turn record so honest-fail diagnostics survive
+    # in the same artefact callers already consume. Typed loosely
+    # (Any) to avoid importing the loop module here and creating a
+    # circular dep — the concrete type is IdeaToRTLLoopResult.
+    loop_result: Any | None = None
 
     @property
     def all_passed(self) -> bool:
@@ -122,6 +130,7 @@ async def generate_rtl_draft(
     skip_gl_sim: bool = False,
     dry_run: bool = False,
     tb_framework: str = "iverilog",
+    loop_budget: int = 1,
 ) -> IdeaToRTLResult:
     """Generate RTL + testbench + config + GDS from a natural language spec.
 
@@ -171,7 +180,41 @@ async def generate_rtl_draft(
         guided by the ``digital.cocotb_testbench`` skill). Same
         post-synth / post-PnR GlSimRunner check either way; cocotb
         just changes what the agent writes in Phase 2.5.
+    loop_budget:
+        Number of idea-to-chip iterations the caller will tolerate.
+        Default ``1`` keeps S11 single-shot behaviour byte-equivalent
+        (no new code path is reached). When ``loop_budget > 1`` and
+        ``dry_run is False``, the call is delegated to
+        :func:`eda_agents.agents.idea_to_rtl_loop.run_idea_to_rtl_loop`
+        with sim/lint critique skills feeding back between turns;
+        the final turn's :class:`IdeaToRTLResult` is returned with
+        ``loop_result`` populated for honest-fail diagnostics.
     """
+    if loop_budget > 1 and not dry_run:
+        # Lazy import to break the cycle: the loop module imports us.
+        from eda_agents.agents.idea_to_rtl_loop import run_idea_to_rtl_loop
+
+        loop_outcome = await run_idea_to_rtl_loop(
+            description=description,
+            design_name=design_name,
+            work_dir=work_dir,
+            max_turns=loop_budget,
+            max_budget_usd=max_budget_usd,
+            pdk=pdk if isinstance(pdk, str) else pdk.name,
+            pdk_root=pdk_root,
+            librelane_python=librelane_python,
+            allow_dangerous=allow_dangerous,
+            cli_path=cli_path,
+            timeout_s=timeout_s,
+            model=model,
+            skip_gl_sim=skip_gl_sim,
+            tb_framework=tb_framework,
+        )
+        # The loop module already attached itself to the final turn's
+        # result. Return that result directly so callers consuming
+        # IdeaToRTLResult keep working unchanged.
+        return loop_outcome.idea_result
+
     work_dir = Path(work_dir).resolve()
     pdk_config = resolve_pdk(pdk) if not isinstance(pdk, PdkConfig) else pdk
 
@@ -527,6 +570,15 @@ def result_to_dict(result: IdeaToRTLResult) -> dict[str, Any]:
     def _maybe_str(p: Path | None) -> str | None:
         return str(p) if p is not None else None
 
+    loop_payload: Any | None = None
+    if result.loop_result is not None:
+        # Avoid importing the loop module just to type-narrow.
+        # ``IdeaToRTLLoopResult.to_dict`` is a stable surface.
+        try:
+            loop_payload = result.loop_result.to_dict()
+        except AttributeError:
+            loop_payload = None
+
     return {
         "success": result.success,
         "all_passed": result.all_passed,
@@ -542,6 +594,7 @@ def result_to_dict(result: IdeaToRTLResult) -> dict[str, Any]:
         "gds_path": _maybe_str(result.gds_path),
         "run_dir": _maybe_str(result.run_dir),
         "gl_sim": result.gl_sim,
+        "loop_result": loop_payload,
     }
 
 

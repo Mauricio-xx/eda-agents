@@ -468,3 +468,168 @@ register_skill(
         prompt_fn=_cocotb_testbench_prompt,
     )
 )
+
+
+def _critique_sim_failure_prompt() -> str:
+    """Zero-arg guide for reading a simulation failure and patching RTL.
+
+    Used by ``IdeaToRTLLoop`` between turns when the previous attempt's
+    pre-synth or post-flow GL sim failed. Reinforces the
+    ``digital.cocotb_testbench`` ``ReadOnly`` discipline rather than
+    duplicating it — see that skill for the full story.
+
+    The mandate is: the failing assertion is a real signal. NEVER
+    teach the agent to disable or weaken the assertion; always patch
+    the RTL or the testbench's STIMULUS, not its CHECK.
+    """
+    return """You are reviewing a SIMULATION FAILURE from the previous
+attempt at this design. A new RTL revision is needed. Follow this
+discipline:
+
+1. READ THE LOG, NOT YOUR MODEL OF THE DESIGN.
+   The failure log fragment that follows is ground truth. Identify:
+   - The exact assertion that fired (file:line).
+   - The signal name, its expected value, and the value the DUT
+     actually produced.
+   - The clock cycle / time at which the mismatch was observed.
+   If any of those three are missing from the log, the failure
+   pattern is "TB never ran" or "TB hung in reset" — diagnose those
+   FIRST before proposing an RTL change.
+
+2. MINIMAL PATCH.
+   Touch ONLY the lines tied to the failing assertion. Do NOT
+   rewrite the module from scratch. Do NOT add new ports. Do NOT
+   change the port list. If you must rename an internal signal,
+   rename it everywhere in one pass.
+
+3. PRESERVE THE TESTBENCH CONTRACT.
+   Do not weaken the assertion. Do not increase tolerance. Do not
+   delete vectors. The check is correct; the DUT is wrong.
+   Exception: if the assertion is timing-incorrect (e.g. samples in
+   ReadOnly the same cycle stimulus was driven), fix the TB
+   STIMULUS / sampling — never the check value.
+
+4. COCOTB ``ReadOnly`` FOOTGUN.
+   If the failure is "got 0, expected 1" on the first iteration of
+   a vector loop, suspect that stimulus was written during a
+   ReadOnly phase and silently dropped. The ``digital.cocotb_testbench``
+   skill has the full READONLY IS READ-ONLY section — re-read it
+   before patching the TB, do not duplicate its rules here.
+
+5. RESET / X-PROPAGATION.
+   If the failure is "got x, expected <value>", the DUT came out of
+   reset with registers in x-state. Check that:
+   - The reset signal is wired to every flip-flop.
+   - The TB holds reset for >= 5 clocks before releasing.
+   - The first correctness check happens at least one full posedge
+     AFTER reset release.
+   Do NOT add behavioural ``initial`` blocks to the RTL — those are
+   not synthesisable and the gate-level netlist will diverge from
+   the RTL behaviour.
+
+6. NEVER SKIP VERIFICATION.
+   The post-flow GL sim, DRC, LVS, and STA gates exist for a
+   reason. Do not propose disabling any of them. Do not propose
+   ``skip_gl_sim=True``. Do not propose lowering CLOCK_PERIOD-driven
+   timing pressure to mask a structural bug. Fix the root cause.
+
+7. IF YOU CANNOT IDENTIFY THE ROOT CAUSE, SAY SO.
+   Pasting "I am not sure why X failed; here is my best guess and
+   what additional log lines I would need" is a valid response. The
+   loop wrapper will surface that honesty back to the human running
+   it. Silent guessing wastes the next turn's budget.
+
+OUTPUT FORMAT:
+  - One paragraph diagnosing the root cause.
+  - The minimal RTL or TB patch (apply via Edit / Write tools as
+    usual).
+  - One sentence stating which assertion you expect to pass after
+    the patch and why."""
+
+
+def _critique_synth_lint_prompt() -> str:
+    """Zero-arg guide for fixing yosys / lint errors between loop turns.
+
+    Used by ``IdeaToRTLLoop`` when the previous turn's LibreLane run
+    died inside Yosys synthesis (undriven signals, width mismatches,
+    combinational loops) or earlier in the lint pass.
+    """
+    return """You are reviewing a SYNTHESIS or LINT FAILURE from the
+previous attempt at this design. The flow died before signoff.
+Follow this discipline:
+
+1. READ THE LOG, NOT YOUR MODEL OF THE RTL.
+   The log fragment that follows is ground truth. Yosys errors of
+   note:
+   - "Wire <name> is used but not driven" — a register or wire is
+     declared but no always block / continuous assignment writes it.
+     Often a typo in a sensitivity list or a missing default
+     assignment in a case statement.
+   - "Found logic loop" / "Combinational loop" — a wire feeds back
+     into its own driver without a register. Almost always a
+     missing flip-flop or a misplaced ``always_comb`` block.
+   - "Width mismatch" / "Not all bits used" — a port or
+     concatenation is shorter or longer than expected. Check ranges.
+   - "Multiple drivers" — two always blocks or an assign + always
+     write the same wire. Pick one.
+
+2. MINIMAL PATCH.
+   Touch ONLY the lines named in the error. Do not refactor.
+   Do not rename. Do not change the port list. If the error names
+   a generated identifier you do not recognise, look at the file:line
+   first — yosys often generates the identifier from a slice of
+   your RTL and the line is what tells you which source to fix.
+
+3. PRESERVE TIMING-CRITICAL STRUCTURE.
+   Do not insert pipeline registers, change FSM encoding, or move
+   logic across clock boundaries to "fix" a synth error. Those are
+   timing-closure changes; if you make them while fixing a structural
+   bug you will lose the next turn's budget chasing two regressions.
+
+4. COMBINATIONAL LOOPS.
+   If yosys reports a logic loop, the canonical fix is to add a
+   register. Identify the cycle, choose a single wire to break, and
+   register that wire on the design's primary clock. Do NOT add
+   ``always_latch`` blocks to break the loop — those are
+   non-synthesisable in this PDK flow.
+
+5. NEVER SKIP VERIFICATION.
+   Do not propose disabling lint, lowering yosys verbosity, or
+   passing ``-noattr`` to mask the message. Fix the root cause.
+
+OUTPUT FORMAT:
+  - One paragraph diagnosing the root cause and naming the offending
+    file:line.
+  - The minimal patch (apply via Edit / Write tools).
+  - One sentence stating which yosys / lint error you expect to
+    clear after the patch."""
+
+
+register_skill(
+    Skill(
+        name="digital.critique_sim_failure",
+        description=(
+            "Zero-arg system prompt: critique a previous turn's "
+            "simulation failure and propose a minimal RTL/TB patch. "
+            "Used by IdeaToRTLLoop between turns. Reinforces (does "
+            "not duplicate) the cocotb ReadOnly discipline. Forbids "
+            "skipping verification or weakening assertions. "
+            "Signature: ()."
+        ),
+        prompt_fn=_critique_sim_failure_prompt,
+    )
+)
+
+
+register_skill(
+    Skill(
+        name="digital.critique_synth_lint",
+        description=(
+            "Zero-arg system prompt: critique a previous turn's yosys "
+            "synthesis or RTL lint failure and propose a minimal "
+            "patch. Used by IdeaToRTLLoop between turns. Forbids "
+            "skipping lint or hiding errors. Signature: ()."
+        ),
+        prompt_fn=_critique_synth_lint_prompt,
+    )
+)
