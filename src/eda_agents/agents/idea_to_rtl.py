@@ -78,14 +78,17 @@ class IdeaToRTLResult:
     def all_passed(self) -> bool:
         """Overall gate: success AND (gl_sim skipped OR gl_sim passed).
 
-        Three cases, in order:
+        Cases, in order:
           1. harness failure            -> False (always).
-          2. gl_sim is None             -> True  (gl_sim explicitly skipped
-                                                  via ``skip_gl_sim=True``).
-          3. gl_sim["skipped"] is True  -> True  (gl_sim ran but was
-                                                  not applicable, e.g.
-                                                  cocotb testbench with
-                                                  no GL sim support yet).
+          2. gl_sim is None             -> True  (gl_sim explicitly
+                                                  skipped via
+                                                  ``skip_gl_sim=True``).
+          3. gl_sim["skipped"] is True  -> True  (defensive: future
+                                                  infra-skip cases or
+                                                  user-driven skip
+                                                  reported via the
+                                                  helper rather than
+                                                  the kwarg).
           4. gl_sim["all_passed"]       -> that boolean.
         """
         if not self.success:
@@ -244,6 +247,7 @@ async def generate_rtl_draft(
             work_dir=work_dir,
             pdk_key=pdk_config.name,
             pdk_root=resolved_root,
+            librelane_python=librelane_python,
         )
 
     return result
@@ -310,6 +314,7 @@ def run_post_flow_gl_sim_check(
     work_dir: Path,
     pdk_key: str,
     pdk_root: str,
+    librelane_python: str | None = None,
 ) -> dict[str, Any]:
     """Run post-synth + post-PnR GL sim against the agent's artefacts.
 
@@ -317,6 +322,14 @@ def run_post_flow_gl_sim_check(
     recent ``{work_dir}/runs/RUN_*/`` directory, reconstructs a minimal
     :class:`DigitalDesign` pointing at the agent's testbench, and
     invokes :class:`GlSimRunner` twice.
+
+    Both iverilog (``tb/tb_<design>.v``) and cocotb (``tb/Makefile``
+    + ``tb/test_<design>.py``) flavours are supported. Detection lives
+    in :meth:`GlSimRunner._detect_tb_flavour` so this helper just
+    forwards the work directory and lets the runner pick the right
+    backend. The cocotb path needs ``librelane_python`` to find
+    ``cocotb-config`` (cocotb 2.x is installed in the LibreLane venv,
+    not in the eda-agents venv).
 
     Returns a dict with:
 
@@ -373,29 +386,35 @@ def run_post_flow_gl_sim_check(
 
     tb_path = work_dir / "tb" / f"tb_{design_name}.v"
     cocotb_tb = work_dir / "tb" / f"test_{design_name}.py"
-    if not tb_path.is_file():
-        if cocotb_tb.is_file():
-            # The agent wrote a cocotb testbench instead of a plain-
-            # Verilog one. GlSimRunner's post-synth / post-PnR path is
-            # iverilog-only today; cocotb gate-level sim is S12+ work.
-            # Surface this as an explicit skip, not a silent PASS.
-            return {
-                "all_passed": None,
-                "skipped": True,
-                "reason": "cocotb_tb_no_gl_sim_support",
-                "note": (
-                    f"Found cocotb test file at {cocotb_tb}; GL sim "
-                    "against post-synth and post-PnR netlists for "
-                    "cocotb testbenches is not implemented in "
-                    "GlSimRunner yet. The agent's pre-synth cocotb "
-                    "simulation + LibreLane signoff STA + DRC/LVS "
-                    "are the verification floor for this run."
-                ),
-            }
+    cocotb_makefile = work_dir / "tb" / "Makefile"
+    has_iverilog_tb = tb_path.is_file()
+    has_cocotb_tb = cocotb_tb.is_file() and cocotb_makefile.is_file()
+    if not has_iverilog_tb and not has_cocotb_tb:
         return {
             "all_passed": False,
-            "error": f"Testbench not found at {tb_path}",
+            "error": (
+                f"Testbench not found: looked for iverilog at "
+                f"{tb_path} and cocotb at {cocotb_tb} + "
+                f"{cocotb_makefile}"
+            ),
         }
+
+    # Build the testbench spec the runner will see. The cocotb GL-sim
+    # path inside GlSimRunner uses its own filesystem detection, so
+    # this spec is mostly informational — but we keep it accurate so
+    # logs and downstream callers (autoresearch, manual re-runs) can
+    # tell which flavour was active.
+    if has_cocotb_tb:
+        tb_spec = TestbenchSpec(
+            driver="cocotb",
+            target="make sim",
+            work_dir_relative="tb",
+        )
+    else:
+        tb_spec = TestbenchSpec(
+            driver="iverilog",
+            target=str(tb_path.relative_to(work_dir)),
+        )
 
     class _AgentDesign(DigitalDesign):
         """Minimal DigitalDesign reconstructed from agent artefacts."""
@@ -440,10 +459,7 @@ def run_post_flow_gl_sim_check(
             return ""
 
         def testbench(self):
-            return TestbenchSpec(
-                driver="iverilog",
-                target=str(tb_path.relative_to(work_dir)),
-            )
+            return tb_spec
 
     design = _AgentDesign()
     runner = GlSimRunner(
@@ -453,6 +469,7 @@ def run_post_flow_gl_sim_check(
         pdk_config=pdk_config,
         pdk_root=pdk_root,
         design_name=design_name,
+        librelane_python=librelane_python,
     )
 
     synth_res = runner.run_post_synth()

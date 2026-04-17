@@ -1532,13 +1532,12 @@ def run_idea_to_digital_chip(
     if "post_pnr" in gl:
         metrics["gl_post_pnr_ok"] = 1.0 if gl["post_pnr"].get("success") else 0.0
     if gl.get("skipped"):
-        # Cocotb TB path: GlSimRunner doesn't support cocotb yet, so
-        # surface that honestly in the metrics rather than treating it
-        # as a silent PASS. 1.0 means "skipped cleanly", 0.0 means
-        # "skipped due to infra failure". Keeping bench tasks that
-        # require gl_post_*_ok honest when they run against cocotb
-        # means those YAMLs should drop those metrics or accept this
-        # signal instead.
+        # Defensive: from S12-A onward both iverilog and cocotb run
+        # through GlSimRunner, so this branch only fires when a
+        # downstream caller explicitly emits a skip dict (e.g. future
+        # infra-skip cases). The kwarg ``skip_gl_sim=True`` does not
+        # populate ``result.gl_sim`` at all — it leaves it ``None`` —
+        # so it never reaches here. 1.0 = skipped cleanly.
         metrics["gl_sim_skipped"] = 1.0
 
     artifacts: list[str] = []

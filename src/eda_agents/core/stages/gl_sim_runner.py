@@ -22,6 +22,15 @@ Two modes share the same class:
   instance identified by
   :meth:`DigitalDesign.gl_sim_dut_instance_path`.
 
+Two testbench flavours are supported:
+
+* iverilog (``tb/tb_<design>.v``) — the original path; compiles
+  netlist + stdcell models + TB into ``sim.out`` and runs ``vvp``.
+* cocotb (``tb/Makefile`` + ``tb/test_<design>.py``) — wraps the
+  cocotb test against the gate-level netlist via a generated
+  Makefile in the GL-sim work dir; uses cocotb's icarus driver.
+  The same ``$sdf_annotate`` wrapper is reused for post-PnR.
+
 The public interface is PDK-agnostic; all PDK-specific values (stdcell
 model glob, default STA corner) live in :class:`PdkConfig`. Tests cover
 IHP SG13G2 and GF180MCU through the parametrised ``pdk_config``
@@ -32,13 +41,16 @@ from __future__ import annotations
 
 import glob
 import logging
+import os
 import re
 import time
 from pathlib import Path
+from typing import Literal
 
 from eda_agents.core.digital_design import DigitalDesign
 from eda_agents.core.flow_stage import FlowStage, StageResult
 from eda_agents.core.pdk import PdkConfig
+from eda_agents.core.stages.rtl_sim_runner import _COCOTB_SUMMARY_RE
 from eda_agents.core.tool_environment import ToolEnvironment
 
 logger = logging.getLogger(__name__)
@@ -90,6 +102,12 @@ class GlSimRunner:
         Per-invocation timeout. Post-PnR SDF annotation can be slow, so
         the default is 900 s; callers that know their design is small
         can shorten it.
+    librelane_python
+        Path to the Python interpreter whose venv carries cocotb (and
+        therefore ``cocotb-config``). Only consulted when the cocotb
+        backend is selected; ignored for the iverilog path. When set,
+        the venv's ``bin/`` is prepended to PATH for the ``make sim``
+        subprocess so cocotb's makefiles resolve.
     """
 
     def __init__(
@@ -103,6 +121,7 @@ class GlSimRunner:
         design_name: str | None = None,
         timeout_s: int = 900,
         enable_sdf_annotation: bool = False,
+        librelane_python: str | None = None,
     ):
         self.design = design
         self.env = env
@@ -111,6 +130,7 @@ class GlSimRunner:
         self.pdk_root = Path(pdk_root)
         self.design_name = design_name or design.project_name()
         self.timeout_s = timeout_s
+        self.librelane_python = librelane_python
         # SDF annotation requires iverilog ``-gspecify -ginterconnect``.
         # In practice, iverilog's specify-block coverage is incomplete
         # for the IHP/GF180 stdcell models we ship: the
@@ -154,17 +174,30 @@ class GlSimRunner:
                 t0,
             )
 
+        work_dir = self.run_dir / "gl_sim" / "post_synth"
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        flavour = self._detect_tb_flavour()
+        if flavour == "cocotb":
+            return self._run_cocotb_gl_sim(
+                stage=FlowStage.POST_SYNTH_SIM,
+                work_dir=work_dir,
+                cell_sources=cell_sources,
+                netlist=netlist,
+                sdf_path=None,
+                t0=t0,
+            )
+
         tb_path = self._tb_path()
         if tb_path is None:
             return self._fail(
                 FlowStage.POST_SYNTH_SIM,
                 "Design has no iverilog-compatible testbench "
-                "(testbench() returned None or non-iverilog driver)",
+                "(testbench() returned None or non-iverilog driver) "
+                "and no cocotb testbench was found at "
+                f"{self.design.project_dir() / 'tb'}",
                 t0,
             )
-
-        work_dir = self.run_dir / "gl_sim" / "post_synth"
-        work_dir.mkdir(parents=True, exist_ok=True)
 
         return self._invoke(
             stage=FlowStage.POST_SYNTH_SIM,
@@ -222,6 +255,29 @@ class GlSimRunner:
                 t0,
             )
 
+        work_dir = self.run_dir / "gl_sim" / "post_pnr"
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        flavour = self._detect_tb_flavour()
+        if flavour == "cocotb":
+            # For cocotb the wrapper anchors on the design's top module
+            # directly (cocotb instantiates TOPLEVEL=<design> with no
+            # ``tb`` shell), so override the default scope.
+            wrapper = self._write_sdf_wrapper(
+                work_dir, sdf, target_override=self.design_name
+            )
+            sdf_path = sdf if self.enable_sdf_annotation else None
+            extra_sources = [str(wrapper)] if self.enable_sdf_annotation else []
+            return self._run_cocotb_gl_sim(
+                stage=FlowStage.GL_SIM_POST_PNR,
+                work_dir=work_dir,
+                cell_sources=cell_sources,
+                netlist=netlist,
+                sdf_path=sdf_path,
+                t0=t0,
+                extra_sources=extra_sources,
+            )
+
         tb_path = self._tb_path()
         if tb_path is None:
             return self._fail(
@@ -229,9 +285,6 @@ class GlSimRunner:
                 "Design has no iverilog-compatible testbench",
                 t0,
             )
-
-        work_dir = self.run_dir / "gl_sim" / "post_pnr"
-        work_dir.mkdir(parents=True, exist_ok=True)
 
         # Always write the wrapper so the SDF path is discoverable
         # (handy when re-running by hand with the opt-in flag); only
@@ -334,7 +387,13 @@ class GlSimRunner:
                 return match
         return None
 
-    def _write_sdf_wrapper(self, work_dir: Path, sdf: Path) -> Path:
+    def _write_sdf_wrapper(
+        self,
+        work_dir: Path,
+        sdf: Path,
+        *,
+        target_override: str | None = None,
+    ) -> Path:
         """Emit a tiny module that invokes $sdf_annotate.
 
         iverilog supports ``$sdf_annotate("<path>", <scope>)`` as a
@@ -342,8 +401,19 @@ class GlSimRunner:
         touching the agent-authored testbench and keeps the SDF path
         absolute (relative paths resolve against vvp's CWD, which is
         not always the TB directory).
+
+        ``target_override`` lets callers force the annotation scope.
+        The cocotb backend uses this to point at ``<design_name>``
+        (cocotb instantiates ``TOPLEVEL=<design>`` directly, so there
+        is no enclosing ``tb`` module). The iverilog path keeps the
+        default of ``DigitalDesign.gl_sim_dut_instance_path() or
+        "tb.dut"``.
         """
-        target = self.design.gl_sim_dut_instance_path() or "tb.dut"
+        target = (
+            target_override
+            or self.design.gl_sim_dut_instance_path()
+            or "tb.dut"
+        )
         wrapper = work_dir / "_sdf_annotate_wrapper.v"
         wrapper.write_text(
             "`timescale 1ns/1ps\n"
@@ -355,6 +425,32 @@ class GlSimRunner:
             encoding="utf-8",
         )
         return wrapper
+
+    def _detect_tb_flavour(self) -> Literal["iverilog", "cocotb", "none"]:
+        """Detect whether the agent wrote an iverilog or cocotb testbench.
+
+        The detection is filesystem-based and cheap on purpose: GL sim
+        runs once we know the LibreLane flow finished, by which point
+        the agent's ``tb/`` directory is fully written. No need to
+        consult ``design.testbench()`` (which is what the iverilog
+        path uses) — for cocotb the design's testbench spec returns
+        ``make sim`` and is opaque to us.
+
+        Order of precedence: cocotb beats iverilog when both are
+        present. This is intentional — the bench tasks pin one
+        framework via ``tb_framework`` and the agent should not
+        produce both, but if it ever does, cocotb is the higher-
+        fidelity check (cocotb assertions are typed Python).
+        """
+        tb_dir = self.design.project_dir() / "tb"
+        cocotb_test = tb_dir / f"test_{self.design_name}.py"
+        cocotb_makefile = tb_dir / "Makefile"
+        if cocotb_test.is_file() and cocotb_makefile.is_file():
+            return "cocotb"
+        iverilog_tb = tb_dir / f"tb_{self.design_name}.v"
+        if iverilog_tb.is_file():
+            return "iverilog"
+        return "none"
 
     def _cells_glob(self) -> str:
         """Effective glob for stdcell Verilog models.
@@ -377,12 +473,12 @@ class GlSimRunner:
         return sorted(glob.glob(pattern))
 
     def _tb_path(self) -> Path | None:
-        """Resolve the testbench file the agent authored.
+        """Resolve the iverilog testbench file the agent authored.
 
-        Reuses the exact TB the RTL sim stage ran against. For cocotb
-        targets we return ``None`` (GL sim via cocotb is out of scope
-        for now — cocotb tests live behind a Python layer that would
-        need separate plumbing).
+        Returns ``None`` for cocotb targets — cocotb dispatch happens
+        upstream in :meth:`run_post_synth` / :meth:`run_post_pnr` via
+        :meth:`_detect_tb_flavour`, so by the time we ask for an
+        iverilog TB path the cocotb branch has already been ruled out.
         """
         tb = self.design.testbench()
         if tb is None or tb.driver != "iverilog":
@@ -391,6 +487,147 @@ class GlSimRunner:
             return None
         candidate = self.design.project_dir() / tb.target
         return candidate if candidate.is_file() else None
+
+    # ------------------------------------------------------------------
+    # Cocotb backend
+    # ------------------------------------------------------------------
+
+    def _run_cocotb_gl_sim(
+        self,
+        *,
+        stage: FlowStage,
+        work_dir: Path,
+        cell_sources: list[str],
+        netlist: Path,
+        sdf_path: Path | None,
+        t0: float,
+        extra_sources: list[str] | None = None,
+    ) -> StageResult:
+        """Drive the agent's cocotb test against a gate-level netlist.
+
+        Generates a self-contained Makefile in ``work_dir`` that points
+        cocotb's icarus driver at the post-synth or post-PnR netlist
+        plus the PDK stdcell models. The agent's ``test_<design>.py``
+        is copied from ``<project>/tb/`` into ``work_dir/`` so cocotb's
+        ``MODULE`` resolves without PYTHONPATH gymnastics.
+
+        SDF annotation, when requested, is delivered via the same
+        ``_sdf_annotate_wrapper.v`` the iverilog path uses — except
+        the wrapper anchors on ``<design_name>`` (cocotb's TOPLEVEL)
+        rather than ``tb.dut``. Caller is responsible for generating
+        the wrapper and passing it through ``extra_sources``.
+
+        Pass/fail is read from cocotb's summary line (``** TESTS=N
+        PASS=N FAIL=N SKIP=N``) — the same regex
+        ``rtl_sim_runner._COCOTB_SUMMARY_RE`` already validates for
+        pre-synth cocotb runs. ``tests == 0`` is treated as a failure
+        (silent test skipping is a common cocotb misconfiguration).
+        """
+        cocotb_test_src = (
+            self.design.project_dir() / "tb" / f"test_{self.design_name}.py"
+        )
+        if not cocotb_test_src.is_file():
+            return self._fail(
+                stage,
+                f"cocotb test file not found at {cocotb_test_src}",
+                t0,
+            )
+
+        # Copy the test module into the GL-sim work dir. cocotb's
+        # default MODULE resolution looks in CWD first, so this avoids
+        # exporting PYTHONPATH and isolates the GL sim from any
+        # pre-synth conftest the agent might have written next to its
+        # cocotb test.
+        cocotb_test_dst = work_dir / f"test_{self.design_name}.py"
+        cocotb_test_dst.write_text(cocotb_test_src.read_text())
+
+        sdf_flags = "-gspecify -ginterconnect" if sdf_path is not None else ""
+        sources = [*cell_sources, str(netlist), *(extra_sources or [])]
+        verilog_sources = " ".join(sources)
+        compile_args = f"-g2012 {sdf_flags}".strip()
+
+        makefile_text = (
+            "# Auto-generated by GlSimRunner cocotb backend.\n"
+            "# Do not edit by hand — re-run the GL sim stage to refresh.\n"
+            "SIM ?= icarus\n"
+            "TOPLEVEL_LANG ?= verilog\n"
+            f"TOPLEVEL = {self.design_name}\n"
+            f"MODULE = test_{self.design_name}\n"
+            "\n"
+            f"VERILOG_SOURCES = {verilog_sources}\n"
+            f"COMPILE_ARGS += {compile_args}\n"
+            "\n"
+            "include $(shell cocotb-config --makefiles)/Makefile.sim\n"
+        )
+        (work_dir / "Makefile").write_text(makefile_text)
+
+        run_env = os.environ.copy()
+        if self.librelane_python:
+            venv_bin = str(Path(self.librelane_python).resolve().parent)
+            run_env["PATH"] = venv_bin + os.pathsep + run_env.get("PATH", "")
+
+        cmd = ["make", "sim"]
+        logger.info(
+            "GlSimRunner cocotb (%s): %s in %s",
+            stage.name, " ".join(cmd), work_dir,
+        )
+        try:
+            proc = self.env.run(
+                cmd, cwd=work_dir, env=run_env, timeout_s=self.timeout_s
+            )
+        except FileNotFoundError:
+            return self._fail(stage, "make not found on PATH", t0)
+
+        combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        elapsed = time.monotonic() - t0
+
+        tests, passed, failed, skipped = 0, 0, 0, 0
+        match = _COCOTB_SUMMARY_RE.search(combined)
+        if match:
+            tests = int(match.group(1))
+            passed = int(match.group(2))
+            failed = int(match.group(3))
+            skipped = int(match.group(4))
+
+        sdf_warnings = (
+            len(_SDF_WARN_RE.findall(combined)) if sdf_path is not None else 0
+        )
+
+        success = proc.returncode == 0 and failed == 0 and tests > 0
+
+        metrics: dict[str, float] = {
+            "gl_sim_pass": 1 if success else 0,
+            "gl_sim_fail": 1 if (failed > 0 or not success) else 0,
+            "gl_sim_tests": tests,
+            "gl_sim_test_pass": passed,
+            "gl_sim_test_fail": failed,
+            "gl_sim_test_skip": skipped,
+        }
+        if sdf_path is not None:
+            metrics["gl_sim_sdf_warnings"] = sdf_warnings
+
+        if proc.returncode != 0:
+            error: str | None = (
+                f"make sim exited with code {proc.returncode}"
+            )
+        elif failed > 0:
+            error = f"{failed}/{tests} cocotb tests failed"
+        elif tests == 0:
+            error = (
+                "cocotb summary line not found in output — "
+                "tests did not run (check Makefile / VERILOG_SOURCES)"
+            )
+        else:
+            error = None
+
+        return StageResult(
+            stage=stage,
+            success=success,
+            metrics_delta=metrics,
+            log_tail=combined[-2000:],
+            run_time_s=elapsed,
+            error=error,
+        )
 
     # ------------------------------------------------------------------
     # Invocation
