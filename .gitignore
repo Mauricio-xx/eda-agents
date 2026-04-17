@@ -179,6 +179,24 @@ bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live/.clau
 bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live/.venv/
 bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live/*.log
 bench/results/s11_fase2_fft_live_retry/e2e_idea_to_digital_fft4_gf180_live/*.error.log
+# S11 Fase 1.5 cocotb wiring — final PASS evidence after adapter fix.
+# Same narrow allowlist shape: README + summary + report + result
+# JSON + config. Runs tree stays gitignored.
+!bench/results/s11_cocotb_final/
+!bench/results/s11_cocotb_final/README.md
+!bench/results/s11_cocotb_final/summary.json
+!bench/results/s11_cocotb_final/report.md
+!bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/
+!bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/idea_to_chip_result.json
+!bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/config.yaml
+bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/runs/
+bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/src/
+bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/tb/
+bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live.json
+bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/.claude/
+bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/.venv/
+bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/*.log
+bench/results/s11_cocotb_final/e2e_idea_to_digital_counter_cocotb_live/*.error.log
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat
