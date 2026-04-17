@@ -1,0 +1,63 @@
+id: e2e_idea_to_digital_counter_ihp_live
+family: end-to-end
+category: digital
+domain: digital
+pdk: ihp_sg13g2
+difficulty: hard
+expected_backend: librelane
+harness: callable
+topology: counter_4bit
+inputs:
+  callable: eda_agents.bench.adapters:run_idea_to_digital_chip
+  description: |
+    4-bit synchronous up-counter with active-low asynchronous reset
+    and an enable input. Inputs: clk, rst_n, en. Output: count[3:0].
+    When en=1 and rst_n=1, count increments on each rising edge of
+    clk. When rst_n=0, count returns to 0 asynchronously. When en=0,
+    count holds its current value.
+  design_name: counter4_ihp
+  pdk: ihp_sg13g2
+  complexity: simple
+  dry_run: false
+  skip_gl_sim: false
+  allow_dangerous: true
+  max_budget_usd: 15.0
+  timeout_s: 7200
+  librelane_python: /home/montanares/git/librelane/.venv/bin/python
+expected_metrics:
+  gds_exists: {min: 1, unit: bool}
+  gl_post_synth_ok: {min: 1, unit: bool}
+  gl_post_pnr_ok: {min: 1, unit: bool}
+scoring:
+  - compile
+  - sim_run
+  - metrics_in_range
+weight: 4.0
+timeout_s: 7200
+notes: |
+  S12-C LIVE IHP SG13G2 digital gate. Mirrors
+  idea_to_digital_counter_live.yaml for GF180 but targets the IHP
+  LibreLane template at src/eda_agents/agents/templates/ihp_sg13g2.yaml.tmpl.
+
+  That template already routes around the historical Magic.StreamOut /
+  Magic.SpiceExtraction slowness on IHP by substituting the whole Magic
+  chain with null and streaming out via KLayout
+  (PRIMARY_GDSII_STREAMOUT_TOOL=klayout). LVS is currently disabled
+  upstream-side due to a known KLayout LVS deck issue on the current
+  dev branch of IHP-Open-PDK; the run therefore enforces
+  gds_exists + gl_post_synth_ok + gl_post_pnr_ok only, not LVS match.
+
+  Requirements (same as GF180 live):
+    - Claude Code CLI on PATH (`claude`).
+    - PDK_ROOT pointing at IHP-Open-PDK dev branch.
+    - LibreLane v3 venv at the path in `inputs.librelane_python`.
+    - EDA_AGENTS_ALLOW_DANGEROUS=1.
+
+  Timeout bumped to 2h (from GF180's 90 min) because even with the
+  KLayout-only signoff some PnR steps can be slow on IHP stdcells.
+  Budget bumped to $15 (from GF180's $8) to absorb one template-nudge
+  retry cycle. When any requirement is missing the adapter returns
+  FAIL_INFRA and the bench marks SKIPPED — no false green.
+
+  See docs/s12_handoffs/s12c_ihp_live_digital.md for outcome-path
+  context.
