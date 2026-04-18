@@ -119,6 +119,25 @@ Fix surfaces two upstream paths:
 Both exceed the S12-B session budget and are the reason Gap 4 lands
 partial (see S12-B handoff + plan file).
 
+**Gap A update (2026-04-18 follow-up session)** — Path B shipped on
+the fork branch at commit `27194ff`:
+
+- `sg13g2_decorator.sg13g2_synthesize_mim_markers` adds per-MIM
+  TopMetal1 (126,0) + vMIM (129,0) + 0.42×0.42 µm TopVia1 (125,0)
+  markers (DRC-compliant: TV1.a / TV1.b / TV1.c / TV1.d / MIM.d /
+  TM1.a are all satisfied by the synthesised geometry).
+- `mimcap.mimcap_array` adds a single TopMetal1 strip spanning the
+  placed array bbox before `flatten()`. The decorator alone is
+  insufficient because per-cap TopMetal1 markers stay separated by
+  the array's `capmet.min_separation` gap (grows with any oversize
+  the decorator applies), which LVS interprets as independent top
+  plates; the bridge in `mimcap_array` unifies them into one net.
+- End-to-end result on the same baseline params: LVS extraction now
+  returns **1 cap_cmim m=6** for `opamp_twostage` (was 0). DRC
+  unchanged (70 violations, identical rule families). LVS still
+  "don't match" overall — the remaining delta is the cs_bias issue
+  below, not MIM cap related.
+
 ## What this session lands (scope per plan)
 
 1. `scripts/glayout_driver.py:314-326` — remove the hard-rejection of

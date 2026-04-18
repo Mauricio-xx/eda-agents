@@ -5,3 +5,5 @@ artifacts/*.lvsdb
 artifacts/*.cir
 artifacts/*_patched.spice
 artifacts/*drcreport.lyrdb
+# DRC tool sometimes writes the raw lyrdb into a sibling <NAME>/ dir
+opamp_twostage/

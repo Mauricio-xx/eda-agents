@@ -1,11 +1,24 @@
 # S12-B Gap 4 — SG13G2 `opamp_twostage` partial landing
 
-## Mode: partial
+## Mode: partial (+ Gap A closed on follow-up session 2026-04-18)
 
 User-confirmed scope pivot after live discovery of an architectural
 blocker. Session commitment updated from "SG13G2 opamp_twostage
 LVS-clean" to "GDS generates, verification blockers documented with
-upstream fix paths". See:
+upstream fix paths".
+
+**Gap A update (2026-04-18)**: the MIM cap extraction blocker is now
+fixed on the fork branch `feature/s12-opamp-sg13g2-integration`
+@ `27194ff`. The `cap_cmim` extraction that previously produced 0 MIM
+caps now returns 1 device `m=6` (6 parallel caps unified into one
+cluster — matches the schematic's 6 MIMCap instances in parallel).
+DRC remains at 70 pre-existing metal-rule violations (no new ones
+introduced by the synthesised TopMetal1 / vMIM / TopVia1 markers).
+LVS is still not clean end-to-end; the remaining delta is the
+`cs_bias` netlist mismatch (next-session Gap 4 follow-up) plus the
+routing DRC violations.
+
+See:
 
 - `docs/s12_findings/s12b_sg13g2_opamp_twostage.md` — investigation +
   blocker analysis.
@@ -72,18 +85,19 @@ DRC + LVS verification (needs `.venv-glayout`):
 
 ## Follow-up commitments
 
-Filed as distinct issues (candidates for upstream):
-
-1. **gLayout SG13G2 MIM cap mapping** — Path A (preferred): add
-   `topmetal1` to `valid_glayers` + rework `mimcap` primitive. Path B
-   (lower-surface-area): SG13G2 decorator synthesising topmetal1 /
-   vmim / topvia1 markers post-write.
+1. **gLayout SG13G2 MIM cap mapping** — **CLOSED (2026-04-18)** via
+   Path B. Fork commit `27194ff` on branch
+   `feature/s12-opamp-sg13g2-integration`: `sg13g2_decorator`
+   synthesises TopMetal1 / vMIM / TopVia1 markers over each MIM
+   polygon, and `mimcap_array` draws a unifying TopMetal1 strip over
+   the full placed array so parallel caps share one top-plate net.
 2. **`opamp_twostage` schematic mismatch with stacked_nfet_current_mirror
-   layout** — align `cs_bias_netlist` construction with the real bias
-   structure; apply to both PDKs; add SG13G2 flat-merge awareness.
-3. **SG13G2 top-level routing DRC** — 70 violations in M1–M4 spacing
-   rules. Fix pattern already established for `diff_pair`, `FVF`,
-   `low_voltage_cmirror`; mechanical application to
+   layout** — OPEN. Align `cs_bias_netlist` construction with the
+   real bias structure; apply to both PDKs; add SG13G2 flat-merge
+   awareness.
+3. **SG13G2 top-level routing DRC** — OPEN. 70 violations in M1–M4
+   spacing rules. Fix pattern already established for `diff_pair`,
+   `FVF`, `low_voltage_cmirror`; mechanical application to
    `__create_and_route_pins` and `__add_mimcap_arr`.
 
 Gap 5's 4-bit current-steering DAC does not depend on any of these

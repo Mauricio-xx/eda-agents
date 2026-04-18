@@ -12,14 +12,14 @@
       "M3.e": 4,
       "M4.b": 4
     },
-    "run_time_s": 7.85,
+    "run_time_s": 7.92,
     "total": 70
   },
   "gds": "/home/montanares/git/eda-agents-worktrees/s12b-analog-layout/bench/results/s12b_sg13g2_opamp_layout/artifacts/opamp_twostage.gds",
   "lvs": {
     "passed": false,
     "result_str_tail": "LVS FAILED: Netlists don't match",
-    "run_time_s": 3.01
+    "run_time_s": 2.99
   },
   "netlist": "/home/montanares/git/eda-agents-worktrees/s12b-analog-layout/bench/results/s12b_sg13g2_opamp_layout/artifacts/opamp_twostage.spice"
 }
