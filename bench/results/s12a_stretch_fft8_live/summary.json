@@ -1,0 +1,72 @@
+{
+  "by_family": {
+    "end-to-end": {
+      "error": 0,
+      "fail": 1,
+      "pass": 0,
+      "skipped": 0,
+      "total": 1
+    }
+  },
+  "errored": 0,
+  "failed": 1,
+  "pass_rate": 0.0,
+  "passed": 0,
+  "results": [
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/config.yaml",
+        "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/runs/RUN_2026-04-18_15-00-51/final/gds/fft8.gds",
+        "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/runs/RUN_2026-04-18_15-00-51",
+        "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/idea_to_chip_result.json"
+      ],
+      "backend_used": "idea-to-chip",
+      "duration_s": 7200.384997278452,
+      "errors": [
+        "Timeout after 7200s"
+      ],
+      "finished": "2026-04-18T14:42:52.397243+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "cost_usd": 0.0,
+        "gds_exists": 1.0,
+        "loop_budget_exhausted": 0.0,
+        "loop_converged": 0.0,
+        "loop_total_cost_usd": 0.0,
+        "loop_turns_used": 1.0,
+        "num_turns": 0.0,
+        "prompt_length": 22621.0,
+        "wall_time_s": 7200.281633280218
+      },
+      "notes": [
+        "pdk=gf180mcu",
+        "design_name=fft8",
+        "dry_run=False",
+        "complexity=complex",
+        "tb_framework=cocotb",
+        "error=Timeout after 7200s",
+        "adapter_runtime_s=7200.38",
+        "gds_exists=1 in range (margin=0)",
+        "metric 'gl_post_synth_ok' missing from result",
+        "metric 'gl_post_pnr_ok' missing from result",
+        "loop_converged=0 OUT of range (margin=-1)",
+        "audit downgraded: ['compile', 'metrics_in_range', 'sim_run'] did not pass"
+      ],
+      "pdk_used": "gf180mcu",
+      "scores": {
+        "audit_passed": null,
+        "compile": 0.0,
+        "metrics_in_range": 0.0,
+        "regex_match": null,
+        "sim_run": 0.0,
+        "weighted_total": 0.0
+      },
+      "started": "2026-04-18T12:42:52.012231+00:00",
+      "status": "FAIL_AUDIT",
+      "task_id": "e2e_idea_to_digital_fft8_gf180_live"
+    }
+  ],
+  "run_id": "s12a_stretch_fft8_live",
+  "skipped": 0,
+  "total": 1
+}

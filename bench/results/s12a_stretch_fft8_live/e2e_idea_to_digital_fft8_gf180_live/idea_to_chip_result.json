@@ -1,0 +1,38 @@
+{
+  "success": false,
+  "all_passed": false,
+  "work_dir": "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live",
+  "design_name": "fft8",
+  "prompt_length": 22621,
+  "wall_time_s": 7200.281633280218,
+  "num_turns": 0,
+  "cost_usd": 0.0,
+  "result_text_tail": "",
+  "error": "Timeout after 7200s",
+  "config_path": "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/config.yaml",
+  "gds_path": "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/runs/RUN_2026-04-18_15-00-51/final/gds/fft8.gds",
+  "run_dir": "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/runs/RUN_2026-04-18_15-00-51",
+  "gl_sim": null,
+  "loop_result": {
+    "iterations": [
+      {
+        "turn": 1,
+        "success": false,
+        "all_passed": false,
+        "sim_status": "missing",
+        "flow_status": "fail",
+        "gl_sim_status": "missing",
+        "failure_excerpt": "[harness error] Timeout after 7200s",
+        "cost_usd": 0.0,
+        "duration_s": 7200.371650066227,
+        "num_turns": 0,
+        "work_subdir": "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/runs/RUN_2026-04-18_15-00-51",
+        "error": "Timeout after 7200s"
+      }
+    ],
+    "total_cost_usd": 0.0,
+    "converged_turn": null,
+    "budget_exhausted": false,
+    "reason": "error"
+  }
+}

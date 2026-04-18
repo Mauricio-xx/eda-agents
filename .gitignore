@@ -258,6 +258,28 @@ bench/results/s12a_s11_regression_smoke/e2e_idea_to_digital_counter_live/.venv/
 bench/results/s12a_s11_regression_smoke/e2e_idea_to_digital_counter_live/*.log
 bench/results/s12a_s11_regression_smoke/e2e_idea_to_digital_counter_live/*.error.log
 
+# S12-A stretch — FFT8 LIVE — STRUCTURAL HONEST-FAIL. Per-turn
+# timeout bug: CC CLI ate the entire wall-clock budget on turn 1.
+# Loop never iterated; critique-feedback path remains untested live.
+# README + summary + report + result JSON + config + loop_result.json
+# documented; needs per-turn timeout fix before re-attempt.
+!bench/results/s12a_stretch_fft8_live/
+!bench/results/s12a_stretch_fft8_live/README.md
+!bench/results/s12a_stretch_fft8_live/summary.json
+!bench/results/s12a_stretch_fft8_live/report.md
+!bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/
+!bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/idea_to_chip_result.json
+!bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/config.yaml
+!bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/loop_result.json
+bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/runs/
+bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/src/
+bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/tb/
+bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live.json
+bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/.claude/
+bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/.venv/
+bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/*.log
+bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/*.error.log
+
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat
