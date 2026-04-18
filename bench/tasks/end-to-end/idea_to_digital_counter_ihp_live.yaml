@@ -28,6 +28,10 @@ expected_metrics:
   gds_exists: {min: 1, unit: bool}
   gl_post_synth_ok: {min: 1, unit: bool}
   gl_post_pnr_ok: {min: 1, unit: bool}
+  # LVS-clean is now enforced as a real signoff gate (S12-D, 2026-04-18).
+  # The KLayout LVS deck on IHP-Open-PDK dev branch handles core-only
+  # digital chips fine; the template drops PAD_CDLS to keep it clean.
+  design__lvs_error__count: {max: 0, unit: count}
 scoring:
   - compile
   - sim_run
@@ -39,13 +43,20 @@ notes: |
   idea_to_digital_counter_live.yaml for GF180 but targets the IHP
   LibreLane template at src/eda_agents/agents/templates/ihp_sg13g2.yaml.tmpl.
 
-  That template already routes around the historical Magic.StreamOut /
-  Magic.SpiceExtraction slowness on IHP by substituting the whole Magic
-  chain with null and streaming out via KLayout
-  (PRIMARY_GDSII_STREAMOUT_TOOL=klayout). LVS is currently disabled
-  upstream-side due to a known KLayout LVS deck issue on the current
-  dev branch of IHP-Open-PDK; the run therefore enforces
-  gds_exists + gl_post_synth_ok + gl_post_pnr_ok only, not LVS match.
+  That template routes around the historical Magic.StreamOut /
+  Magic.SpiceExtraction slowness on IHP by substituting the Magic
+  chain with null/KLayout/OpenROAD equivalents and streaming out via
+  KLayout (PRIMARY_GDSII_STREAMOUT_TOOL=klayout).
+
+  S12-D update (2026-04-18): KLayout LVS is now enabled and enforced
+  as a real signoff gate. The previous "LVS deck broken on stdcell
+  CDLs" claim was wrong. The deck handles core-only digital chips
+  cleanly via OpenROAD.WriteCDL -> KLayout.LVS; the only real
+  upstream caveat is that the IHP pad CDL (sg13g2_io.cdl) uses
+  Cadence Spectre extensions the KLayout reader rejects, so the
+  template sets PAD_CDLS=[]. Core-digital chips have no pads, so
+  this is safe. Designs that *do* instantiate pads need an upstream
+  PDK fix (or a per-design PAD_CDLS override).
 
   Requirements (same as GF180 live):
     - Claude Code CLI on PATH (`claude`).

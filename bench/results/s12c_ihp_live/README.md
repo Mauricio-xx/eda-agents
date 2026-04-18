@@ -5,6 +5,16 @@ Evidence for the closure of **S12-C** (`feat/s12c-ihp-live`). Gate task:
 live gate for the NL → digital-chip pipeline on IHP — S11 had only shipped
 the dry IHP gate and the live pass on GF180MCU-D.
 
+> **Update (2026-04-18):** the LVS caveat described below ("LVS deck
+> errors on stdcell CDLs") turned out to be wrong. End-to-end LVS via
+> the dev-branch deck works clean for core-only digital chips; the
+> only real upstream caveat is the IHP **pad** CDL (Cadence Spectre
+> syntax). Template now wires `OpenROAD.WriteCDL -> KLayout.LVS` and
+> drops `PAD_CDLS`. Re-run with LVS enforced lives at
+> `bench/results/s12c_ihp_live_lvs/` — same Pass@1, real
+> `design__lvs_error__count = 0`. This original run is preserved as
+> the historical pre-LVS evidence.
+
 ## Result: PASS (Pass@1 = 100%)
 
 - Wall time: **140.02 s** (~2 m 20 s).
