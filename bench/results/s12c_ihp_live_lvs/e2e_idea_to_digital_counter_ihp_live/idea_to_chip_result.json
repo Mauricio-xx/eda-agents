@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "all_passed": true,
+  "work_dir": "/home/montanares/git/eda-agents-worktrees/s12c-ihp-live/bench/results/s12c_ihp_live_lvs/e2e_idea_to_digital_counter_ihp_live",
+  "design_name": "counter4_ihp",
+  "prompt_length": 12703,
+  "wall_time_s": 295.8721545469016,
+  "num_turns": 4,
+  "cost_usd": 1.9470432500000006,
+  "result_text_tail": "## FINAL REPORT\n\n**1. Design:** `counter4_ihp` \u2014 4-bit synchronous up-counter with active-low async reset (`rst_n`) and `en` hold input on IHP SG13G2.\n\n**2. RTL interface:**\n- Inputs: `clk`, `rst_n`, `en`\n- Output: `count[3:0]`\n- Instance count (post-PnR): 1622 (tap/endcap + fill dominate; 4 flops + adder)\n\n**3. Timing (multi-corner, signoff STA):**\n- Setup WNS: **+18.586 ns** at `nom_fast_1p32V_m40C` (target 25 ns period)\n- Hold  WNS: **+0.211 ns** at `nom_fast_1p32V_m40C`\n- No setup/hold/slew/cap violations in any corner\n\n**4. DRC (KLayout signoff deck):** **0 errors**\n\n**5. LVS (KLayout `sg13g2.lvs`):** **Netlists match** (`INFO : Congratulations! Netlists match.`)\n- Required dropping `PAD_CDLS` (IHP pad CDL `sg13g2_RCClampResistor` has `$SUB=sub! $[res_rppd]` syntax that the KLayout deck can't parse). Counter uses no pads, so this is safe.\n\n**6. GDS:** `runs/RUN_2026-04-18_16-01-42/final/gds/counter4_ihp.gds`\n\n**7. Verdict: SIGNOFF CLEAN** \u2014 RTL lint clean, iverilog testbench PASS, synth/floorplan/PDN/place/CTS/route/antenna/DRC/LVS all green on IHP SG13G2.\n\nDONE",
+  "error": null,
+  "config_path": "/home/montanares/git/eda-agents-worktrees/s12c-ihp-live/bench/results/s12c_ihp_live_lvs/e2e_idea_to_digital_counter_ihp_live/config.yaml",
+  "gds_path": "/home/montanares/git/eda-agents-worktrees/s12c-ihp-live/bench/results/s12c_ihp_live_lvs/e2e_idea_to_digital_counter_ihp_live/runs/RUN_2026-04-18_16-01-42/final/gds/counter4_ihp.gds",
+  "run_dir": "/home/montanares/git/eda-agents-worktrees/s12c-ihp-live/bench/results/s12c_ihp_live_lvs/e2e_idea_to_digital_counter_ihp_live/runs/RUN_2026-04-18_16-01-42",
+  "gl_sim": {
+    "all_passed": true,
+    "run_dir": "/home/montanares/git/eda-agents-worktrees/s12c-ihp-live/bench/results/s12c_ihp_live_lvs/e2e_idea_to_digital_counter_ihp_live/runs/RUN_2026-04-18_16-01-42",
+    "post_synth": {
+      "success": true,
+      "error": null,
+      "run_time_s": 0.03136658854782581
+    },
+    "post_pnr": {
+      "success": true,
+      "error": null,
+      "run_time_s": 0.04614733625203371,
+      "sdf_warnings": 0
+    }
+  }
+}

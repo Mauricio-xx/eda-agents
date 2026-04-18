@@ -1,0 +1,64 @@
+# IHP SG13G2 LibreLane config (counter4_ihp, Classic flow)
+
+meta:
+  version: 3
+  flow: Classic
+  substituting_steps:
+    Magic.StreamOut: null
+    Magic.WriteLEF: null
+    Magic.SpiceExtraction: null
+    Magic.DRC: null
+    Checker.MagicDRC: null
+    Checker.IllegalOverlap: null
+    Odb.CheckDesignAntennaProperties: null
+    Netgen.LVS: null
+    Checker.LVS: null
+
+RUN_MAGIC_STREAMOUT: false
+RUN_MAGIC_WRITE_LEF: false
+RUN_MAGIC_DRC: false
+RUN_KLAYOUT_XOR: false
+RUN_LVS: false
+
+DESIGN_NAME: counter4_ihp
+VERILOG_FILES:
+  - dir::src/counter4_ihp.v
+CLOCK_PORT: clk
+CLOCK_PERIOD: 10
+
+USE_SLANG: true
+
+PRIMARY_GDSII_STREAMOUT_TOOL: klayout
+
+FP_SIZING: absolute
+DIE_AREA: [0.0, 0.0, 100.0, 100.0]
+
+VDD_NETS:
+  - VDD
+GND_NETS:
+  - VSS
+
+RT_MIN_LAYER: Metal2
+RT_MAX_LAYER: TopMetal2
+
+PL_TARGET_DENSITY_PCT: 40
+MAX_FANOUT_CONSTRAINT: 10
+
+CTS_CLK_MAX_WIRE_LENGTH: 0
+CTS_DISTANCE_BETWEEN_BUFFERS: 0
+CTS_SINK_CLUSTERING_SIZE: 20
+CTS_SINK_CLUSTERING_MAX_DIAMETER: 60
+
+DESIGN_REPAIR_MAX_SLEW_PCT: 35
+DESIGN_REPAIR_MAX_CAP_PCT: 30
+DESIGN_REPAIR_MAX_WIRE_LENGTH: 0
+
+GRT_DESIGN_REPAIR_MAX_CAP_PCT: 20
+GRT_DESIGN_REPAIR_MAX_SLEW_PCT: 20
+GRT_DESIGN_REPAIR_MAX_WIRE_LENGTH: 0
+RUN_POST_GRT_DESIGN_REPAIR: true
+
+TOP_MARGIN_MULT: 1
+BOTTOM_MARGIN_MULT: 1
+LEFT_MARGIN_MULT: 6
+RIGHT_MARGIN_MULT: 6

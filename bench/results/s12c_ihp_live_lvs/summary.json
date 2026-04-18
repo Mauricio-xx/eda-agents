@@ -1,0 +1,65 @@
+{
+  "by_family": {
+    "end-to-end": {
+      "error": 0,
+      "fail": 0,
+      "pass": 1,
+      "skipped": 0,
+      "total": 1
+    }
+  },
+  "errored": 0,
+  "failed": 0,
+  "pass_rate": 1.0,
+  "passed": 1,
+  "results": [
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s12c-ihp-live/bench/results/s12c_ihp_live_lvs/e2e_idea_to_digital_counter_ihp_live/config.yaml",
+        "/home/montanares/git/eda-agents-worktrees/s12c-ihp-live/bench/results/s12c_ihp_live_lvs/e2e_idea_to_digital_counter_ihp_live/runs/RUN_2026-04-18_16-01-42/final/gds/counter4_ihp.gds",
+        "/home/montanares/git/eda-agents-worktrees/s12c-ihp-live/bench/results/s12c_ihp_live_lvs/e2e_idea_to_digital_counter_ihp_live/runs/RUN_2026-04-18_16-01-42",
+        "/home/montanares/git/eda-agents-worktrees/s12c-ihp-live/bench/results/s12c_ihp_live_lvs/e2e_idea_to_digital_counter_ihp_live/idea_to_chip_result.json"
+      ],
+      "backend_used": "idea-to-chip",
+      "duration_s": 296.0578033979982,
+      "errors": [],
+      "finished": "2026-04-18T14:03:00.698339+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "cost_usd": 1.9470432500000006,
+        "gds_exists": 1.0,
+        "gl_post_pnr_ok": 1.0,
+        "gl_post_synth_ok": 1.0,
+        "num_turns": 4.0,
+        "prompt_length": 12703.0,
+        "wall_time_s": 295.8721545469016
+      },
+      "notes": [
+        "pdk=ihp_sg13g2",
+        "design_name=counter4_ihp",
+        "dry_run=False",
+        "complexity=simple",
+        "tb_framework=iverilog",
+        "adapter_runtime_s=296.06",
+        "gds_exists=1 in range (margin=0)",
+        "gl_post_synth_ok=1 in range (margin=0)",
+        "gl_post_pnr_ok=1 in range (margin=0)"
+      ],
+      "pdk_used": "ihp_sg13g2",
+      "scores": {
+        "audit_passed": null,
+        "compile": 1.0,
+        "metrics_in_range": 1.0,
+        "regex_match": null,
+        "sim_run": 1.0,
+        "weighted_total": 1.0
+      },
+      "started": "2026-04-18T13:58:04.640521+00:00",
+      "status": "PASS",
+      "task_id": "e2e_idea_to_digital_counter_ihp_live"
+    }
+  ],
+  "run_id": "s12c_ihp_live_lvs",
+  "skipped": 0,
+  "total": 1
+}
