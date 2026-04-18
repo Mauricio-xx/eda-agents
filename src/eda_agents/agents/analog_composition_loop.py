@@ -103,6 +103,7 @@ class AnalogCompositionResult:
     final_sizing: dict | None = None
     final_spice: dict | None = None
     gds_paths: dict[str, str] = field(default_factory=dict)
+    top_gds_path: str | None = None
     netlist_paths: dict[str, str] = field(default_factory=dict)
     drc_summary: dict | None = None
     lvs_summary: dict | None = None
@@ -324,13 +325,39 @@ class AnalogCompositionLoop:
                         "error": f"{type(e).__name__}: {e}",
                     }
 
-            # Drc / lvs is explicitly gated behind attempt_drc_lvs because
-            # the MVP top-level placer isn't there yet; we'd be verifying
-            # each sub-block in isolation, which is redundant with their
-            # own PDK tests.
+            # DRC runs on the stitched top GDS (Gap C: row-placer + DRC).
+            # LVS stays gated because the row-placer doesn't emit inter-
+            # block routing, so a stitched GDS + composition netlist
+            # would never match — we'd be reporting an unsurprising LVS
+            # failure. Per-sub-block LVS is redundant with gLayout's own
+            # tests.
             if self.attempt_drc_lvs and it.layout and it.layout.get("attempted"):
-                it.drc = {"skipped": "MVP: sub-block-level DRC not enabled"}
-                it.lvs = {"skipped": "MVP: sub-block-level LVS not enabled"}
+                top_gds = it.layout.get("top_gds")
+                if top_gds:
+                    drc_out_dir = iter_dir / "drc_top"
+                    drc_out_dir.mkdir(exist_ok=True)
+                    try:
+                        it.drc = self.glayout_runner.drc_gds(
+                            top_gds, drc_out_dir,
+                            design_name=it.layout.get("top_cell") or "composition_top",
+                        )
+                    except Exception as e:
+                        it.drc = {
+                            "clean": False,
+                            "error": f"{type(e).__name__}: {e}",
+                        }
+                else:
+                    it.drc = {
+                        "clean": False,
+                        "skipped": "no top_gds from row-placer",
+                    }
+                it.lvs = {
+                    "skipped": (
+                        "row-placer does not emit inter-block routing; a "
+                        "top-level LVS would always mismatch. Per-sub-block "
+                        "LVS is redundant with gLayout primitive tests."
+                    )
+                }
 
             # --- Critique ---
             try:
@@ -397,6 +424,7 @@ class AnalogCompositionLoop:
                 result.netlist_paths = dict(
                     last.layout.get("sub_block_netlists", {})
                 )
+                result.top_gds_path = last.layout.get("top_gds")
             result.drc_summary = last.drc
             result.lvs_summary = last.lvs
 
@@ -679,10 +707,14 @@ class AnalogCompositionLoop:
         sizing: dict,
         iter_dir: Path,
     ) -> dict[str, Any]:
-        """Generate each sub-block's GDS individually via GLayoutRunner.
+        """Generate per-sub-block GDSes via GLayoutRunner + stitch a
+        top-level composition GDS via the thin placer.
 
-        Does NOT compose sub-blocks into a single top-level GDS — that
-        placer is future work. Returns per-sub-block GDS / netlist paths.
+        The stitcher is a row-placer — it puts each sub-block side by
+        side with a 2 um gutter, no inter-block routing. Use the
+        top-level SPICE netlist as the source of truth for
+        connectivity; LVS against this stitched GDS requires a matching
+        flat schematic, which is a Gap C follow-up.
         """
         blocks = composition.get("composition", [])
         sub_block_gds: dict[str, str] = {}
@@ -718,12 +750,34 @@ class AnalogCompositionLoop:
             else:
                 errors[name] = res.error or "unknown gLayout error"
 
+        top_gds: str | None = None
+        top_cell: str | None = None
+        top_placer_status = "skipped_no_blocks"
+        if sub_block_gds:
+            top_gds_path = out_dir / "composition_top.gds"
+            stitch = self.glayout_runner.stitch_gdses(
+                sub_block_gds,
+                top_gds_path,
+                top_cell_name=(composition.get("name") or "composition_top"),
+            )
+            if stitch.success and stitch.gds_path:
+                top_gds = stitch.gds_path
+                top_cell = stitch.top_cell
+                top_placer_status = "row_placer_ok"
+            else:
+                errors["__top_placer__"] = (
+                    stitch.error or "stitch_gdses failed with no error message"
+                )
+                top_placer_status = "row_placer_failed"
+
         return {
             "attempted": True,
             "sub_block_gds": sub_block_gds,
             "sub_block_netlists": sub_block_netlists,
             "errors": errors,
-            "top_placer_status": "not_implemented_mvp",
+            "top_gds": top_gds,
+            "top_cell": top_cell,
+            "top_placer_status": top_placer_status,
         }
 
     # ------------------------------------------------------------------

@@ -56,7 +56,28 @@ def _fake_glayout_runner(success: bool = True) -> MagicMock:
             out.error = "stub failure"
         return out
 
+    def _stitch(sub_block_gdses, output_gds, top_cell_name="composition_top", gutter_um=2.0):
+        out = MagicMock()
+        out.success = bool(sub_block_gdses)
+        if out.success:
+            Path(output_gds).parent.mkdir(parents=True, exist_ok=True)
+            Path(output_gds).write_bytes(b"STITCH_STUB")
+            out.gds_path = str(output_gds)
+            out.top_cell = top_cell_name
+            out.error = None
+        else:
+            out.gds_path = None
+            out.top_cell = top_cell_name
+            out.error = "no sub-blocks"
+        return out
+
+    def _drc(gds_path, output_dir, design_name=None):
+        return {"clean": True, "total_violations": 0, "per_rule": {},
+                "lyrdb_path": None, "error": None}
+
     runner.generate_component.side_effect = _gen
+    runner.stitch_gdses.side_effect = _stitch
+    runner.drc_gds.side_effect = _drc
     return runner
 
 
@@ -305,6 +326,58 @@ def test_loop_generates_layout_when_spice_passes(mock_or, tmp_path):
     assert res.iterations[0].layout is not None
     assert res.iterations[0].layout["attempted"] is True
     assert "cm" in res.iterations[0].layout["sub_block_gds"]
+
+
+@patch("eda_agents.agents.analog_composition_loop.call_openrouter")
+def test_loop_stitches_top_gds_and_runs_drc(mock_or, tmp_path):
+    """Gap C: when attempt_drc_lvs=True, stitcher + drc_gds are invoked."""
+
+    def _side_effect(**kwargs):
+        user = kwargs["user_prompt"]
+        if '"stage": "propose_composition"' in user:
+            return (json.dumps({
+                "composition": [
+                    {"name": "cm", "type": "current_mirror",
+                     "params": {"width": 2.0, "length": 1.0, "fingers": 2,
+                                "multipliers": 1, "type": "nfet"}},
+                ],
+                "connectivity": [{"from": "cm.VSS", "to": "GND"}],
+                "testbench": {"inputs": {}, "analysis": "op", "measurements": []},
+                "target_specs": {"Iout_uA_min": 1.0},
+            }), 200)
+        if '"stage": "size_sub_blocks"' in user:
+            return (json.dumps({"cm": {"width": 2.0}}), 80)
+        return (json.dumps({
+            "verdict": "converged",
+            "rationale": "all specs met",
+            "patch": {},
+        }), 100)
+
+    mock_or.side_effect = _side_effect
+    sr = _fake_spice_runner(measurements={"Iout_uA_min": 1.2})
+    gr = _fake_glayout_runner(success=True)
+    loop = _make_loop(
+        tmp_path,
+        spice_runner=sr,
+        glayout_runner=gr,
+        max_iterations=1,
+        attempt_layout=True,
+    )
+    # attempt_drc_lvs isn't in _make_loop's kwargs — set directly.
+    loop.attempt_drc_lvs = True
+
+    res = loop.loop("one uA current ref", constraints={})
+
+    assert res.converged
+    assert gr.stitch_gdses.called, "row-placer must be invoked"
+    assert gr.drc_gds.called, "drc_gds must run on the top GDS"
+    it = res.iterations[0]
+    assert it.layout is not None
+    assert it.layout.get("top_gds") is not None
+    assert it.layout.get("top_placer_status") == "row_placer_ok"
+    assert it.drc is not None and it.drc.get("clean") is True
+    assert it.lvs is not None and "skipped" in it.lvs
+    assert res.top_gds_path is not None
 
 
 # ------------------------------------------------------------------
