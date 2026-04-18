@@ -193,17 +193,32 @@ class TestGLayoutPdkDispatch:
         assert result.success, f"sg13g2 diff_pair failed: {result.error}"
         assert Path(result.gds_path).is_file()
 
-    def test_opamp_rejects_sg13g2(self, tmp_path):
-        # opamp_twostage is gf180-only until the SG13G2 upstream port
-        # lands. The driver must surface a clear error rather than
-        # crash mid-composite-build.
+    def test_opamp_twostage_sg13g2(self, tmp_path):
+        # S12-B partial landing: SG13G2 opamp_twostage builds end-to-end
+        # and writes GDS + netlist. DRC + LVS are NOT gated here —
+        # see docs/s12_findings/s12b_sg13g2_opamp_twostage.md for the
+        # architectural MIM cap follow-up blocking a true LVS-clean
+        # landing.
         result = self._runner("ihp_sg13g2").generate_component(
             component="opamp_twostage",
-            params={},
+            params={
+                "half_diffpair_params": [6.0, 1.0, 4],
+                "diffpair_bias": [6.0, 2.0, 4],
+                "half_common_source_params": [7.0, 1.0, 10, 3],
+                "half_common_source_bias": [6.0, 2.0, 8, 2],
+                "half_pload": [6.0, 1.0, 6],
+                "mim_cap_size": [12.0, 12.0],
+                "mim_cap_rows": 3,
+            },
             output_dir=tmp_path,
         )
-        assert not result.success
-        assert "gf180mcu-only" in (result.error or "")
+        assert result.success, f"sg13g2 opamp_twostage build failed: {result.error}"
+        assert Path(result.gds_path).is_file()
+        # Netlist export path is best-effort; the driver sets it when
+        # gLayout's Component exposes .info['netlist'], which is true
+        # for opamp_twostage.
+        assert result.netlist_path, "opamp_twostage should export its gLayout netlist"
+        assert Path(result.netlist_path).is_file()
 
     def test_unknown_pdk_errors_cleanly(self, tmp_path):
         runner = GLayoutRunner(

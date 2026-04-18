@@ -1,0 +1,110 @@
+{
+  "blocker": {
+    "cs_bias_netlist_mismatch": {
+      "description": "opamp_twostage.py:226 calls current_mirror_netlist with diffpair_bias params (w=6, l=2, m=4) instead of half_common_source_bias (w=6, l=2, f=8, m=2). Layout uses stacked_nfet_current_mirror so flat extract merges 4 FETs + dummies into one W=288um device. Fix: custom stacked_cs_bias_netlist helper that matches the flat layout, applicable to both PDKs.",
+      "see": "docs/s12_findings/s12b_sg13g2_opamp_twostage.md"
+    },
+    "mimcap_topmetal1_mapping": {
+      "description": "gLayout maps SG13G2 MIM caps to met4-mim-met5 with a via_array(met4->met5). IHP's KLayout LVS deck (libs.tech/klayout/tech/lvs/rule_decks/cap_derivations.lvs:30-36) derives cap_cmim from mim_drw.overlapping(topmetal1_con) + mim_drw.and(metal5_con) + vmim_drw(129,0) + topvia1_drw(125,0). Zero MIM caps extracted in opamp_twostage layout.",
+      "fix_paths": [
+        "Path A (upstream): add topmetal1 to gLayout valid_glayers + rework mimcap primitive to emit vmim/topvia1/topmetal1 on SG13G2.",
+        "Path B (fork-local): sg13g2_decorator.py hook synthesising those markers post-write, leaving mimcap.py unchanged for other PDKs."
+      ],
+      "see": "docs/s12_findings/s12b_sg13g2_opamp_twostage.md"
+    }
+  },
+  "component": "opamp_twostage",
+  "gap": 4,
+  "generate": {
+    "error": null,
+    "gds_path": "/home/montanares/git/eda-agents-worktrees/s12b-analog-layout/bench/results/s12b_sg13g2_opamp_layout/artifacts/opamp_twostage.gds",
+    "netlist_path": "/home/montanares/git/eda-agents-worktrees/s12b-analog-layout/bench/results/s12b_sg13g2_opamp_layout/artifacts/opamp_twostage.spice",
+    "run_time_s": 70.42,
+    "success": true,
+    "top_cell": "opamp_twostage"
+  },
+  "landing_mode": "partial",
+  "params": {
+    "diffpair_bias": [
+      6.0,
+      2.0,
+      4
+    ],
+    "half_common_source_bias": [
+      6.0,
+      2.0,
+      8,
+      2
+    ],
+    "half_common_source_params": [
+      7.0,
+      1.0,
+      10,
+      3
+    ],
+    "half_diffpair_params": [
+      6.0,
+      1.0,
+      4
+    ],
+    "half_pload": [
+      6.0,
+      1.0,
+      6
+    ],
+    "mim_cap_rows": 3,
+    "mim_cap_size": [
+      12.0,
+      12.0
+    ]
+  },
+  "pdk": "ihp_sg13g2",
+  "session": "S12-B",
+  "verification_baseline_from_scratch_run": {
+    "drc": {
+      "note": "Baseline captured with scratch run. Matches diff_pair/FVF's pre-fix profile; fix pattern = SG13G2 spacing/layer branches in __create_and_route_pins and __add_mimcap_arr. Follow-up PR.",
+      "per_rule": {
+        "M1.b": 8,
+        "M2.b": 16,
+        "M2.e": 8,
+        "M3.b": 30,
+        "M3.e": 4,
+        "M4.b": 4
+      },
+      "total": 70
+    },
+    "lvs": {
+      "delta": [
+        "cs_bias stacked cmirror: schematic 2xW=24 vs extracted 1xW=288 (merged ref+out+dummies)",
+        "mim cap: schematic 6 vs extracted 0 (IHP cap_cmim extractor expects topmetal1 + vmim markers gLayout doesn't emit)"
+      ],
+      "extracted": {
+        "mim_cap": 0,
+        "nmos": 5,
+        "nmos_widths_um": [
+          24,
+          24,
+          48,
+          48,
+          288
+        ],
+        "pmos": 5
+      },
+      "passed": false,
+      "schematic": {
+        "mim_cap": 6,
+        "nmos": 5,
+        "nmos_widths_um": [
+          24,
+          24,
+          24,
+          24,
+          48,
+          48
+        ],
+        "pmos": 5
+      },
+      "stage": "netlists_dont_match"
+    }
+  }
+}
