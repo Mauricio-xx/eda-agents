@@ -48,6 +48,61 @@ You receive JSON summarising each stage:
 }
 ```
 
+## Testbench schema
+
+Two testbench variants are supported by `_write_spice_deck`. Pick one
+per target and emit it in the ``composition.testbench`` field:
+
+**1. Single-shot** (existing). Good for op / AC / tran with a fixed
+stimulus. Example::
+
+    "testbench": {
+      "analysis": "op",   // or "tran" / "ac"
+      "inputs": {"VDD": "DC 1.2", "VIN": "DC 0.6"},
+      "measurements": [
+        ".meas op gain PARAM='v(OUT)/v(IN)'"
+      ]
+    }
+
+The renderer strips the leading ``.`` of any ``.meas`` lines before
+placing them inside the ``.control`` block.
+
+**2. Code sweep** (Gap B). Use when the circuit's behaviour is
+indexed by a binary code (DAC, flash quantiser, thermometer encoder).
+The renderer unrolls this into explicit alter + analysis + meas
+triples per code — no ngspice ``foreach`` required::
+
+    "testbench": {
+      "analysis": "sweep",
+      "inputs": {
+        "VDD": "DC 1.2",
+        "VB0": "DC 0",  "VB1": "DC 0",  "VB2": "DC 0",  "VB3": "DC 0"
+      },
+      "sweep": {
+        "kind": "code_sweep",
+        "n_bits": 4,
+        "code_sources": ["VB0","VB1","VB2","VB3"],
+        "high_v": 1.2,
+        "low_v": 0.0,
+        "analysis": "op",         // or "tran 1n 10n", "dc ..."
+        "measurements": [
+          {"name": "iop",   "expr": "v(IOP)"},
+          {"name": "ion",   "expr": "v(ION)"},
+          {"name": "idiff", "expr": "v(IOP)-v(ION)"}
+        ]
+      }
+    }
+
+Each measurement emits as many stdout lines as codes. The parser
+recovers them into a flat ``measurements`` dict keyed by
+``<name>_c<code>`` (e.g. ``iop_c0``, ``iop_c15``). Post-process in
+the ``critique`` verdict to compute INL / DNL:
+
+    dnl_i = (idiff_c{i+1} - idiff_c{i}) / lsb_amp - 1
+    inl_i = idiff_c{i} - i*lsb_amp - idiff_c0
+
+where ``lsb_amp = (idiff_c{N-1} - idiff_c0) / (N-1)``.
+
 ## Patch proposal format
 
 Be concrete. Don't say "increase W"; say exactly:

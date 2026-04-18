@@ -591,21 +591,34 @@ class AnalogCompositionLoop:
             cleaned_meas.append(s)
 
         control_lines = [".control"]
+        sweep_spec = tb.get("sweep") if isinstance(tb.get("sweep"), dict) else None
+        analysis = (tb.get("analysis") or "op").lower()
         if analysis_override is not None:
             control_lines.append(analysis_override)
+            control_lines.extend(cleaned_meas)
+        elif analysis == "sweep" and sweep_spec is not None:
+            control_lines.extend(_render_sweep_control(sweep_spec, constraints))
+            # `sweep` testbenches have their .meas directives baked into the
+            # unrolled per-code sequence, so cleaned_meas (user-supplied raw
+            # .meas lines) become *extra* measurements to run once after the
+            # sweep completes.
+            control_lines.extend(cleaned_meas)
         else:
-            analysis = (tb.get("analysis") or "op").lower()
             if analysis == "tran":
                 step = tb.get("step", "1e-9")
                 stop = tb.get("stop", "1e-6")
                 control_lines.append(f"tran {step} {stop}")
             elif analysis == "ac":
                 sweep = tb.get("sweep", "dec 20 1 1e9")
-                control_lines.append(f"ac {sweep}")
+                # ``sweep`` may legitimately be a string for ac sweeps; only
+                # the dict form triggers the code-sweep renderer above.
+                if isinstance(sweep, str):
+                    control_lines.append(f"ac {sweep}")
+                else:
+                    control_lines.append("ac dec 20 1 1e9")
             else:
                 control_lines.append("op")
-
-        control_lines.extend(cleaned_meas)
+            control_lines.extend(cleaned_meas)
         control_lines.append("quit")
         control_lines.append(".endc")
 
@@ -973,6 +986,117 @@ def _render_source_line(
     prefix = "I" if is_current else "V"
     net = port_to_net.get(sig_name, sig_name)
     return f"{prefix}{sig_name} {net} 0 {stripped}"
+
+
+def _render_sweep_control(sweep_spec: dict, constraints: Any) -> list[str]:
+    """Unroll a ``testbench.sweep`` dict into explicit ngspice .control lines.
+
+    Currently the only supported kind is ``code_sweep`` — a binary/thermometer
+    sweep where each "code" is encoded into a set of V sources. For every
+    code 0..N-1 the function emits:
+
+    * ``alter`` statements that drive each code-bit source high or low,
+    * an analysis step (``op`` by default; ``tran`` / ``dc`` on request),
+    * one ``meas`` line per per-code measurement, name-suffixed with
+      ``_c<code>`` so the parser can recover the per-code values.
+
+    This lets the loop simulate static DAC / quantiser behaviour without
+    asking the LLM to hand-roll ``foreach`` logic (which previously
+    round-tripped poorly through the deck renderer and ceilinged the
+    4-bit DAC live bench).
+
+    Expected schema::
+
+        {
+          "kind": "code_sweep",
+          "n_bits": 4,
+          "code_sources": ["VB0", "VB1", "VB2", "VB3"],
+          # Optional:
+          "high_v": 1.2,        # defaults to constraints.supply_v or 1.2
+          "low_v": 0.0,
+          "n_codes": 16,        # defaults to 2**n_bits
+          "analysis": "op",     # "op" | "tran <step> <stop>" | "dc ..."
+          "measurements": [
+            {"name": "iop", "expr": "v(IOP)"},
+            {"name": "ion", "expr": "v(ION)"},
+            {"name": "idiff", "expr": "v(IOP)-v(ION)"},
+          ],
+        }
+
+    The ``expr`` string is passed verbatim to ``meas`` — the LLM is
+    responsible for referencing nodes that exist in the flattened
+    composition (caller-validated).
+    """
+    kind = (sweep_spec.get("kind") or "code_sweep").lower()
+    if kind != "code_sweep":
+        return [f"* unsupported sweep kind: {kind!r} — falling back to op", "op"]
+
+    sources = list(sweep_spec.get("code_sources") or [])
+    if not sources:
+        return ["* sweep has no code_sources; falling back to op", "op"]
+
+    n_bits = int(sweep_spec.get("n_bits") or len(sources))
+    n_codes = int(sweep_spec.get("n_codes") or (1 << n_bits))
+    supply_default = (
+        constraints.get("supply_v", 1.2) if isinstance(constraints, dict) else 1.2
+    )
+    high_v = float(sweep_spec.get("high_v", supply_default))
+    low_v = float(sweep_spec.get("low_v", 0.0))
+
+    # ngspice's `meas` command only works under tran / dc / sp / ac
+    # analyses — NOT op. So if the LLM (or default) asks for "op" we
+    # substitute a one-point transient (1 ns step, 2 ns stop, measure
+    # at t=1 ns) that gives identical values for any static circuit
+    # while still supporting `meas tran ... find <expr> at=<t>`.
+    raw_analysis = (sweep_spec.get("analysis") or "op").strip() or "op"
+    low_analysis = raw_analysis.lower()
+    if low_analysis == "op":
+        analysis_cmd = "tran 1n 2n"
+        meas_kind = "tran"
+        meas_at = "at=1n"
+    elif low_analysis.startswith("tran"):
+        analysis_cmd = raw_analysis
+        meas_kind = "tran"
+        parts = raw_analysis.split()
+        meas_at = f"at={parts[2] if len(parts) >= 3 else '1n'}"
+    elif low_analysis.startswith("dc"):
+        analysis_cmd = raw_analysis
+        meas_kind = "dc"
+        meas_at = ""  # dc meas uses sweep variable, not time
+    elif low_analysis.startswith("ac"):
+        analysis_cmd = raw_analysis
+        meas_kind = "ac"
+        parts = raw_analysis.split()
+        meas_at = f"at={parts[-1] if len(parts) >= 2 else '1'}"
+    else:
+        analysis_cmd = "tran 1n 2n"
+        meas_kind = "tran"
+        meas_at = "at=1n"
+
+    measurements = list(sweep_spec.get("measurements") or [])
+
+    lines: list[str] = [f"* code_sweep: {n_codes} codes across {sources}"]
+    for code in range(n_codes):
+        lines.append(f"* --- code {code} ---")
+        for bit_idx, src in enumerate(sources):
+            bit_val = (code >> bit_idx) & 1
+            voltage = high_v if bit_val else low_v
+            lines.append(f"alter {src} dc={voltage}")
+        lines.append(analysis_cmd)
+        for meas in measurements:
+            if not isinstance(meas, dict):
+                continue
+            m_name = str(meas.get("name") or "m")
+            m_expr = str(meas.get("expr") or "").strip()
+            if not m_expr:
+                continue
+            # `meas tran <name> find <expr> at=<t>` prints the value
+            # to stdout in the standard `<name> = <value>` form that
+            # SpiceRunner's regex matches.
+            lines.append(
+                f"meas {meas_kind} {m_name}_c{code} find {m_expr} {meas_at}".rstrip()
+            )
+    return lines
 
 
 def _resolve_model(typ: str, pdk: str) -> str:

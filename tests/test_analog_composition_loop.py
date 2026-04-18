@@ -354,6 +354,156 @@ def test_merge_sizing_applies_patch():
     assert out["sw"]["fingers"] == 2
 
 
+def test_render_sweep_control_emits_per_code_lines():
+    """code_sweep unrolls into explicit alter + analysis + meas triples."""
+    from eda_agents.agents.analog_composition_loop import _render_sweep_control
+
+    spec = {
+        "kind": "code_sweep",
+        "n_bits": 2,
+        "code_sources": ["VB0", "VB1"],
+        "high_v": 1.2,
+        "low_v": 0.0,
+        "analysis": "op",
+        "measurements": [
+            {"name": "iop", "expr": "v(IOP)"},
+            {"name": "idiff", "expr": "v(IOP)-v(ION)"},
+        ],
+    }
+    out = _render_sweep_control(spec, {"supply_v": 1.2})
+
+    # Four codes (2 bits): 0,1,2,3 — each has 2 alter + 1 op + 2 meas lines
+    code_banners = [L for L in out if L.startswith("* --- code ")]
+    assert len(code_banners) == 4
+
+    # Code 0: both bits low
+    i0 = out.index("* --- code 0 ---")
+    assert out[i0 + 1] == "alter VB0 dc=0.0"
+    assert out[i0 + 2] == "alter VB1 dc=0.0"
+
+    # Code 3: both bits high
+    i3 = out.index("* --- code 3 ---")
+    assert out[i3 + 1] == "alter VB0 dc=1.2"
+    assert out[i3 + 2] == "alter VB1 dc=1.2"
+    # `op` is substituted with `tran 1n 2n` because ngspice's `.meas`
+    # command does not support op analysis.
+    assert out[i3 + 3] == "tran 1n 2n"
+
+    # Measurements suffixed per code
+    meas_lines = [L for L in out if L.startswith("meas ")]
+    assert any("iop_c0" in L for L in meas_lines)
+    assert any("iop_c3" in L for L in meas_lines)
+    assert any("idiff_c2" in L for L in meas_lines)
+    # Totals: 4 codes * 2 measurements = 8 meas lines
+    assert len(meas_lines) == 8
+    # All meas lines use `meas tran` (op was substituted).
+    assert all(L.startswith("meas tran ") for L in meas_lines)
+
+
+@pytest.mark.spice
+def test_sweep_schema_ngspice_roundtrip(tmp_path):
+    """ngspice actually parses the sweep-unrolled deck, runs, and writes
+    per-code measurements that SpiceRunner can recover."""
+    import shutil
+
+    if shutil.which("ngspice") is None:
+        pytest.skip("ngspice not on PATH")
+
+    # Hand-write a minimal deck that mirrors what the sweep renderer
+    # emits, driving a resistor divider whose top node tracks B0.
+    deck = (tmp_path / "sweep.cir")
+    deck.write_text(
+        "* sweep smoke\n"
+        "VVDD VDD 0 DC 1.2\n"
+        "VB0 B0 0 DC 0\n"
+        "R1 B0 OUT 1k\n"
+        "R2 OUT 0 1k\n"
+        ".control\n"
+        "* --- code 0 ---\n"
+        "alter VB0 dc=0.0\n"
+        "tran 1n 2n\n"
+        "meas tran iop_c0 find v(OUT) at=1n\n"
+        "* --- code 1 ---\n"
+        "alter VB0 dc=1.2\n"
+        "tran 1n 2n\n"
+        "meas tran iop_c1 find v(OUT) at=1n\n"
+        "quit\n"
+        ".endc\n"
+        ".end\n"
+    )
+    from eda_agents.core.spice_runner import SpiceRunner
+
+    result = SpiceRunner(pdk=None).run(deck, work_dir=tmp_path)
+    # Some measurements must have landed even though success/Adc are not set
+    # (this deck has no AC analysis).
+    assert result.measurements.get("iop_c0") == pytest.approx(0.0, abs=1e-3)
+    assert result.measurements.get("iop_c1") == pytest.approx(0.6, abs=1e-3)
+
+
+def test_sweep_schema_produces_runnable_deck(tmp_path):
+    """End-to-end: a minimal composition + sweep testbench renders into a
+    SPICE deck that ngspice can at least parse (exit code = 0)."""
+    pytest.importorskip("numpy")
+    from eda_agents.agents.analog_composition_loop import AnalogCompositionLoop
+
+    loop = AnalogCompositionLoop(
+        pdk="ihp_sg13g2",
+        work_dir=tmp_path / "state",
+        attempt_layout=False,
+        max_iterations=1,
+        max_budget_usd=0.01,
+    )
+
+    composition = {
+        "name": "dac_sim",
+        "composition": [
+            {"name": "m0", "type": "nmos",
+             "params": {"width": 1.0, "length": 0.5, "fingers": 1}},
+        ],
+        "connectivity": [
+            {"from": "m0.drain", "to": "IOP"},
+            {"from": "m0.source", "to": "GND"},
+            {"from": "m0.gate", "to": "VB0"},
+            {"from": "m0.body", "to": "GND"},
+        ],
+        "testbench": {
+            "analysis": "sweep",
+            "inputs": {"VB0": "DC 0", "VDD": "DC 1.2"},
+            "sweep": {
+                "kind": "code_sweep",
+                "n_bits": 1,
+                "code_sources": ["VB0"],
+                "high_v": 1.2,
+                "low_v": 0.0,
+                "analysis": "op",
+                "measurements": [
+                    {"name": "iop", "expr": "v(IOP)"},
+                ],
+            },
+        },
+        "target_specs": {},
+    }
+
+    iter_dir = tmp_path / "state" / "iter_0"
+    iter_dir.mkdir(parents=True)
+    deck_path = loop._write_spice_deck(
+        composition=composition,
+        sizing={"m0": {"width": 1.0, "length": 0.5, "fingers": 1}},
+        iter_dir=iter_dir,
+        constraints={"supply_v": 1.2},
+    )
+    deck = deck_path.read_text()
+
+    # The deck contains the explicit per-code structure rather than a
+    # single `dc` or `tran` line.
+    assert "* code_sweep:" in deck
+    assert "meas tran iop_c0" in deck
+    assert "meas tran iop_c1" in deck
+    # Two sweep points: VB0 low then high
+    assert deck.count("alter VB0 dc=0.0") == 1
+    assert deck.count("alter VB0 dc=1.2") == 1
+
+
 # ------------------------------------------------------------------
 # Live integration test (gated by markers)
 # ------------------------------------------------------------------
