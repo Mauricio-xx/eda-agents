@@ -140,7 +140,7 @@ class AnalogCompositionLoop:
         temperature_propose: float = 0.4,
         temperature_size: float = 0.2,
         temperature_critique: float = 0.2,
-        max_tokens_per_call: int = 4096,
+        max_tokens_per_call: int = 8192,
     ):
         self.pdk = pdk
         self.work_dir = Path(work_dir)
@@ -515,15 +515,11 @@ class AnalogCompositionLoop:
         tb = composition.get("testbench") or {}
         targets = composition.get("target_specs") or {}
 
-        # Flatten connectivity into a port -> global-net map. Ports not
-        # listed default to "<block>_<port>".
-        port_to_net: dict[str, str] = {}
-        for c in conn:
-            a = c.get("from", "")
-            b = c.get("to", "")
-            # Whichever side names a global net wins; otherwise unify.
-            port_to_net[a] = port_to_net.get(a, _canonical_net(a, b))
-            port_to_net[b] = port_to_net[a]
+        # Flatten connectivity via union-find so chains of ports
+        # collapse to a single canonical net — e.g. cm0.VCOPY -> cm1.VREF,
+        # cm0.VCOPY -> cm2.VREF should all resolve to the SAME net, not
+        # to two separate ones overwriting each other.
+        port_to_net = _build_port_net_map(conn)
 
         deck: list[str] = []
         deck.append(f"* Composition: {composition.get('name', 'custom')}")
@@ -550,28 +546,66 @@ class AnalogCompositionLoop:
             )
             deck.append("")
 
-        # Testbench sources + measurements
+        # Testbench sources
         deck.append("* Testbench")
-        for sig_name, src_spec in (tb.get("inputs") or {}).items():
+        sources_seen: set[str] = set()
+
+        # Auto-create VDD / GND / VSS supplies if the composition
+        # references them but the LLM didn't include them in inputs.
+        referenced_nets = set(port_to_net.values())
+        tb_inputs = dict(tb.get("inputs") or {})
+        if "VDD" in referenced_nets and "VDD" not in tb_inputs:
+            vdd_val = constraints.get("supply_v", 1.2) if isinstance(
+                constraints, dict
+            ) else 1.2
+            tb_inputs["VDD"] = f"DC {vdd_val}"
+        # GND is always net 0 in ngspice; no source needed.
+
+        for sig_name, src_spec in tb_inputs.items():
+            if sig_name in sources_seen or sig_name.upper() in {"GND", "VSS", "0"}:
+                continue
             deck.append(f"* source for {sig_name}")
             deck.append(_render_source_line(sig_name, src_spec, port_to_net))
+            sources_seen.add(sig_name)
         deck.append("")
 
+        # .control block: analysis + measurements. Strip out any
+        # `.tran` / `.ac` / `.op` / `.measure` lines the LLM may have
+        # stuffed into `measurements` — we put analysis first, then
+        # raw `meas` directives stripped of leading `.`.
+        meas_raw = list(tb.get("measurements") or [])
+        analysis_override: str | None = None
+        cleaned_meas: list[str] = []
+        for raw in meas_raw:
+            if not isinstance(raw, str):
+                continue
+            s = raw.strip()
+            low = s.lower()
+            if low.startswith(".tran") or low.startswith(".ac") or low.startswith(".op") or low.startswith(".dc"):
+                # Move to analysis override
+                analysis_override = s[1:]  # strip leading dot
+                continue
+            # Normalise `.meas ...` → `meas ...` inside .control
+            if low.startswith(".meas"):
+                s = s[1:]
+            cleaned_meas.append(s)
+
         control_lines = [".control"]
-        analysis = (tb.get("analysis") or "op").lower()
-        if analysis == "tran":
-            step = tb.get("step", "1e-9")
-            stop = tb.get("stop", "1e-6")
-            control_lines.append(f"tran {step} {stop}")
-        elif analysis == "ac":
-            sweep = tb.get("sweep", "dec 20 1 1e9")
-            control_lines.append(f"ac {sweep}")
+        if analysis_override is not None:
+            control_lines.append(analysis_override)
         else:
-            control_lines.append("op")
+            analysis = (tb.get("analysis") or "op").lower()
+            if analysis == "tran":
+                step = tb.get("step", "1e-9")
+                stop = tb.get("stop", "1e-6")
+                control_lines.append(f"tran {step} {stop}")
+            elif analysis == "ac":
+                sweep = tb.get("sweep", "dec 20 1 1e9")
+                control_lines.append(f"ac {sweep}")
+            else:
+                control_lines.append("op")
 
-        for meas_line in tb.get("measurements") or []:
-            control_lines.append(meas_line)
-
+        control_lines.extend(cleaned_meas)
         control_lines.append("quit")
         control_lines.append(".endc")
 
@@ -714,6 +748,57 @@ def _parse_json_payload(raw: str) -> dict:
         raise RuntimeError(f"LLM JSON parse failed: {exc}") from exc
 
 
+def _build_port_net_map(connectivity: list[dict]) -> dict[str, str]:
+    """Union-find over all connectivity edges, producing port -> net map.
+
+    Each port name keys into a global-or-derived net. Global tokens
+    (VDD / GND / VSS / IBIAS / …) are preferred as the canonical
+    representative; otherwise the lexicographically-smallest port wins,
+    giving deterministic names.
+    """
+    parent: dict[str, str] = {}
+
+    def find(x: str) -> str:
+        while parent.get(x, x) != x:
+            parent[x] = parent.get(parent[x], parent[x])
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra == rb:
+            return
+        # Prefer the global-net token as canonical.
+        priority_order = ["GND", "VSS", "VDD", "VCM", "IBIAS", "VIN", "VOUT"]
+        def rank(n: str) -> tuple[int, str]:
+            # Aliases: treat VSS as GND.
+            up = n.upper()
+            if up in {"GND", "VSS"}:
+                up = "GND"
+            if up in priority_order:
+                return (0, str(priority_order.index(up)))
+            return (1, n)
+        kept, merged = sorted([ra, rb], key=rank)
+        parent[merged] = kept
+
+    for edge in connectivity:
+        a = (edge.get("from") or "").strip()
+        b = (edge.get("to") or "").strip()
+        if not a or not b:
+            continue
+        parent.setdefault(a, a)
+        parent.setdefault(b, b)
+        union(a, b)
+
+    out: dict[str, str] = {}
+    for k in list(parent.keys()):
+        root = find(k)
+        if root.upper() in {"GND", "VSS"}:
+            root = "GND"
+        out[k] = root
+    return out
+
+
 def _canonical_net(a: str, b: str) -> str:
     """Pick the canonical net name when two ports connect.
 
@@ -840,25 +925,54 @@ def _render_source_line(
 ) -> str:
     """Render a SPICE source line from the LLM's testbench input spec.
 
-    Tolerant: accepts either a raw SPICE string (used verbatim) or a
-    dict with ``{"type": "V|I|PWL", "value": ..., "net": "NET_NAME"}``.
+    Accepts:
+    - a fully-formed SPICE string starting with ``V`` or ``I``
+      (used verbatim);
+    - a shorthand like ``"DC 1.2"`` or ``"PWL(0 0 1n 1.2)"``
+      (prepended with ``V<name> <sig_name> 0`` — treats ``sig_name``
+      as the positive net and GND as the negative net, the
+      conventional pattern for supplies / digital inputs);
+    - a shorthand starting with a current keyword (``IDC``, ``IPULSE``)
+      which gets ``I<name>`` instead;
+    - a dict with ``{"type", "value", "net", "ref"}``.
     """
-    if isinstance(spec, str):
-        return spec
-    if not isinstance(spec, dict):
+    # Dict form — explicit
+    if isinstance(spec, dict):
+        src_type = (spec.get("type") or "V").upper()
+        net = spec.get("net") or port_to_net.get(sig_name, sig_name)
+        ref = spec.get("ref", "0")
+        val = spec.get("value", 0.0)
+        if src_type == "V":
+            return f"V{sig_name} {net} {ref} {val}"
+        if src_type == "I":
+            # Current source: flows from net (+) to ref (-)
+            return f"I{sig_name} {net} {ref} {val}"
+        if src_type == "PWL":
+            pwl = spec.get("pwl", "0 0")
+            return f"V{sig_name} {net} {ref} PWL({pwl})"
+        return f"* unsupported source type {src_type} for {sig_name}"
+
+    if not isinstance(spec, str):
         return f"* unsupported source spec for {sig_name}: {spec!r}"
-    src_type = (spec.get("type") or "V").upper()
-    net = spec.get("net") or port_to_net.get(sig_name, sig_name)
-    ref = spec.get("ref", "GND")
-    val = spec.get("value", 0.0)
-    if src_type == "V":
-        return f"V{sig_name} {net} {ref} {val}"
-    if src_type == "I":
-        return f"I{sig_name} {net} {ref} {val}"
-    if src_type == "PWL":
-        pwl = spec.get("pwl", "0 0")
-        return f"V{sig_name} {net} {ref} PWL({pwl})"
-    return f"* unsupported source type {src_type} for {sig_name}"
+
+    stripped = spec.strip()
+    # Already a full SPICE source line?
+    if stripped[:1].upper() in {"V", "I"} and " " in stripped:
+        first_token = stripped.split()[0]
+        # Validate it looks like a device line (Vname or Iname)
+        if len(first_token) >= 2:
+            return stripped
+
+    # Shorthand: "DC 1.2", "PWL(...)", "AC 1 0", etc. Decide current vs
+    # voltage by the sig_name convention (IBIAS, IREF, I<something> ->
+    # current source).
+    is_current = (
+        sig_name.upper().startswith("I")
+        and sig_name.upper() != "ION"  # DAC output leg, not a source
+    )
+    prefix = "I" if is_current else "V"
+    net = port_to_net.get(sig_name, sig_name)
+    return f"{prefix}{sig_name} {net} 0 {stripped}"
 
 
 def _resolve_model(typ: str, pdk: str) -> str:

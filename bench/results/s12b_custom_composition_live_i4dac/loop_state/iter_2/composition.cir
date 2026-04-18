@@ -1,0 +1,99 @@
+* Composition: custom
+
+.lib $PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_tt
+.lib $PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/models/cornerCAP.lib cap_typ
+
+Xcm_ref_ref IBIAS IBIAS GND GND sg13_lv_nmos w=2.0u l=1.0u nf=1
+Xcm_ref_out cm_b0.VREF IBIAS GND GND sg13_lv_nmos w=2.0u l=1.0u nf=1 m=1
+
+Xcm_b0_ref cm_b0.VREF cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=1
+Xcm_b0_out cm_b0.VCOPY cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=1 m=1
+
+Xcm_b1_ref cm_b0.VREF cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=2
+Xcm_b1_out cm_b1.VCOPY cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=2 m=2
+
+Xcm_b2_ref cm_b0.VREF cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=4
+Xcm_b2_out cm_b2.VCOPY cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=4 m=4
+
+Xcm_b3_ref cm_b0.VREF cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=8
+Xcm_b3_out cm_b3.VCOPY cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=8 m=8
+
+Xsw_b0_p cm_b0.VCOPY B0_P IOP_SENSE GND sg13_lv_nmos w=1.0u l=0.13u nf=1 m=1
+
+Xsw_b0_n cm_b0.VCOPY B0_N ION_SENSE GND sg13_lv_nmos w=1.0u l=0.13u nf=1 m=1
+
+Xsw_b1_p cm_b1.VCOPY B1_P IOP_SENSE GND sg13_lv_nmos w=2.0u l=0.13u nf=1 m=1
+
+Xsw_b1_n cm_b1.VCOPY B1_N ION_SENSE GND sg13_lv_nmos w=2.0u l=0.13u nf=1 m=1
+
+Xsw_b2_p cm_b2.VCOPY B2_P IOP_SENSE GND sg13_lv_nmos w=4.0u l=0.13u nf=1 m=1
+
+Xsw_b2_n cm_b2.VCOPY B2_N ION_SENSE GND sg13_lv_nmos w=4.0u l=0.13u nf=1 m=1
+
+Xsw_b3_p cm_b3.VCOPY B3_P IOP_SENSE GND sg13_lv_nmos w=8.0u l=0.13u nf=1 m=1
+
+Xsw_b3_n cm_b3.VCOPY B3_N ION_SENSE GND sg13_lv_nmos w=8.0u l=0.13u nf=1 m=1
+
+* Testbench
+* source for VDD
+VVDD VDD 0 DC 1.2
+* source for IBIAS
+IIBIAS IBIAS 0 DC 1u
+* source for B0_P
+VB0_P B0_P 0 PWL(0n 0V 1n 1.2V)
+* source for B0_N
+VB0_N B0_N 0 PWL(0n 1.2V 1n 0V)
+* source for B1_P
+VB1_P B1_P 0 PWL(0n 0V 1n 1.2V)
+* source for B1_N
+VB1_N B1_N 0 PWL(0n 1.2V 1n 0V)
+* source for B2_P
+VB2_P B2_P 0 PWL(0n 0V 1n 1.2V)
+* source for B2_N
+VB2_N B2_N 0 PWL(0n 1.2V 1n 0V)
+* source for B3_P
+VB3_P B3_P 0 PWL(0n 0V 1n 1.2V)
+* source for B3_N
+VB3_N B3_N 0 PWL(0n 1.2V 1n 0V)
+* source for V_IOP_SENSE
+VV_IOP_SENSE V_IOP_SENSE 0 DC 0
+* source for V_ION_SENSE
+VV_ION_SENSE V_ION_SENSE 0 DC 0
+
+.control
+op
+measure tran iop_0v0000_meas find i(V_IOP_SENSE) when time = 2n
+measure tran ion_0v0000_meas find i(V_ION_SENSE) when time = 2n
+measure tran iop_0v0001_meas find i(V_IOP_SENSE) when time = 2n
+measure tran ion_0v0001_meas find i(V_ION_SENSE) when time = 2n
+measure tran iop_0v0010_meas find i(V_IOP_SENSE) when time = 2n
+measure tran ion_0v0010_meas find i(V_ION_SENSE) when time = 2n
+measure tran iop_0v0011_meas find i(V_IOP_SENSE) when time = 2n
+measure tran ion_0v0011_meas find i(V_ION_SENSE) when time = 2n
+measure tran iop_0v0100_meas find i(V_IOP_SENSE) when time = 2n
+measure tran ion_0v0100_meas find i(V_ION_SENSE) when time = 2n
+measure tran iop_0v0101_meas find i(V_IOP_SENSE) when time = 2n
+measure tran ion_0v0101_meas find i(V_ION_SENSE) when time = 2n
+measure tran iop_0v0110_meas find i(V_IOP_SENSE) when time = 2n
+measure tran ion_0v0110_meas find i(V_ION_SENSE) when time = 2n
+measure tran iop_0v0111_meas find i(V_IOP_SENSE) when time = 2n
+measure tran ion_0v0111_meas find i(V_ION_SENSE) when time = 2n
+measure tran iop_0v1000_meas find i(V_IOP_SENSE) when time = 2n
+measure tran ion_0v1000_meas find i(V_ION_SENSE) when time = 2n
+measure tran iop_0v1001_meas find i(V_IOP_SENSE) when time = 2n
+measure tran ion_0v1001_meas find i(V_ION_SENSE) when time = 2n
+measure tran iop_0v1010_meas find i(V_IOP_SENSE) when time = 2n
+measure tran ion_0v1010_meas find i(V_ION_SENSE) when time = 2n
+measure tran iop_0v1011_meas find i(V_IOP_SENSE) when time = 2n
+measure tran ion_0v1011_meas find i(V_ION_SENSE) when time = 2n
+measure tran iop_0v1100_meas find i(V_IOP_SENSE) when time = 2n
+measure tran ion_0v1100_meas find i(V_ION_SENSE) when time = 2n
+measure tran iop_0v1101_meas find i(V_IOP_SENSE) when time = 2n
+measure tran ion_0v1101_meas find i(V_ION_SENSE) when time = 2n
+measure tran iop_0v1110_meas find i(V_IOP_SENSE) when time = 2n
+measure tran ion_0v1110_meas find i(V_ION_SENSE) when time = 2n
+measure tran iop_0v1111_meas find i(V_IOP_SENSE) when time = 2n
+measure tran ion_0v1111_meas find i(V_ION_SENSE) when time = 2n
+quit
+.endc
+.end
