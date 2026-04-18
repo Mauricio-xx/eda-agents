@@ -125,6 +125,7 @@ async def run_idea_to_rtl_loop(
     allow_dangerous: bool = False,
     cli_path: str = "claude",
     timeout_s: int = 7200,
+    per_turn_timeout_s: int | None = None,
     model: str | None = None,
     skip_gl_sim: bool = False,
     tb_framework: str = "iverilog",
@@ -146,8 +147,16 @@ async def run_idea_to_rtl_loop(
         path.
     max_budget_usd:
         Optional cumulative spend cap. The loop sums each turn's
-        ``cost_usd`` and stops when ``total >= max_budget_usd``. Set
-        per-turn ``timeout_s`` separately on ``generate_rtl_draft``.
+        ``cost_usd`` and stops when ``total >= max_budget_usd``.
+    per_turn_timeout_s:
+        Per-turn wall-clock cap passed as ``timeout_s`` to each
+        ``generate_rtl_draft`` invocation. ``None`` (default) keeps
+        the pre-fix behaviour of using the loop's full ``timeout_s``
+        for every turn — byte-equivalent for callers that don't set
+        it. When set, defends against single-turn runaway CC CLI
+        invocations that would otherwise eat the whole budget and
+        prevent the outer loop from iterating (root cause of the
+        S12-A FFT8 stretch honest-fail).
     """
     work_dir = Path(work_dir).resolve()
     iterations: list[LoopIteration] = []
@@ -185,6 +194,12 @@ async def run_idea_to_rtl_loop(
             else None
         )
 
+        effective_per_turn_timeout = (
+            per_turn_timeout_s
+            if per_turn_timeout_s is not None
+            else timeout_s
+        )
+
         result = await generate_rtl_draft(
             description=turn_description,
             design_name=design_name,
@@ -195,7 +210,7 @@ async def run_idea_to_rtl_loop(
             complexity="complex",  # signals to the prompt that this is a hard run
             allow_dangerous=allow_dangerous,
             cli_path=cli_path,
-            timeout_s=timeout_s,
+            timeout_s=effective_per_turn_timeout,
             max_budget_usd=per_turn_budget,
             model=model,
             skip_gl_sim=skip_gl_sim,

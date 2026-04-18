@@ -280,6 +280,17 @@ class IdeaToDigitalChipInputs(BaseModel):
             "single-turn ceiling (>~2k cells)."
         ),
     )
+    per_turn_timeout_s: int | None = Field(
+        default=None, ge=60, le=14400,
+        description=(
+            "Per-loop-turn wall-clock cap (seconds). Only consulted "
+            "when ``loop_budget > 1``. ``None`` (default) lets each "
+            "turn use the full task ``timeout_s``; set explicitly "
+            "when a single runaway CC CLI turn must not consume the "
+            "entire wall-clock budget (root cause of the S12-A FFT8 "
+            "stretch honest-fail)."
+        ),
+    )
 
     @field_validator("pdk")
     @classmethod

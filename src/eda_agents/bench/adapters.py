@@ -1509,6 +1509,7 @@ def run_idea_to_digital_chip(
                 allow_dangerous=inputs.allow_dangerous,
                 tb_framework=inputs.tb_framework,
                 loop_budget=inputs.loop_budget,
+                per_turn_timeout_s=inputs.per_turn_timeout_s,
             )
         )
     except Exception as exc:  # noqa: BLE001 — surface to bench runner

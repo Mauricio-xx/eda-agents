@@ -131,6 +131,7 @@ async def generate_rtl_draft(
     dry_run: bool = False,
     tb_framework: str = "iverilog",
     loop_budget: int = 1,
+    per_turn_timeout_s: int | None = None,
 ) -> IdeaToRTLResult:
     """Generate RTL + testbench + config + GDS from a natural language spec.
 
@@ -189,6 +190,13 @@ async def generate_rtl_draft(
         with sim/lint critique skills feeding back between turns;
         the final turn's :class:`IdeaToRTLResult` is returned with
         ``loop_result`` populated for honest-fail diagnostics.
+    per_turn_timeout_s:
+        Wall-clock cap per loop turn (passed as the inner harness
+        ``timeout_s``). Only consulted on the loop dispatch path
+        (``loop_budget > 1``). ``None`` (default) keeps each turn
+        bounded by the full ``timeout_s``; set explicitly when the
+        loop should be able to abort a runaway turn and still have
+        budget left for re-propose iterations.
     """
     if loop_budget > 1 and not dry_run:
         # Lazy import to break the cycle: the loop module imports us.
@@ -206,6 +214,7 @@ async def generate_rtl_draft(
             allow_dangerous=allow_dangerous,
             cli_path=cli_path,
             timeout_s=timeout_s,
+            per_turn_timeout_s=per_turn_timeout_s,
             model=model,
             skip_gl_sim=skip_gl_sim,
             tb_framework=tb_framework,

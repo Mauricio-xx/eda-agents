@@ -207,6 +207,7 @@ async def generate_rtl_draft(
     model: str | None = None,
     tb_framework: str = "iverilog",
     loop_budget: int = 1,
+    per_turn_timeout_s: int | None = None,
 ) -> dict[str, Any]:
     """Run the NL idea -> digital GDS pipeline (S11 Fase 0).
 
@@ -258,6 +259,11 @@ async def generate_rtl_draft(
         ``IdeaToRTLLoop`` which feeds critique back between turns;
         the result includes a ``loop_result`` block with per-turn
         diagnostics.
+    per_turn_timeout_s:
+        Per-loop-turn wall-clock cap (60..14400 s). Only consulted
+        when ``loop_budget > 1``. ``None`` (default) lets each turn
+        use the full ``timeout_s``; set when a single runaway turn
+        must not be allowed to consume the entire wall-clock budget.
 
     Returns
     -------
@@ -290,6 +296,14 @@ async def generate_rtl_draft(
                 f"loop_budget {loop_budget!r} out of range 1..20"
             ),
         }
+    if per_turn_timeout_s is not None and not 60 <= per_turn_timeout_s <= 14400:
+        return {
+            "success": False,
+            "error": (
+                f"per_turn_timeout_s {per_turn_timeout_s!r} "
+                "out of range 60..14400"
+            ),
+        }
     try:
         result = await _generate_rtl_draft(
             description=description,
@@ -307,6 +321,7 @@ async def generate_rtl_draft(
             model=model,
             tb_framework=tb_framework,
             loop_budget=loop_budget,
+            per_turn_timeout_s=per_turn_timeout_s,
         )
     except Exception as exc:  # noqa: BLE001 — surface all failures to caller
         return {

@@ -137,6 +137,7 @@ inputs:
   loop_budget: 8
   max_budget_usd: 25.0
   timeout_s: 7200
+  per_turn_timeout_s: 1800
   librelane_python: /home/montanares/git/librelane/.venv/bin/python
 expected_metrics:
   gds_exists: {min: 1, unit: bool}

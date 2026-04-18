@@ -148,6 +148,80 @@ async def test_max_turns_one_invokes_generate_once(tmp_path, monkeypatch):
     assert fake.loop_result is out
 
 
+async def test_per_turn_timeout_overrides_loop_timeout(tmp_path, monkeypatch):
+    """``per_turn_timeout_s`` must reach each generate_rtl_draft call.
+
+    Locks in the S12-A FFT8 stretch fix: without this, a single
+    runaway CC CLI turn ate the whole 7200 s task budget on turn 1
+    and the outer loop never iterated. The fix is structural —
+    every turn now gets bounded by ``per_turn_timeout_s`` so the
+    loop can read the harness verdict (or a timeout-as-infra-error)
+    while it still has wall-clock budget to inject critique.
+
+    Default behaviour (``per_turn_timeout_s=None``) must remain
+    byte-equivalent: each turn receives the loop's full ``timeout_s``.
+    """
+    work = tmp_path / "work"
+    failures = [
+        _make_idea_result(
+            work_dir=work,
+            success=True,
+            all_passed=False,
+            gl_sim_passed=False,
+            cost_usd=0.1,
+            result_text=f"turn {i}: still broken\nRTL SIM FAIL",
+        )
+        for i in range(1, 4)
+    ]
+    calls = _patch_generate(monkeypatch, failures)
+
+    await run_idea_to_rtl_loop(
+        description="x",
+        design_name="widget",
+        work_dir=work,
+        max_turns=3,
+        pdk_root="/tmp/fake_pdk",
+        timeout_s=7200,
+        per_turn_timeout_s=1800,
+    )
+    assert len(calls) == 3
+    for c in calls:
+        assert c["timeout_s"] == 1800, (
+            "per_turn_timeout_s must be the harness timeout, not the "
+            "loop-level timeout — the FFT8 honest-fail proved a single "
+            "turn at full timeout_s starves the outer loop."
+        )
+
+    # And the default (None) preserves the pre-fix behaviour.
+    work2 = tmp_path / "work2"
+    failures2 = [
+        _make_idea_result(
+            work_dir=work2,
+            success=True,
+            all_passed=False,
+            gl_sim_passed=False,
+            cost_usd=0.1,
+            result_text=f"turn {i}: still broken\nRTL SIM FAIL",
+        )
+        for i in range(1, 3)
+    ]
+    calls2 = _patch_generate(monkeypatch, failures2)
+    await run_idea_to_rtl_loop(
+        description="y",
+        design_name="widget",
+        work_dir=work2,
+        max_turns=2,
+        pdk_root="/tmp/fake_pdk",
+        timeout_s=3600,
+        # per_turn_timeout_s left at default None
+    )
+    for c in calls2:
+        assert c["timeout_s"] == 3600, (
+            "default per_turn_timeout_s=None must keep the per-turn "
+            "harness timeout equal to the loop's timeout_s."
+        )
+
+
 async def test_loop_budget_one_via_generate_rtl_draft_is_byte_equivalent(
     tmp_path, monkeypatch
 ):
