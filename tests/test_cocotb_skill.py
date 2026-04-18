@@ -80,6 +80,44 @@ class TestCocotbSkillBody:
         assert "silently drops" in body or "silently drop" in body
         assert "off-by-one" in body
 
+    def test_mandates_assert_for_comparisons(self, body):
+        # Added after the S12-A Haiku FFT-8 probe: Haiku wrote a TB that
+        # used cocotb.log.warning instead of assert for comparison
+        # failures. The TB structurally couldn't fail; results.xml
+        # reported PASS=1 FAIL=0 even though the FFT was functionally
+        # broken (Haiku itself admitted it in the verdict text). The
+        # skill must mandate ``assert`` and explicitly call out
+        # log.warning / log.error / print as bug-hiding patterns.
+        assert "ASSERTIONS ARE MANDATORY" in body
+        # Forbid the exact patterns Haiku used.
+        for forbidden in (
+            "cocotb.log.warning",
+            "cocotb.log.error",
+        ):
+            assert forbidden in body, (
+                f"skill must explicitly call out {forbidden!r} as a "
+                "bug-hiding pattern that does NOT fail the test"
+            )
+        # The skill must reference the correct shape using `assert`.
+        assert "assert actual ==" in body or "assert err <=" in body
+        # And must spell out that log annotations don't fail tests.
+        lowered = body.lower()
+        assert "do not affect the test verdict" in lowered or (
+            "do not fail the test" in lowered
+        )
+
+    def test_mandates_minimum_verification_coverage(self, body):
+        # Same Haiku probe also produced a TB that ran for only 250 ns
+        # of simulated time — a single short stimulus burst that
+        # bypassed most of the design. The skill must steer the agent
+        # toward a meaningful coverage envelope.
+        assert "MINIMUM VERIFICATION COVERAGE" in body
+        # Mention sim-time order of magnitude (us / micro-second).
+        lowered = body.lower()
+        assert "micro-second" in lowered or "microsecond" in lowered or (
+            "us" in body and "ns" in body
+        )
+
     def test_mentions_cocotb_summary_line(self, body):
         # CocotbDriver parses this specific regex; the skill must point
         # the agent at it so they don't invent their own PASS/FAIL

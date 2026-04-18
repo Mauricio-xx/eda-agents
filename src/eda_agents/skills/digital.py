@@ -355,6 +355,64 @@ PYTHON TESTBENCH CONTRACT (tb/test_<design>.py):
       #    print "PASS" yourself — cocotb's summary line does that.
       #    (cocotb emits: ** TESTS=N PASS=N FAIL=0 SKIP=0 ...)
 
+ASSERTIONS ARE MANDATORY (NON-NEGOTIABLE):
+
+  Every output check MUST use Python's ``assert`` statement (or raise
+  ``AssertionError``). cocotb only marks a test as FAIL when the
+  coroutine raises an unhandled exception. The following all let
+  bugs sail through unnoticed and the test silently PASSES:
+
+      cocotb.log.warning(f"got {actual}, expected {expected}")  # NO
+      cocotb.log.error(f"vector failed: {vec}")                 # NO
+      print(f"FAIL: {name}")                                    # NO
+      test_pass = False                                         # NO
+      cocotb.log.info(f"Test {name}: FAIL")                     # NO
+
+  These are LOG ANNOTATIONS. They do not affect the test verdict.
+  ``results.xml`` will report PASS=1 FAIL=0 even when every vector
+  was wrong, and downstream gates (gl_post_synth_ok, gl_post_pnr_ok)
+  will turn green for a structurally broken design.
+
+  The only correct shape is:
+
+      assert actual == expected, (
+          f"vector {vec}: got {actual}, expected {expected}"
+      )
+
+  For tolerance-based comparisons (e.g. fixed-point math), assert on
+  the tolerance bound, not in a logging branch:
+
+      err = abs(actual - expected)
+      assert err <= TOL, (
+          f"vector {vec} bin {k}: got {actual}, expected {expected} "
+          f"(error {err} > tolerance {TOL})"
+      )
+
+  If you find yourself writing ``cocotb.log.warning`` for a
+  comparison result, you are writing a TB that cannot fail. Replace
+  with ``assert`` immediately.
+
+  Loop counter for self-audit: count the ``assert`` statements in
+  your test file. There MUST be at least one per checked output per
+  vector. A test file with zero asserts is structurally broken.
+
+MINIMUM VERIFICATION COVERAGE:
+
+  * At least the number of vectors specified in the design spec, OR
+    8 vectors if the spec is silent. Single-vector tests are not
+    acceptable for any design beyond a 4-bit register.
+  * Cover at minimum: reset behaviour, one nominal input, one
+    boundary case (max / min), one zero / null input. Add design-
+    specific cases (saturation, overflow, pipeline flush, etc.) on
+    top of those four.
+  * For pipelined designs, deliberately back-to-back several vectors
+    so the in-flight registers are exercised, not just steady-state
+    one-shot drives.
+  * ``sim_time_ns`` reported in ``results.xml`` should be on the
+    order of micro-seconds for any non-trivial test. A test that
+    finishes in <500 ns of simulated time has almost certainly
+    drained too few vectors and should be expanded.
+
 MAKEFILE CONTRACT (tb/Makefile):
 
   # iverilog is the default simulator that ships with the LibreLane
@@ -453,7 +511,11 @@ WHAT NOT TO DO:
   * Don't use `cocotb.fork` — it's deprecated; use `cocotb.start_soon`.
   * Don't call `cocotb.result.TestFailure` to mark failure — raise
     `AssertionError` / `assert`. cocotb converts the latter into a
-    proper FAIL in the summary line."""
+    proper FAIL in the summary line.
+  * Don't use `cocotb.log.warning` / `cocotb.log.error` /
+    `print(...)` to flag failed comparisons. They only annotate the
+    log; the test will still PASS. See ASSERTIONS ARE MANDATORY
+    above — every comparison MUST use ``assert``."""
 
 
 register_skill(
