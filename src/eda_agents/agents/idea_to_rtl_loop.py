@@ -381,16 +381,22 @@ def _extract_failure_excerpt(result: IdeaToRTLResult, *, max_chars: int = 1800) 
 def _is_infra_error(error: str) -> bool:
     """Detect non-recoverable harness errors that should abort the loop.
 
-    A CLI binary missing, a 429 rate-limit, or a hard timeout will
-    not improve by re-running. Everything else (sim fail, lint fail,
-    DRC violation, LVS mismatch) IS recoverable and the loop should
-    keep trying.
+    A CLI binary missing or a 429 rate-limit will not improve by
+    re-running. Everything else (sim fail, lint fail, DRC violation,
+    LVS mismatch, per-turn wall-clock timeout) IS recoverable and the
+    loop should keep trying — for timeouts specifically, the next turn
+    receives the partial work_dir state plus a critique header noting
+    the previous turn ran out of time, so the agent can apply a smaller
+    incremental patch.
+
+    Subprocess error is treated as recoverable as long as it is not
+    co-occurring with a rate-limit signal: e.g. ``Subprocess error: 429``
+    is fatal (rate-limit), but a generic ``Subprocess error`` from a
+    transient harness glitch can be retried.
     """
     indicators = (
         "Claude CLI not found",
         "Claude CLI not found at resolved path",
-        "Timeout after",
-        "Subprocess error",
         "429",
         "rate limit",
         "rate-limit",

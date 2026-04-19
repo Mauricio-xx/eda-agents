@@ -384,6 +384,66 @@ async def test_infra_error_aborts_loop(tmp_path, monkeypatch):
     assert out.reason == "error"
 
 
+async def test_per_turn_timeout_lets_loop_iterate(tmp_path, monkeypatch):
+    """Per-turn wall-clock timeouts must NOT abort the loop.
+
+    Locks in the S12-A Haiku FFT-8 v2 finding: previously, the
+    per_turn_timeout_s fix capped each turn's wall clock but the
+    loop's _is_infra_error treated 'Timeout after Ns' as fatal,
+    so the loop aborted on the first slow turn and the critique-
+    feedback path was never exercised. The correct behaviour is:
+    a per-turn timeout is a recoverable failure — the next turn
+    receives the partial work_dir state plus the timeout in the
+    failure_excerpt, and the agent can apply a smaller incremental
+    patch.
+
+    Truly fatal infra (rate-limit, CLI-not-found) still aborts;
+    that's covered by ``test_infra_error_aborts_loop``.
+    """
+    work = tmp_path / "work"
+    timed_out_turn1 = _make_idea_result(
+        work_dir=work,
+        success=False,
+        all_passed=False,
+        cost_usd=0.0,
+        result_text="",
+        error="Timeout after 1800s",
+        gl_sim_passed=False,
+    )
+    converged_turn2 = _make_idea_result(
+        work_dir=work,
+        success=True,
+        all_passed=True,
+        cost_usd=0.5,
+        result_text="RTL SIM PASS\nLibreLane signoff clean\nDONE",
+    )
+    calls = _patch_generate(monkeypatch, [timed_out_turn1, converged_turn2])
+
+    out = await run_idea_to_rtl_loop(
+        description="x",
+        design_name="widget",
+        work_dir=work,
+        max_turns=4,
+        pdk_root="/tmp/fake_pdk",
+        per_turn_timeout_s=1800,
+    )
+    assert len(calls) == 2, (
+        "loop must iterate past a per-turn timeout, not abort it as "
+        "infra error — that defeats the whole point of the per-turn "
+        "wall-clock cap (which exists to free budget for retries)"
+    )
+    assert out.converged_turn == 2
+    assert out.reason == "converged"
+    # Turn 2's prompt must include the timeout context so the agent
+    # knows the previous turn ran out of time and should keep the
+    # next attempt minimal.
+    turn2_description = calls[1]["description"]
+    assert "Timeout after 1800s" in turn2_description, (
+        "the timeout failure_excerpt must reach the agent in turn 2 "
+        "so it can decide to apply a smaller incremental patch"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Critique propagation
 # ---------------------------------------------------------------------------
@@ -518,9 +578,18 @@ def test_extract_failure_excerpt_prioritises_harness_error(tmp_path):
 
 
 def test_is_infra_error_detects_rate_limit():
+    # Truly unrecoverable: rate-limit / CLI-not-found.
     assert _is_infra_error("Subprocess error: 429 rate limit") is True
     assert _is_infra_error("Claude CLI not found at resolved path") is True
-    assert _is_infra_error("Timeout after 600s") is True
+    # Recoverable failures that should let the loop iterate, NOT abort:
+    # * Per-turn timeout: agent took too long; next turn gets a critique
+    #   header noting the partial work_dir state and budget pressure.
+    # * Sim / DRC failures: the entire reason the critique loop exists.
+    # * Bare subprocess errors (no 429 marker): transient glitches that
+    #   re-running may resolve.
+    assert _is_infra_error("Timeout after 600s") is False
+    assert _is_infra_error("Timeout after 1800s") is False
+    assert _is_infra_error("Subprocess error: SIGSEGV") is False
     assert _is_infra_error("Simulation reported FAIL") is False
     assert _is_infra_error("DRC violation count=3") is False
 
