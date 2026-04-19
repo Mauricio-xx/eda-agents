@@ -280,6 +280,96 @@ bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/.venv/
 bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/*.log
 bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/*.error.log
 
+# S12-A stretch — FFT8 live retry with per_turn_timeout_s fix
+# (Pass@1 turn 1 again — too easy for Opus, but proves no runaway).
+!bench/results/s12a_stretch_fft8_live_v2/
+!bench/results/s12a_stretch_fft8_live_v2/summary.json
+!bench/results/s12a_stretch_fft8_live_v2/report.md
+!bench/results/s12a_stretch_fft8_live_v2/e2e_idea_to_digital_fft8_gf180_live/
+!bench/results/s12a_stretch_fft8_live_v2/e2e_idea_to_digital_fft8_gf180_live/idea_to_chip_result.json
+!bench/results/s12a_stretch_fft8_live_v2/e2e_idea_to_digital_fft8_gf180_live/config.yaml
+!bench/results/s12a_stretch_fft8_live_v2/e2e_idea_to_digital_fft8_gf180_live/loop_result.json
+bench/results/s12a_stretch_fft8_live_v2/e2e_idea_to_digital_fft8_gf180_live/runs/
+bench/results/s12a_stretch_fft8_live_v2/e2e_idea_to_digital_fft8_gf180_live/src/
+bench/results/s12a_stretch_fft8_live_v2/e2e_idea_to_digital_fft8_gf180_live/tb/
+bench/results/s12a_stretch_fft8_live_v2/e2e_idea_to_digital_fft8_gf180_live.json
+bench/results/s12a_stretch_fft8_live_v2/e2e_idea_to_digital_fft8_gf180_live/.claude/
+bench/results/s12a_stretch_fft8_live_v2/e2e_idea_to_digital_fft8_gf180_live/.venv/
+bench/results/s12a_stretch_fft8_live_v2/e2e_idea_to_digital_fft8_gf180_live/*.log
+bench/results/s12a_stretch_fft8_live_v2/e2e_idea_to_digital_fft8_gf180_live/*.error.log
+
+# S12-A Haiku FFT8 v1 — SMOKING-GUN HONEST-FAIL. The driver model
+# wrote a TB without assert statements; bench gates green but the
+# design is functionally broken. README documents why.
+!bench/results/s12a_haiku_fft8_live/
+!bench/results/s12a_haiku_fft8_live/README.md
+!bench/results/s12a_haiku_fft8_live/summary.json
+!bench/results/s12a_haiku_fft8_live/report.md
+!bench/results/s12a_haiku_fft8_live/e2e_idea_to_digital_fft8_haiku_gf180_live/
+!bench/results/s12a_haiku_fft8_live/e2e_idea_to_digital_fft8_haiku_gf180_live/idea_to_chip_result.json
+!bench/results/s12a_haiku_fft8_live/e2e_idea_to_digital_fft8_haiku_gf180_live/config.yaml
+!bench/results/s12a_haiku_fft8_live/e2e_idea_to_digital_fft8_haiku_gf180_live/loop_result.json
+!bench/results/s12a_haiku_fft8_live/e2e_idea_to_digital_fft8_haiku_gf180_live/tb/test_fft8.py
+bench/results/s12a_haiku_fft8_live/e2e_idea_to_digital_fft8_haiku_gf180_live/runs/
+bench/results/s12a_haiku_fft8_live/e2e_idea_to_digital_fft8_haiku_gf180_live/src/
+bench/results/s12a_haiku_fft8_live/e2e_idea_to_digital_fft8_haiku_gf180_live/tb/Makefile
+bench/results/s12a_haiku_fft8_live/e2e_idea_to_digital_fft8_haiku_gf180_live/tb/__pycache__/
+bench/results/s12a_haiku_fft8_live/e2e_idea_to_digital_fft8_haiku_gf180_live/tb/sim_build/
+bench/results/s12a_haiku_fft8_live/e2e_idea_to_digital_fft8_haiku_gf180_live/tb/results.xml
+bench/results/s12a_haiku_fft8_live/e2e_idea_to_digital_fft8_haiku_gf180_live.json
+bench/results/s12a_haiku_fft8_live/e2e_idea_to_digital_fft8_haiku_gf180_live/.claude/
+bench/results/s12a_haiku_fft8_live/e2e_idea_to_digital_fft8_haiku_gf180_live/.venv/
+bench/results/s12a_haiku_fft8_live/e2e_idea_to_digital_fft8_haiku_gf180_live/*.log
+bench/results/s12a_haiku_fft8_live/e2e_idea_to_digital_fft8_haiku_gf180_live/*.error.log
+
+# S12-A Haiku FFT8 v2 — SKILL FIX VALIDATED, LOOP STILL ABORTED.
+# Intermediate evidence: TB now has real asserts (skill mandate
+# worked) but loop's _is_infra_error treated per-turn timeout as
+# fatal. Drove commit a4943e4. See README for the full story.
+!bench/results/s12a_haiku_fft8_v2_assert_skill/
+!bench/results/s12a_haiku_fft8_v2_assert_skill/README.md
+!bench/results/s12a_haiku_fft8_v2_assert_skill/summary.json
+!bench/results/s12a_haiku_fft8_v2_assert_skill/report.md
+!bench/results/s12a_haiku_fft8_v2_assert_skill/e2e_idea_to_digital_fft8_haiku_gf180_live/
+!bench/results/s12a_haiku_fft8_v2_assert_skill/e2e_idea_to_digital_fft8_haiku_gf180_live/idea_to_chip_result.json
+!bench/results/s12a_haiku_fft8_v2_assert_skill/e2e_idea_to_digital_fft8_haiku_gf180_live/config.yaml
+!bench/results/s12a_haiku_fft8_v2_assert_skill/e2e_idea_to_digital_fft8_haiku_gf180_live/loop_result.json
+!bench/results/s12a_haiku_fft8_v2_assert_skill/e2e_idea_to_digital_fft8_haiku_gf180_live/tb/test_fft8.py
+bench/results/s12a_haiku_fft8_v2_assert_skill/e2e_idea_to_digital_fft8_haiku_gf180_live/runs/
+bench/results/s12a_haiku_fft8_v2_assert_skill/e2e_idea_to_digital_fft8_haiku_gf180_live/src/
+bench/results/s12a_haiku_fft8_v2_assert_skill/e2e_idea_to_digital_fft8_haiku_gf180_live/tb/Makefile
+bench/results/s12a_haiku_fft8_v2_assert_skill/e2e_idea_to_digital_fft8_haiku_gf180_live/tb/__pycache__/
+bench/results/s12a_haiku_fft8_v2_assert_skill/e2e_idea_to_digital_fft8_haiku_gf180_live/tb/sim_build/
+bench/results/s12a_haiku_fft8_v2_assert_skill/e2e_idea_to_digital_fft8_haiku_gf180_live.json
+bench/results/s12a_haiku_fft8_v2_assert_skill/e2e_idea_to_digital_fft8_haiku_gf180_live/.claude/
+bench/results/s12a_haiku_fft8_v2_assert_skill/e2e_idea_to_digital_fft8_haiku_gf180_live/.venv/
+bench/results/s12a_haiku_fft8_v2_assert_skill/e2e_idea_to_digital_fft8_haiku_gf180_live/*.log
+bench/results/s12a_haiku_fft8_v2_assert_skill/e2e_idea_to_digital_fft8_haiku_gf180_live/*.error.log
+
+# S12-A Haiku FFT8 v3 — LIVE-VALIDATED CRITIQUE-FEEDBACK PATH.
+# First end-to-end live validation of the IdeaToRTLLoop critique-
+# feedback path: turn 1 timeout -> turn 2 timeout -> turn 3
+# CONVERGED with TB containing 9 real asserts. See README.
+!bench/results/s12a_haiku_fft8_v3_loop_iterates/
+!bench/results/s12a_haiku_fft8_v3_loop_iterates/README.md
+!bench/results/s12a_haiku_fft8_v3_loop_iterates/summary.json
+!bench/results/s12a_haiku_fft8_v3_loop_iterates/report.md
+!bench/results/s12a_haiku_fft8_v3_loop_iterates/e2e_idea_to_digital_fft8_haiku_gf180_live/
+!bench/results/s12a_haiku_fft8_v3_loop_iterates/e2e_idea_to_digital_fft8_haiku_gf180_live/idea_to_chip_result.json
+!bench/results/s12a_haiku_fft8_v3_loop_iterates/e2e_idea_to_digital_fft8_haiku_gf180_live/config.yaml
+!bench/results/s12a_haiku_fft8_v3_loop_iterates/e2e_idea_to_digital_fft8_haiku_gf180_live/loop_result.json
+!bench/results/s12a_haiku_fft8_v3_loop_iterates/e2e_idea_to_digital_fft8_haiku_gf180_live/tb/test_fft8.py
+bench/results/s12a_haiku_fft8_v3_loop_iterates/e2e_idea_to_digital_fft8_haiku_gf180_live/runs/
+bench/results/s12a_haiku_fft8_v3_loop_iterates/e2e_idea_to_digital_fft8_haiku_gf180_live/src/
+bench/results/s12a_haiku_fft8_v3_loop_iterates/e2e_idea_to_digital_fft8_haiku_gf180_live/tb/Makefile
+bench/results/s12a_haiku_fft8_v3_loop_iterates/e2e_idea_to_digital_fft8_haiku_gf180_live/tb/__pycache__/
+bench/results/s12a_haiku_fft8_v3_loop_iterates/e2e_idea_to_digital_fft8_haiku_gf180_live/tb/sim_build/
+bench/results/s12a_haiku_fft8_v3_loop_iterates/e2e_idea_to_digital_fft8_haiku_gf180_live.json
+bench/results/s12a_haiku_fft8_v3_loop_iterates/e2e_idea_to_digital_fft8_haiku_gf180_live/.claude/
+bench/results/s12a_haiku_fft8_v3_loop_iterates/e2e_idea_to_digital_fft8_haiku_gf180_live/.venv/
+bench/results/s12a_haiku_fft8_v3_loop_iterates/e2e_idea_to_digital_fft8_haiku_gf180_live/*.log
+bench/results/s12a_haiku_fft8_v3_loop_iterates/e2e_idea_to_digital_fft8_haiku_gf180_live/*.error.log
+
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat

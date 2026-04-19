@@ -1,0 +1,72 @@
+# GF180MCU LibreLane config for FFT8
+# 8-point pipelined FFT, 3 stages, 50ns clock period
+
+meta:
+  version: 3
+  flow: Classic
+  substituting_steps:
+    Magic.StreamOut: null
+    KLayout.XOR: null
+
+RUN_MAGIC_STREAMOUT: false
+RUN_KLAYOUT_XOR: false
+
+DESIGN_NAME: fft8
+VERILOG_FILES:
+  - /home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_haiku_fft8_v3_loop_iterates/e2e_idea_to_digital_fft8_haiku_gf180_live/src/fft8.v
+CLOCK_PORT: clk
+CLOCK_PERIOD: 200
+
+# Die area: sufficient for FFT8 design (~6-12k cells)
+FP_SIZING: absolute
+DIE_AREA: [0.0, 0.0, 500.0, 500.0]
+
+# Power/Ground
+VDD_NETS:
+  - VDD
+GND_NETS:
+  - VSS
+
+# Prefer KLayout-generated GDS for signoff
+PRIMARY_GDSII_STREAMOUT_TOOL: klayout
+
+# ESD & Layer Rules
+DIODE_ON_PORTS: in
+RT_MAX_LAYER: Metal4
+PDN_MULTILAYER: false
+
+# PDN Strap Configuration
+PDN_VWIDTH: 5
+PDN_HWIDTH: 5
+PDN_VSPACING: 1
+PDN_HSPACING: 1
+PDN_VPITCH: 75
+PDN_HPITCH: 75
+PDN_EXTEND_TO: boundary
+
+# Placement
+PL_TARGET_DENSITY_PCT: 65
+MAX_FANOUT_CONSTRAINT: 20
+
+# CTS
+CTS_CLK_MAX_WIRE_LENGTH: 0
+CTS_DISTANCE_BETWEEN_BUFFERS: 0
+CTS_SINK_CLUSTERING_SIZE: 20
+CTS_SINK_CLUSTERING_MAX_DIAMETER: 60
+
+# Repair After Placement — relax constraints to avoid infinite loops
+DESIGN_REPAIR_MAX_SLEW_PCT: 50
+DESIGN_REPAIR_MAX_CAP_PCT: 50
+DESIGN_REPAIR_MAX_WIRE_LENGTH: 0
+
+# Repair After Routing
+GRT_DESIGN_REPAIR_MAX_CAP_PCT: 20
+GRT_DESIGN_REPAIR_MAX_SLEW_PCT: 20
+GRT_DESIGN_REPAIR_MAX_WIRE_LENGTH: 0
+RUN_POST_GRT_DESIGN_REPAIR: true
+
+# Margins
+TOP_MARGIN_MULT: 1
+BOTTOM_MARGIN_MULT: 1
+LEFT_MARGIN_MULT: 6
+RIGHT_MARGIN_MULT: 6

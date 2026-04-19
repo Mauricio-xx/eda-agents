@@ -1,0 +1,6 @@
+<testsuites name="results">
+  <testsuite name="all" package="all">
+    <property name="random_seed" value="1776589040" />
+    <testcase name="test_fft8_comprehensive" classname="test_fft8" file="/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_haiku_fft8_v3_loop_iterates/e2e_idea_to_digital_fft8_haiku_gf180_live/tb/test_fft8.py" lineno="6" time="0.0038962364196777344" sim_time_ns="300.0" ratio_time="76997.38098152001" />
+  </testsuite>
+</testsuites>

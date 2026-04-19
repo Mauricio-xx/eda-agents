@@ -1,0 +1,22 @@
+{
+  "iterations": [
+    {
+      "turn": 1,
+      "success": false,
+      "all_passed": false,
+      "sim_status": "missing",
+      "flow_status": "fail",
+      "gl_sim_status": "missing",
+      "failure_excerpt": "[harness error] Timeout after 1800s",
+      "cost_usd": 0.0,
+      "duration_s": 2164.1527724247426,
+      "num_turns": 0,
+      "work_subdir": null,
+      "error": "Timeout after 1800s"
+    }
+  ],
+  "total_cost_usd": 0.0,
+  "converged_turn": null,
+  "budget_exhausted": false,
+  "reason": "error"
+}
