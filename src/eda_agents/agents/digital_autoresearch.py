@@ -150,9 +150,16 @@ class DigitalAutoresearchRunner:
         run_rtl_sim: bool | None = None,
         allow_dangerous: bool = False,
         cli_path: str = "claude",
+        litellm_model: str = "openrouter/google/gemini-2.5-flash",
+        litellm_allow_bash: bool = False,
+        opencode_cli_path: str = "opencode",
+        opencode_model: str | None = None,
     ):
-        if backend not in ("adk", "cc_cli"):
-            raise ValueError(f"Unknown backend: {backend!r}. Use 'adk' or 'cc_cli'.")
+        if backend not in ("adk", "cc_cli", "litellm", "opencode"):
+            raise ValueError(
+                f"Unknown backend: {backend!r}."
+                " Use 'adk', 'cc_cli', 'litellm', or 'opencode'."
+            )
         if strategy not in ("flow", "rtl", "hybrid"):
             raise ValueError(f"Unknown strategy: {strategy!r}. Use 'flow', 'rtl', or 'hybrid'.")
         if backend == "cc_cli" and strategy == "flow":
@@ -170,6 +177,10 @@ class DigitalAutoresearchRunner:
         self.strategy = strategy
         self.allow_dangerous = allow_dangerous
         self.cli_path = cli_path
+        self.litellm_model = litellm_model
+        self.litellm_allow_bash = litellm_allow_bash
+        self.opencode_cli_path = opencode_cli_path
+        self.opencode_model = opencode_model
 
         # Default run_rtl_sim: True for RTL strategies (if testbench exists)
         if run_rtl_sim is None:
@@ -694,6 +705,193 @@ class DigitalAutoresearchRunner:
         return proposal
 
     # ------------------------------------------------------------------
+    # LiteLLM / OpenCode proposals (same prompt, different harness)
+    # ------------------------------------------------------------------
+
+    async def _propose_litellm(
+        self,
+        program_content: str,
+        history: list[dict],
+        best: dict | None,
+        eval_num: int,
+    ) -> dict:
+        """LiteLLMAgentHarness proposal for rtl/hybrid strategies."""
+        from eda_agents.agents.litellm_harness import LiteLLMAgentHarness
+        from eda_agents.agents.rtl_proposal_prompts import (
+            cc_cli_hybrid_prompt,
+            cc_cli_rtl_prompt,
+            rtl_proposal_prompt,
+        )
+
+        user_context = rtl_proposal_prompt(history, best, eval_num, self.budget)
+        optimization_goal = (
+            f"{self.design.fom_description()}\n\n"
+            f"Constraints: {self.design.specs_description()}\n\n"
+            f"Current evaluation: {user_context}"
+        )
+
+        pdk_root = None
+        if hasattr(self.design, "pdk_root") and self.design.pdk_root():
+            pdk_root = str(self.design.pdk_root())
+
+        metrics = (
+            {
+                "wns_worst_ns": best.get("wns_worst_ns"),
+                "cell_count": best.get("cell_count"),
+                "die_area_um2": best.get("die_area_um2"),
+                "power_mw": best.get("power_mw"),
+            }
+            if best
+            else None
+        )
+
+        if self.strategy == "rtl":
+            prompt = cc_cli_rtl_prompt(
+                design_name=self.design.project_name(),
+                design_spec=self.design.specification(),
+                optimization_goal=optimization_goal,
+                rtl_file_paths=self.design.rtl_sources(),
+                current_metrics=metrics,
+                pdk_root=pdk_root,
+            )
+        else:
+            prompt = cc_cli_hybrid_prompt(
+                design_name=self.design.project_name(),
+                design_spec=self.design.specification(),
+                optimization_goal=optimization_goal,
+                rtl_file_paths=self.design.rtl_sources(),
+                config_path=self.design.librelane_config(),
+                current_metrics=metrics,
+                pdk_root=pdk_root,
+            )
+
+        harness = LiteLLMAgentHarness(
+            prompt=prompt,
+            work_dir=self.design.project_dir(),
+            model=self.litellm_model,
+            timeout_s=600,
+            max_budget_usd=2.0,
+            allow_bash=self.litellm_allow_bash,
+        )
+
+        result = await harness.run()
+
+        if not result.success:
+            raise RuntimeError(
+                f"LiteLLM proposal failed: {result.error or 'unknown'}"
+            )
+
+        return self._extract_rtl_changes(result.result_text)
+
+    async def _propose_opencode(
+        self,
+        program_content: str,
+        history: list[dict],
+        best: dict | None,
+        eval_num: int,
+    ) -> dict:
+        """OpenCodeHarness proposal for rtl/hybrid strategies."""
+        from eda_agents.agents.opencode_harness import OpenCodeHarness
+        from eda_agents.agents.rtl_proposal_prompts import (
+            cc_cli_hybrid_prompt,
+            cc_cli_rtl_prompt,
+            rtl_proposal_prompt,
+        )
+
+        user_context = rtl_proposal_prompt(history, best, eval_num, self.budget)
+        optimization_goal = (
+            f"{self.design.fom_description()}\n\n"
+            f"Constraints: {self.design.specs_description()}\n\n"
+            f"Current evaluation: {user_context}"
+        )
+
+        pdk_root = None
+        if hasattr(self.design, "pdk_root") and self.design.pdk_root():
+            pdk_root = str(self.design.pdk_root())
+
+        metrics = (
+            {
+                "wns_worst_ns": best.get("wns_worst_ns"),
+                "cell_count": best.get("cell_count"),
+                "die_area_um2": best.get("die_area_um2"),
+                "power_mw": best.get("power_mw"),
+            }
+            if best
+            else None
+        )
+
+        if self.strategy == "rtl":
+            prompt = cc_cli_rtl_prompt(
+                design_name=self.design.project_name(),
+                design_spec=self.design.specification(),
+                optimization_goal=optimization_goal,
+                rtl_file_paths=self.design.rtl_sources(),
+                current_metrics=metrics,
+                pdk_root=pdk_root,
+            )
+        else:
+            prompt = cc_cli_hybrid_prompt(
+                design_name=self.design.project_name(),
+                design_spec=self.design.specification(),
+                optimization_goal=optimization_goal,
+                rtl_file_paths=self.design.rtl_sources(),
+                config_path=self.design.librelane_config(),
+                current_metrics=metrics,
+                pdk_root=pdk_root,
+            )
+
+        harness = OpenCodeHarness(
+            prompt=prompt,
+            work_dir=self.design.project_dir(),
+            model=self.opencode_model,
+            timeout_s=600,
+            cli_path=self.opencode_cli_path,
+        )
+
+        result = await harness.run()
+
+        if not result.success:
+            raise RuntimeError(
+                f"OpenCode proposal failed: {result.error or 'unknown'}"
+            )
+
+        return self._extract_rtl_changes(result.result_text)
+
+    def _extract_rtl_changes(self, result_text: str) -> dict:
+        """Read back RTL files from disk and extract rationale from agent output.
+
+        Shared by _propose_litellm and _propose_opencode — mirrors the logic
+        in _propose_cc_cli without duplicating it.
+        """
+        rtl_changes: dict[str, str] = {}
+        for src in self.design.rtl_sources():
+            if src.is_file():
+                try:
+                    rel = str(
+                        src.resolve().relative_to(
+                            self.design.project_dir().resolve()
+                        )
+                    )
+                except ValueError:
+                    rel = src.name
+                rtl_changes[rel] = src.read_text()
+
+        rationale = "agent proposal"
+        try:
+            summary = json.loads(extract_json_from_response(result_text))
+            rationale = summary.get("rationale", rationale)
+        except (json.JSONDecodeError, ValueError):
+            for line in result_text.split("\n"):
+                if "rationale" in line.lower() or "changed" in line.lower():
+                    rationale = line.strip()[:200]
+                    break
+
+        proposal: dict = {"rtl_changes": rtl_changes, "rationale": rationale}
+        if self.strategy == "hybrid":
+            proposal["config"] = {}
+        return proposal
+
+    # ------------------------------------------------------------------
     # Evaluation
     # ------------------------------------------------------------------
 
@@ -1109,6 +1307,14 @@ class DigitalAutoresearchRunner:
                 elif self.strategy in ("rtl", "hybrid"):
                     if self.backend == "cc_cli":
                         proposal = await self._propose_cc_cli(
+                            program_content, history, best, eval_num
+                        )
+                    elif self.backend == "litellm":
+                        proposal = await self._propose_litellm(
+                            program_content, history, best, eval_num
+                        )
+                    elif self.backend == "opencode":
+                        proposal = await self._propose_opencode(
                             program_content, history, best, eval_num
                         )
                     elif self.strategy == "rtl":
