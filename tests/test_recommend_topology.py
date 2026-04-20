@@ -1,9 +1,10 @@
 """Unit tests for the S11 Fase 3 analog topology recommender.
 
 Covers the ``analog.idea_to_topology`` skill and the
-``recommend_topology`` MCP tool. OpenRouter is mocked out — live
-coverage happens when bench / manual scripts set
-``OPENROUTER_API_KEY`` and point at the real endpoint.
+``recommend_topology`` MCP tool. The LiteLLM call is mocked out —
+live coverage happens when bench / manual scripts set the provider
+credentials (``OPENROUTER_API_KEY``, ``ZAI_API_KEY``, …) and point
+at the real endpoint.
 """
 
 from __future__ import annotations
@@ -54,8 +55,8 @@ class TestIdeaToTopologySkill:
 @pytest.mark.mcp
 @pytest.mark.skipif(not HAS_FASTMCP, reason="fastmcp not installed")
 class TestRecommendTopologyTool:
-    def _mock_openrouter(self, monkeypatch, payload: dict[str, Any] | str):
-        """Patch ``_call_openrouter`` so the tool returns a known payload."""
+    def _mock_llm(self, monkeypatch, payload: dict[str, Any] | str):
+        """Patch ``_call_llm`` so the tool returns a known payload."""
         from eda_agents.mcp import server as mcp_server
 
         raw = payload if isinstance(payload, str) else json.dumps(payload)
@@ -63,7 +64,7 @@ class TestRecommendTopologyTool:
         def fake_call(**_kwargs):
             return raw, 42
 
-        monkeypatch.setattr(mcp_server, "_call_openrouter", fake_call)
+        monkeypatch.setattr(mcp_server, "_call_llm", fake_call)
 
     async def test_dry_run_lists_topologies(self):
         from eda_agents.mcp.server import mcp
@@ -81,7 +82,7 @@ class TestRecommendTopologyTool:
     async def test_live_returns_structured_miller(self, monkeypatch):
         from eda_agents.mcp.server import mcp
 
-        self._mock_openrouter(
+        self._mock_llm(
             monkeypatch,
             {
                 "topology": "miller_ota",
@@ -109,7 +110,7 @@ class TestRecommendTopologyTool:
     async def test_custom_topology_marks_valid_but_flagged(self, monkeypatch):
         from eda_agents.mcp.server import mcp
 
-        self._mock_openrouter(
+        self._mock_llm(
             monkeypatch,
             {
                 "topology": "custom",
@@ -133,7 +134,7 @@ class TestRecommendTopologyTool:
     async def test_unknown_topology_flagged_invalid(self, monkeypatch):
         from eda_agents.mcp.server import mcp
 
-        self._mock_openrouter(
+        self._mock_llm(
             monkeypatch,
             {
                 "topology": "folded_cascode",  # not in registry
@@ -154,7 +155,7 @@ class TestRecommendTopologyTool:
     async def test_malformed_json_reports_error(self, monkeypatch):
         from eda_agents.mcp.server import mcp
 
-        self._mock_openrouter(monkeypatch, "sorry, I don't speak JSON")
+        self._mock_llm(monkeypatch, "sorry, I don't speak JSON")
         result = await mcp.call_tool(
             "recommend_topology",
             {"description": "whatever"},
@@ -169,7 +170,7 @@ class TestRecommendTopologyTool:
         def _raise(**_kwargs):
             raise RuntimeError("OPENROUTER_API_KEY not set")
 
-        monkeypatch.setattr(mcp_server, "_call_openrouter", _raise)
+        monkeypatch.setattr(mcp_server, "_call_llm", _raise)
         result = await mcp_server.mcp.call_tool(
             "recommend_topology",
             {"description": "whatever"},
