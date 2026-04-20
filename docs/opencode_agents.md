@@ -44,7 +44,13 @@ opencode --agent analog-sizing-advisor
 
 The MCP registration at the project-root `opencode.json` is picked up
 automatically, so `eda-agents_*` tools resolve as long as opencode is
-launched from the repo root (`cd eda-agents && opencode …`).
+launched from the repo root (`cd eda-agents && opencode …`). The
+`command` uses a relative path (`.venv/bin/python -m eda_agents.mcp`),
+which opencode resolves against the launch cwd — so the repo works
+portably for any cloner as long as their venv lives at `.venv/` and
+they `cd` into the repo before starting opencode. If your venv is
+elsewhere, edit `opencode.json` locally (it is committed — do not
+rename the venv expecting the config to adapt).
 
 ## Generating a new agent from a skill
 
