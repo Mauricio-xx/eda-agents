@@ -1,6 +1,6 @@
 """FastMCP server exposing eda-agents semantic tools.
 
-Seven tools are registered:
+Eight tools are registered:
 
 * ``render_skill`` — render a named skill's prompt, optionally bound
   to a topology.
@@ -11,6 +11,11 @@ Seven tools are registered:
 * ``describe_topology`` — return a topology's design-space, defaults,
   target specs and FoM formula so MCP clients can prepare a valid
   ``evaluate_topology`` call without Python introspection.
+* ``run_autoresearch`` — drive ``AutoresearchRunner`` end-to-end on a
+  registered topology and return the top-N designs. Lets MCP clients
+  iterate without handholding. Backed by LiteLLM (any
+  provider-agnostic model string); harness-based backends remain
+  future work.
 * ``generate_rtl_draft`` — drive the NL idea -> digital GDS pipeline
   (S11 Fase 0) via Claude Code CLI + LibreLane + post-flow gate-level
   simulation. Async, long-running; callers should pass a work_dir and
@@ -756,6 +761,228 @@ async def explore_custom_topology(
             "converged": False,
             "error": f"{type(exc).__name__}: {exc}",
         }
+
+
+def _sanitize_for_json(value: Any) -> Any:
+    """Recursively coerce numpy scalars into plain Python types.
+
+    ``AutoresearchRunner`` embeds numpy floats inside history / top_n
+    entries via ``SpiceResult.measurements``. FastMCP serialises tool
+    results with ``json.dumps`` which would reject those scalars, so
+    we walk the structure once and call ``.item()`` where available.
+    """
+    if isinstance(value, dict):
+        return {k: _sanitize_for_json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_for_json(v) for v in value]
+    item_attr = getattr(value, "item", None)
+    if callable(item_attr) and not isinstance(value, (str, bytes)):
+        try:
+            return item_attr()
+        except Exception:  # noqa: BLE001 — fall back to raw value
+            return value
+    return value
+
+
+@mcp.tool()
+async def run_autoresearch(
+    topology_name: str,
+    budget: int = 20,
+    model: str = "openrouter/google/gemini-3-flash-preview",
+    work_dir: str | None = None,
+    top_n: int = 3,
+    pdk: str | None = None,
+    timeout_s: int = 3600,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Drive the greedy autoresearch loop for a registered topology.
+
+    Exposes :class:`eda_agents.agents.autoresearch_runner.AutoresearchRunner`
+    end-to-end so MCP clients (opencode TUI, Claude Code, …) can iterate
+    a design exploration without handholding. Each call:
+
+    1. Resolves the topology from its canonical name.
+    2. Instantiates an ``AutoresearchRunner`` with ``model`` + ``budget``.
+    3. Runs the greedy loop against SPICE for ``budget`` evaluations.
+    4. Serialises the top-N designs, stats, and ``results.tsv`` path.
+
+    The runner's resume-from-disk behaviour is preserved — pass the
+    same ``work_dir`` twice to continue where a previous run stopped,
+    with ``budget`` interpreted as "additional evaluations on top of
+    the existing ``results.tsv``".
+
+    Parameters
+    ----------
+    topology_name:
+        Canonical topology name (from :func:`list_topology_names`).
+    budget:
+        Maximum SPICE evaluations. Default 20 keeps accidental calls
+        cheap; raise explicitly for serious exploration.
+    model:
+        LiteLLM-routed model id for the proposal LLM (same prefix
+        convention as :func:`recommend_topology`). Default is
+        ``openrouter/google/gemini-3-flash-preview``.
+    work_dir:
+        Directory for ``program.md`` + ``results.tsv`` + ``eval_*``
+        sub-dirs. When ``None``, a fresh tempdir is allocated per
+        call (no resume).
+    top_n:
+        Number of top-FoM designs to return (default 3).
+    pdk:
+        Optional PDK name override; defaults to the topology's PDK.
+    timeout_s:
+        Hard wall-clock cap. Returns ``{"success": false, "error":
+        "tool timeout ..."}`` if the greedy loop exceeds it.
+    dry_run:
+        When True, validate setup — topology registered, SpiceRunner
+        constructible, model env var present — WITHOUT running
+        evaluations. Returns ``{"success": true, "dry_run": true,
+        "env_ok": bool, "missing_keys": [...], "pdk": str}``.
+
+    Returns
+    -------
+    dict
+        On success::
+
+            {
+              "success": true,
+              "topology": str,
+              "model": str,
+              "pdk": str,
+              "budget": int,
+              "best_params": dict,
+              "best_fom": float,
+              "best_valid": bool,
+              "total_evals": int,
+              "kept": int,
+              "discarded": int,
+              "improvement_rate": float,
+              "validity_rate": float,
+              "total_tokens": int,
+              "top_n": list[dict],   # sanitised, no history
+              "tsv_path": str,
+              "work_dir": str
+            }
+
+        On failure: ``{"success": false, "error": str}``. Typical
+        failures: unknown topology, missing PDK/ngspice, missing env
+        var, timeout.
+    """
+    if budget < 1:
+        return {"success": False, "error": f"budget must be >= 1 (got {budget!r})"}
+    if top_n < 1:
+        return {"success": False, "error": f"top_n must be >= 1 (got {top_n!r})"}
+    if timeout_s < 30:
+        return {
+            "success": False,
+            "error": f"timeout_s must be >= 30 (got {timeout_s!r})",
+        }
+
+    try:
+        topology = get_topology_by_name(topology_name)
+    except KeyError as exc:
+        return {"success": False, "error": str(exc)}
+
+    # Probe model env up-front so dry_run and real runs share one code
+    # path for this failure mode.
+    try:
+        env = _validate_model_env(model)
+    except RuntimeError as exc:
+        return {"success": False, "error": str(exc)}
+
+    # Lazy import — SpiceRunner depends on PDK resolution which may
+    # fail without $PDK_ROOT set. We want dry_run to surface that
+    # error cleanly, not raise at import time.
+    try:
+        from eda_agents.core.spice_runner import SpiceRunner as _SpiceRunner
+
+        _probe_runner = _SpiceRunner(pdk=pdk) if pdk else _SpiceRunner(
+            pdk=getattr(topology, "pdk", None) or "ihp_sg13g2"
+        )
+        resolved_pdk = _probe_runner.pdk.name
+    except Exception as exc:  # noqa: BLE001 — surface PDK/runner config errors
+        return {
+            "success": False,
+            "error": f"SpiceRunner init failed: {exc}",
+        }
+
+    if dry_run:
+        return {
+            "success": True,
+            "dry_run": True,
+            "topology": topology_name,
+            "model": model,
+            "pdk": resolved_pdk,
+            "budget": budget,
+            "env_ok": env["env_ok"],
+            "missing_keys": env["missing_keys"],
+        }
+
+    if not env["env_ok"]:
+        return {
+            "success": False,
+            "error": (
+                f"missing env var(s) for model {model!r}: "
+                f"{', '.join(env['missing_keys']) or '?'}"
+            ),
+        }
+
+    # Resolve work_dir — fresh tempdir per call when caller omits one.
+    import asyncio as _asyncio
+
+    from eda_agents.agents.autoresearch_runner import AutoresearchRunner
+
+    if work_dir is None:
+        work_dir_path = Path(tempfile.mkdtemp(prefix="mcp_autoresearch_"))
+    else:
+        work_dir_path = Path(work_dir)
+        work_dir_path.mkdir(parents=True, exist_ok=True)
+
+    runner = AutoresearchRunner(
+        topology=topology,
+        model=model,
+        budget=budget,
+        pdk=pdk if pdk else None,
+        top_n=top_n,
+    )
+
+    try:
+        result = await _asyncio.wait_for(
+            runner.run(work_dir_path), timeout=timeout_s,
+        )
+    except _asyncio.TimeoutError:
+        return {
+            "success": False,
+            "error": f"tool timeout after {timeout_s}s",
+            "work_dir": str(work_dir_path),
+        }
+    except Exception as exc:  # noqa: BLE001 — funnel runner errors
+        return {
+            "success": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "work_dir": str(work_dir_path),
+        }
+
+    payload = {
+        "success": True,
+        "topology": topology_name,
+        "model": model,
+        "pdk": resolved_pdk,
+        "budget": budget,
+        "best_params": result.best_params,
+        "best_fom": float(result.best_fom),
+        "best_valid": bool(result.best_valid),
+        "total_evals": int(result.total_evals),
+        "kept": int(result.kept),
+        "discarded": int(result.discarded),
+        "improvement_rate": float(result.improvement_rate),
+        "validity_rate": float(result.validity_rate),
+        "total_tokens": int(result.total_tokens),
+        "top_n": _sanitize_for_json(result.top_n),
+        "tsv_path": result.tsv_path,
+        "work_dir": str(work_dir_path),
+    }
+    return _sanitize_for_json(payload)
 
 
 def run_server(
