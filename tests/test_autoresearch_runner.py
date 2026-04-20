@@ -643,6 +643,93 @@ class TestLLMFallback:
 
 
 # ---------------------------------------------------------------------------
+# Token accumulation tests (BUG 1 regression)
+# ---------------------------------------------------------------------------
+
+
+class TestTokenAccumulation:
+    @pytest.mark.anyio
+    async def test_tokens_accumulated_from_litellm_usage(self, runner, tmp_path):
+        """total_tokens should sum response.usage.total_tokens across calls."""
+        good_result = SpiceResult(
+            success=True, Adc_dB=50.0, GBW_Hz=2e6, PM_deg=60.0,
+        )
+
+        default_json = json.dumps(runner.topology.default_params())
+        # Build a fake LiteLLM-shaped response. One per eval.
+        fake_response = MagicMock()
+        fake_response.choices = [MagicMock()]
+        fake_response.choices[0].message.content = default_json
+        fake_response.usage.total_tokens = 123
+
+        with patch("litellm.acompletion", new_callable=AsyncMock) as mock_llm, \
+             patch("eda_agents.core.spice_runner.SpiceRunner") as mock_runner_cls:
+            mock_llm.return_value = fake_response
+
+            mock_instance = MagicMock()
+            mock_instance.run_async = AsyncMock(return_value=good_result)
+            mock_runner_cls.return_value = mock_instance
+
+            runner.budget = 3
+            result = await runner.run(tmp_path / "test")
+
+            assert result.total_tokens == 123 * 3
+
+    @pytest.mark.anyio
+    async def test_tokens_zero_when_usage_missing(self, runner, tmp_path):
+        """Backends that omit .usage should leave total_tokens at 0."""
+        good_result = SpiceResult(
+            success=True, Adc_dB=50.0, GBW_Hz=2e6, PM_deg=60.0,
+        )
+
+        default_json = json.dumps(runner.topology.default_params())
+        fake_response = MagicMock()
+        fake_response.choices = [MagicMock()]
+        fake_response.choices[0].message.content = default_json
+        fake_response.usage = None
+
+        with patch("litellm.acompletion", new_callable=AsyncMock) as mock_llm, \
+             patch("eda_agents.core.spice_runner.SpiceRunner") as mock_runner_cls:
+            mock_llm.return_value = fake_response
+
+            mock_instance = MagicMock()
+            mock_instance.run_async = AsyncMock(return_value=good_result)
+            mock_runner_cls.return_value = mock_instance
+
+            runner.budget = 2
+            result = await runner.run(tmp_path / "test")
+
+            assert result.total_tokens == 0
+
+    @pytest.mark.anyio
+    async def test_tokens_reset_between_runs(self, runner, tmp_path):
+        """A second run() invocation must not carry tokens from the first."""
+        good_result = SpiceResult(
+            success=True, Adc_dB=50.0, GBW_Hz=2e6, PM_deg=60.0,
+        )
+        default_json = json.dumps(runner.topology.default_params())
+
+        fake_response = MagicMock()
+        fake_response.choices = [MagicMock()]
+        fake_response.choices[0].message.content = default_json
+        fake_response.usage.total_tokens = 50
+
+        with patch("litellm.acompletion", new_callable=AsyncMock) as mock_llm, \
+             patch("eda_agents.core.spice_runner.SpiceRunner") as mock_runner_cls:
+            mock_llm.return_value = fake_response
+            mock_instance = MagicMock()
+            mock_instance.run_async = AsyncMock(return_value=good_result)
+            mock_runner_cls.return_value = mock_instance
+
+            runner.budget = 2
+            first = await runner.run(tmp_path / "run_a")
+            second = await runner.run(tmp_path / "run_b")
+
+            assert first.total_tokens == 100
+            assert second.total_tokens == 100  # fresh accumulator, not 200
+
+
+# ---------------------------------------------------------------------------
 # TrackDOrchestrator integration (mode validation)
 # ---------------------------------------------------------------------------
 

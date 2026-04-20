@@ -306,6 +306,16 @@ class AutoresearchRunner:
             else:
                 raise
 
+        # Accumulate backend-reported token usage so AutoresearchResult
+        # can surface a run-total to callers (MCP run_autoresearch uses
+        # this for cost hints). Backends that omit `usage` leave the
+        # counter at its current value; this matches the dataclass
+        # contract ("0 == not measured").
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            tokens = getattr(usage, "total_tokens", 0) or 0
+            self._tokens_this_run += int(tokens)
+
         content = response.choices[0].message.content or ""
         content = extract_json_from_response(content)
         params = json.loads(content)
@@ -436,6 +446,12 @@ class AutoresearchRunner:
         Returns AutoresearchResult with top-N designs for downstream use.
         """
         work_dir.mkdir(parents=True, exist_ok=True)
+
+        # Reset per-run token accumulator. Do not persist across runs —
+        # each run() invocation reports only its own LLM usage, even
+        # when resuming from a prior TSV (historical tokens are not
+        # recorded in the TSV and cannot be reconstructed).
+        self._tokens_this_run = 0
 
         program_store = self._make_program_store(work_dir)
         program_store.init()
@@ -575,6 +591,7 @@ class AutoresearchRunner:
                 top_n=[],
                 history=history,
                 tsv_path=str(tsv_path),
+                total_tokens=self._tokens_this_run,
             )
 
         return AutoresearchResult(
@@ -587,4 +604,5 @@ class AutoresearchRunner:
             top_n=top_n,
             history=history,
             tsv_path=str(tsv_path),
+            total_tokens=self._tokens_this_run,
         )
