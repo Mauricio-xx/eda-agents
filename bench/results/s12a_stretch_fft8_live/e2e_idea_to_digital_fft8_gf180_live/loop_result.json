@@ -1,0 +1,22 @@
+{
+  "iterations": [
+    {
+      "turn": 1,
+      "success": false,
+      "all_passed": false,
+      "sim_status": "missing",
+      "flow_status": "fail",
+      "gl_sim_status": "missing",
+      "failure_excerpt": "[harness error] Timeout after 7200s",
+      "cost_usd": 0.0,
+      "duration_s": 7200.371650066227,
+      "num_turns": 0,
+      "work_subdir": "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_stretch_fft8_live/e2e_idea_to_digital_fft8_gf180_live/runs/RUN_2026-04-18_15-00-51",
+      "error": "Timeout after 7200s"
+    }
+  ],
+  "total_cost_usd": 0.0,
+  "converged_turn": null,
+  "budget_exhausted": false,
+  "reason": "error"
+}

@@ -1,0 +1,68 @@
+{
+  "by_family": {
+    "end-to-end": {
+      "error": 0,
+      "fail": 1,
+      "pass": 0,
+      "skipped": 0,
+      "total": 1
+    }
+  },
+  "errored": 0,
+  "failed": 1,
+  "pass_rate": 0.0,
+  "passed": 0,
+  "results": [
+    {
+      "artifacts": [
+        "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_haiku_fft8_v2_assert_skill/e2e_idea_to_digital_fft8_haiku_gf180_live/config.yaml",
+        "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_haiku_fft8_v2_assert_skill/e2e_idea_to_digital_fft8_haiku_gf180_live/idea_to_chip_result.json"
+      ],
+      "backend_used": "idea-to-chip",
+      "duration_s": 9051.638361281715,
+      "errors": [
+        "Timeout after 1800s"
+      ],
+      "finished": "2026-04-18T21:17:13.885213+00:00",
+      "harness_used": "callable",
+      "metrics": {
+        "cost_usd": 0.0,
+        "gds_exists": 0.0,
+        "loop_budget_exhausted": 0.0,
+        "loop_converged": 0.0,
+        "loop_total_cost_usd": 0.0,
+        "loop_turns_used": 1.0,
+        "num_turns": 0.0,
+        "prompt_length": 25542.0,
+        "wall_time_s": 2163.298215849325
+      },
+      "notes": [
+        "pdk=gf180mcu",
+        "design_name=fft8",
+        "dry_run=False",
+        "complexity=complex",
+        "tb_framework=cocotb",
+        "error=Timeout after 1800s",
+        "adapter_runtime_s=9040.56",
+        "gds_exists=0 OUT of range (margin=-1)",
+        "loop_turns_used=1 in range (margin=0)",
+        "audit downgraded: ['compile', 'metrics_in_range', 'sim_run'] did not pass"
+      ],
+      "pdk_used": "gf180mcu",
+      "scores": {
+        "audit_passed": null,
+        "compile": 0.0,
+        "metrics_in_range": 0.0,
+        "regex_match": null,
+        "sim_run": 0.0,
+        "weighted_total": 0.0
+      },
+      "started": "2026-04-18T18:46:15.592483+00:00",
+      "status": "FAIL_AUDIT",
+      "task_id": "e2e_idea_to_digital_fft8_haiku_gf180_live"
+    }
+  ],
+  "run_id": "s12a_haiku_fft8_v2_assert_skill",
+  "skipped": 0,
+  "total": 1
+}

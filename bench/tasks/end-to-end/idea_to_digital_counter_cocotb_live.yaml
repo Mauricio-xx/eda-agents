@@ -27,7 +27,8 @@ inputs:
   librelane_python: /home/montanares/git/librelane/.venv/bin/python
 expected_metrics:
   gds_exists: {min: 1, unit: bool}
-  gl_sim_skipped: {min: 1, unit: bool}
+  gl_post_synth_ok: {min: 1, unit: bool}
+  gl_post_pnr_ok: {min: 1, unit: bool}
 scoring:
   - compile
   - sim_run
@@ -35,22 +36,24 @@ scoring:
 weight: 2.0
 timeout_s: 5400
 notes: |
-  S11 Fase 1.5 wiring probe: same counter4 description as Fase 0,
-  but tb_framework=cocotb so Phase 2.5 emits a cocotb testbench +
-  Makefile instead of a plain Verilog TB. Validates end-to-end
-  that the digital.cocotb_testbench skill inlined into the from-
-  spec prompt actually lands a signoff-clean GDS.
+  S12-A Gap 2 gate: same counter4 idea + cocotb testbench as S11
+  Fase 1.5, but now GlSimRunner drives the cocotb test against the
+  post-synth and post-PnR netlists via a generated Makefile. The
+  audit metrics match the iverilog variants exactly:
+  ``gds_exists`` + ``gl_post_synth_ok`` + ``gl_post_pnr_ok``.
 
-  Audit gate on this task is INTENTIONALLY different from the
-  iverilog variants: it checks `gds_exists` + `gl_sim_skipped`.
-  GlSimRunner's post-synth / post-PnR GL sim path is iverilog-only
-  today — cocotb gate-level sim requires wiring the cocotb Makefile
-  to pick up the gate-level netlist + stdcell verilog models, which
-  is S12+ scope. Until that lands, `gl_sim_skipped=1` is the
-  honest signal: the flow completed, the agent's pre-synth cocotb
-  sim passed, and LibreLane signoff STA + DRC/LVS are the
-  verification floor.
+  Pre-S12-A this task asserted ``gl_sim_skipped=1`` because the
+  cocotb path fell through to a clean skip in
+  ``run_post_flow_gl_sim_check``. That early-return is gone; the
+  same Makefile cocotb already uses for pre-synth sim is now
+  re-emitted in ``runs/<tag>/gl_sim/post_synth/`` and
+  ``runs/<tag>/gl_sim/post_pnr/`` with ``VERILOG_SOURCES`` pointing
+  at the gate-level netlist + stdcell models.
 
-  Env requirements same as idea_to_digital_counter_live.yaml, plus
-  cocotb installed in the LibreLane venv:
-    /path/to/librelane/.venv/bin/pip install cocotb
+  Env requirements:
+  * ``PDK_ROOT=/path/to/wafer-space-gf180mcu``
+  * ``EDA_AGENTS_ALLOW_DANGEROUS=1``
+  * cocotb 2.x installed in the LibreLane venv (the
+    ``librelane_python`` path above must point at that interp). The
+    GL-sim runner derives the venv ``bin/`` from this path and
+    prepends it to PATH so ``make sim`` finds ``cocotb-config``.

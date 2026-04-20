@@ -1,0 +1,117 @@
+id: e2e_idea_to_digital_mac_pipelined_gf180_live
+family: end-to-end
+category: digital
+domain: digital
+pdk: gf180mcu
+difficulty: hard
+expected_backend: librelane
+harness: callable
+topology: mac_pipelined
+inputs:
+  callable: eda_agents.bench.adapters:run_idea_to_digital_chip
+  description: |
+    8-bit pipelined multiply-accumulate (MAC) unit suitable as a
+    medium-tier S12-A loop-budget probe. The intent is to push
+    cell count past the S11 single-shot ceiling and exercise the
+    IdeaToRTLLoop critique-feedback path.
+
+    Top module: mac8_pipelined.
+
+    Interfaces (all signals synchronous on rising edge of clk):
+      - clk:           clock.
+      - rst_n:         active-low async reset (clears all stage
+                       registers and the accumulator to 0).
+      - start:         pulse-high to begin a new MAC stream.
+      - flush:         pulse-high to clear the accumulator
+                       between streams (registered, takes effect
+                       on the next clock).
+      - a[7:0]:        signed 8-bit operand A (two's complement).
+      - b[7:0]:        signed 8-bit operand B (two's complement).
+      - in_valid:      1 = (a, b) carry a real sample this cycle.
+      - acc_out[31:0]: signed accumulator value, registered.
+      - out_valid:     1 = acc_out reflects the most recent
+                       (a*b) added to the accumulator.
+
+    Pipeline (4 stages, registered between each):
+      Stage 1 (Fetch):  latch a, b, in_valid into stage-1 regs.
+      Stage 2 (Mult):   16-bit signed product = a_s1 * b_s1.
+      Stage 3 (Extend): sign-extend the 16-bit product to 32 bits.
+      Stage 4 (Accum):  acc <= acc + product_se (when valid).
+
+    The accumulator must saturate symmetrically at +2^31 - 1 and
+    -2^31 to match a real DSP block (no silent wraparound). Add a
+    wrap_detect output (1 cycle pulse) that fires when saturation
+    activates, so the testbench can audit it deterministically.
+
+    Reset behaviour:
+      - acc <= 0, all pipeline registers <= 0, out_valid <= 0.
+      - flush has the same effect on acc but does NOT clear the
+        pipeline registers in flight.
+
+    Testbench requirements (cocotb, see digital.cocotb_testbench):
+      - At least 12 vectors covering: positive*positive,
+        positive*negative, accumulation across multiple cycles,
+        a flush mid-stream, and a saturation case (drive enough
+        large positive products to overflow the accumulator).
+      - Verify that out_valid lags in_valid by exactly 4 clocks.
+      - Verify wrap_detect fires precisely on the saturation
+        cycle and only on that cycle.
+      - Vectors must be encoded in the test as (a, b, expected_acc,
+        expected_out_valid, expected_wrap_detect) tuples; the
+        testbench drives a, b on posedge and checks the outputs
+        4 clocks later inside a ReadOnly settle.
+      - Print "PASS" only when every vector matched.
+
+    Gate-level-safe: no # delay-driven stimulus, all cycles
+    posedge-aligned, no correctness check before the first
+    posedge after reset release.
+
+    Synthesis hints:
+      - CLOCK_PERIOD: start with 50 ns. The pipeline is 4-deep so
+        the multiplier slack should accommodate this on GF180MCU.
+      - Target density: leave LibreLane defaults; the MAC + accum
+        is small enough that the default 70% should route cleanly.
+  design_name: mac8_pipelined
+  pdk: gf180mcu
+  complexity: complex
+  tb_framework: cocotb
+  dry_run: false
+  skip_gl_sim: false
+  allow_dangerous: true
+  loop_budget: 8
+  max_budget_usd: 25.0
+  timeout_s: 7200
+  librelane_python: /home/montanares/git/librelane/.venv/bin/python
+expected_metrics:
+  gds_exists: {min: 1, unit: bool}
+  gl_post_synth_ok: {min: 1, unit: bool}
+  gl_post_pnr_ok: {min: 1, unit: bool}
+  loop_converged: {min: 1, unit: bool}
+scoring:
+  - compile
+  - sim_run
+  - metrics_in_range
+weight: 5.0
+timeout_s: 7200
+notes: |
+  S12-A Gap 1 LIVE GATE. The first probe of the IdeaToRTLLoop on a
+  medium-target design (8-bit pipelined MAC). Pass criteria:
+  Pass@3 with all expected_metrics green, OR an honest-fail where
+  the loop exhausted budget but the loop_result.json clearly
+  identifies the ceiling (sim assertion that kept failing,
+  recurring yosys error, etc).
+
+  Budget: $25 cumulative across up to 8 loop turns. Per-turn cost
+  is bounded to (budget - cost_so_far), so a single runaway turn
+  cannot blow the cap.
+
+  Acceptance gate is loop_converged=1 plus the standard
+  gds_exists / gl_post_synth_ok / gl_post_pnr_ok triple. If
+  loop_converged=0 but some gl_post_* metric is 1, that means the
+  flow hardened a GDS but the GL sim still fails — interesting
+  honest-fail mode (likely a gate-level x-prop bug); document
+  in the bench/results/s12a_medium_live/README.md.
+
+  Env requirements same as the S11 accum_cpu live task:
+  Claude CLI + EDA_AGENTS_ALLOW_DANGEROUS=1 + GF180 PDK +
+  LibreLane venv with cocotb 2.x.

@@ -1,0 +1,52 @@
+{
+  "success": true,
+  "all_passed": true,
+  "work_dir": "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_stretch_fft8_live_v2/e2e_idea_to_digital_fft8_gf180_live",
+  "design_name": "fft8",
+  "prompt_length": 22648,
+  "wall_time_s": 1199.8033728888258,
+  "num_turns": 5,
+  "cost_usd": 4.799679499999998,
+  "result_text_tail": "## Final Report\n\n**1. Design name and description**\n`fft8` \u2014 8-point radix-2 DIT FFT, 3-stage pipelined. 8-bit signed REAL inputs \u2192 16-bit signed complex bins in natural order. Bit-reversal applied to inputs (DIT standard); non-trivial twiddles W8^1, W8^3 encoded as Q1.7 with c = 91/128; stage-3 products arithmetic-shift-right by 7 with no rounding bias.\n\n**2. RTL interface & cell count**\n- Ports: `clk`, `rst_n`, `in_valid`, `x0..x7` (8-bit signed), `out_valid`, `X0_re/im..X7_re/im` (16-bit signed).\n- Latency: 3 clocks, in_valid \u2192 out_valid.\n- Cell count: **10,808** instances.\n\n**3. Timing \u2014 60 ns clock period (16.7 MHz)**\n- WNS nom_tt_025C_5v00: **+32.64 ns**\n- WNS nom_ss_125C_4v50: **+8.90 ns** (slow corner closed)\n- WNS nom_ff_n40C_5v50: **+41.95 ns**\n- Setup violations: **0**; Hold violations: **0**.\n\n**4. DRC**: **0** errors (route). KLayout.DRC skipped (no GF180 runset).\n**5. LVS**: **0** mismatches \u2014 PASS.\n**6. GDS**: `runs/RUN_2026-04-18_20-16-21/final/gds/fft8.gds` (2.87 MB, 500\u00d7500 \u00b5m\u00b2 die).\n\n**Verification**: cocotb `TESTS=1 PASS=1 FAIL=0 SKIP=0` across all 5 spec vectors (zeros, impulse\u2192|X|=100 all bins, DC\u2192X[0]=8, Nyquist\u2192X[4]=400, quarter-sine\u2192X[1]=255, X[7]=256 dominant).\n\n**Iterations**: First run at 50 ns clock produced WNS = -1.1 ns in nom_ss_125C_4v50 (20 setup violations). Single retry at CLOCK_PERIOD=60 ns closed timing at all corners.\n\n**Verdict: SIGNOFF CLEAN** \u2014 timing, DRC, LVS, and antenna all pass; cocotb RTL sim pass.\n\nDONE",
+  "error": null,
+  "config_path": "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_stretch_fft8_live_v2/e2e_idea_to_digital_fft8_gf180_live/config.yaml",
+  "gds_path": "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_stretch_fft8_live_v2/e2e_idea_to_digital_fft8_gf180_live/runs/RUN_2026-04-18_20-16-21/final/gds/fft8.gds",
+  "run_dir": "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_stretch_fft8_live_v2/e2e_idea_to_digital_fft8_gf180_live/runs/RUN_2026-04-18_20-16-21",
+  "gl_sim": {
+    "all_passed": true,
+    "run_dir": "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_stretch_fft8_live_v2/e2e_idea_to_digital_fft8_gf180_live/runs/RUN_2026-04-18_20-16-21",
+    "post_synth": {
+      "success": true,
+      "error": null,
+      "run_time_s": 1.385920031927526
+    },
+    "post_pnr": {
+      "success": true,
+      "error": null,
+      "run_time_s": 1.5505250887945294,
+      "sdf_warnings": 0
+    }
+  },
+  "loop_result": {
+    "iterations": [
+      {
+        "turn": 1,
+        "success": true,
+        "all_passed": true,
+        "sim_status": "pass",
+        "flow_status": "pass",
+        "gl_sim_status": "pass",
+        "failure_excerpt": "[agent report tail]\n## Final Report\n\n**1. Design name and description**\n`fft8` \u2014 8-point radix-2 DIT FFT, 3-stage pipelined. 8-bit signed REAL inputs \u2192 16-bit signed complex bins in natural order. Bit-reversal applied to inputs (DIT standard); non-trivial twiddles W8^1, W8^3 encoded as Q1.7 with c = 91/128; stage-3 products arithmetic-shift-right by 7 with no rounding bias.\n\n**2. RTL interface & cell count**\n- Ports: `clk`, `rst_n`, `in_valid`, `x0..x7` (8-bit signed), `out_valid`, `X0_re/im..X7_re/im` (16-bit signed).\n- Latency: 3 clocks, in_valid \u2192 out_valid.\n- Cell count: **10,808** instances.\n\n**3. Timing \u2014 60 ns clock period (16.7 MHz)**\n- WNS nom_tt_025C_5v00: **+32.64 ns**\n- WNS nom_ss_125C_4v50: **+8.90 ns** (slow corner closed)\n- WNS nom_ff_n40C_5v50: **+41.95 ns**\n- Setup violations: **0**; Hold violations: **0**.\n\n**4. DRC**: **0** errors (route). KLayout.DRC skipped (no GF180 runset).\n**5. LVS**: **0** mismatches \u2014 PASS.\n**6. GDS**: `runs/RUN_2026-04-18_20-16-21/final/gds/fft8.gds` (2.87 MB, 500\u00d7500 \u00b5m\u00b2 die).\n\n**Verification**: cocotb `TESTS=1 PASS=1 FAIL=0 SKIP=0` across all 5 spec vectors (zeros, impulse\u2192|X|=100 all bins, DC\u2192X[0]=8, Nyquist\u2192X[4]=400, quarter-sine\u2192X[1]=255, X[7]=256 dominant).\n\n**Iterations**: First run at 50 ns clock produced WNS = -1.1 ns in nom_ss_125C_4v50 (20 setup violations). Single retry at CLOCK_PERIOD=60 ns closed timing at all corners.\n\n**Verdict: SIGNOFF CLEAN** \u2014 timing, DRC, LVS, and antenna all pass; cocotb RTL sim pass.\n\nDONE",
+        "cost_usd": 4.799679499999998,
+        "duration_s": 1202.8297559116036,
+        "num_turns": 5,
+        "work_subdir": "/home/montanares/git/eda-agents-worktrees/s12a-digital-verification/bench/results/s12a_stretch_fft8_live_v2/e2e_idea_to_digital_fft8_gf180_live/runs/RUN_2026-04-18_20-16-21",
+        "error": null
+      }
+    ],
+    "total_cost_usd": 4.799679499999998,
+    "converged_turn": 1,
+    "budget_exhausted": false,
+    "reason": "converged"
+  }
+}

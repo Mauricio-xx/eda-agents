@@ -1,0 +1,102 @@
+id: e2e_idea_to_digital_mac_pipelined_gf180
+family: end-to-end
+category: digital
+domain: digital
+pdk: gf180mcu
+difficulty: hard
+expected_backend: librelane
+harness: callable
+topology: mac_pipelined
+inputs:
+  callable: eda_agents.bench.adapters:run_idea_to_digital_chip
+  description: |
+    8-bit pipelined multiply-accumulate (MAC) unit suitable as a
+    medium-tier S12-A loop-budget probe. The intent is to push
+    cell count past the S11 single-shot ceiling and exercise the
+    IdeaToRTLLoop critique-feedback path.
+
+    Top module: mac8_pipelined.
+
+    Interfaces (all signals synchronous on rising edge of clk):
+      - clk:           clock.
+      - rst_n:         active-low async reset (clears all stage
+                       registers and the accumulator to 0).
+      - start:         pulse-high to begin a new MAC stream.
+      - flush:         pulse-high to clear the accumulator
+                       between streams (registered, takes effect
+                       on the next clock).
+      - a[7:0]:        signed 8-bit operand A (two's complement).
+      - b[7:0]:        signed 8-bit operand B (two's complement).
+      - in_valid:      1 = (a, b) carry a real sample this cycle.
+      - acc_out[31:0]: signed accumulator value, registered.
+      - out_valid:     1 = acc_out reflects the most recent
+                       (a*b) added to the accumulator.
+
+    Pipeline (4 stages, registered between each):
+      Stage 1 (Fetch):  latch a, b, in_valid into stage-1 regs.
+      Stage 2 (Mult):   16-bit signed product = a_s1 * b_s1.
+      Stage 3 (Extend): sign-extend the 16-bit product to 32 bits.
+      Stage 4 (Accum):  acc <= acc + product_se (when valid).
+
+    The accumulator must saturate symmetrically at +2^31 - 1 and
+    -2^31 to match a real DSP block (no silent wraparound). Add a
+    wrap_detect output (1 cycle pulse) that fires when saturation
+    activates, so the testbench can audit it deterministically.
+
+    Reset behaviour:
+      - acc <= 0, all pipeline registers <= 0, out_valid <= 0.
+      - flush has the same effect on acc but does NOT clear the
+        pipeline registers in flight.
+
+    Testbench requirements (cocotb, see digital.cocotb_testbench):
+      - At least 12 vectors covering: positive*positive,
+        positive*negative, accumulation across multiple cycles,
+        a flush mid-stream, and a saturation case (drive enough
+        large positive products to overflow the accumulator).
+      - Verify that out_valid lags in_valid by exactly 4 clocks.
+      - Verify wrap_detect fires precisely on the saturation
+        cycle and only on that cycle.
+      - Vectors must be encoded in the test as (a, b, expected_acc,
+        expected_out_valid, expected_wrap_detect) tuples; the
+        testbench drives a, b on posedge and checks the outputs
+        4 clocks later inside a ReadOnly settle.
+      - Print "PASS" only when every vector matched.
+
+    Gate-level-safe: no # delay-driven stimulus, all cycles
+    posedge-aligned, no correctness check before the first
+    posedge after reset release.
+
+    Synthesis hints:
+      - CLOCK_PERIOD: start with 50 ns. The pipeline is 4-deep so
+        the multiplier slack should accommodate this on GF180MCU.
+      - Target density: leave LibreLane defaults; the MAC + accum
+        is small enough that the default 70% should route cleanly.
+  design_name: mac8_pipelined
+  pdk: gf180mcu
+  complexity: complex
+  tb_framework: cocotb
+  dry_run: true
+  skip_gl_sim: false
+  allow_dangerous: false
+  loop_budget: 8
+  timeout_s: 7200
+  librelane_python: /home/montanares/git/librelane/.venv/bin/python
+expected_metrics:
+  prompt_length: {min: 4000}
+scoring:
+  - compile
+weight: 1.0
+timeout_s: 7200
+notes: |
+  S12-A Gap 1 dry probe. Validates that the loop-budget=8 plumbing
+  builds a well-formed prompt for the medium-target MAC design
+  without launching the CLI. The live counterpart
+  (idea_to_digital_mac_pipelined_gf180_live.yaml) drives the real
+  IdeaToRTLLoop with a $25 budget and a 2 h timeout.
+
+  The MAC was chosen over an FFT-8 stretch goal because:
+  * Control flow is simple (no twiddle multipliers, no swaps).
+  * Cocotb assertions are easier (4-clock pipeline latency is
+    deterministic; FFT requires bit-reversal indexing).
+  * Closer to the S11 ALU pattern, so the loop's critique skills
+    can lean on the same RTL idioms.

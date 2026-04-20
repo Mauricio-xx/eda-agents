@@ -73,16 +73,18 @@ class TestIdeaToRTLResult:
         assert bad.all_passed is False
 
     def test_all_passed_true_when_gl_sim_skipped_flag_set(self):
-        # Fase 1.5 cocotb path: GlSimRunner can't do gate-level against
-        # a cocotb testbench yet, so run_post_flow_gl_sim_check returns
-        # skipped=True. That must NOT be treated as a failure.
+        # Defensive case: from S12-A onward GlSimRunner drives both
+        # iverilog and cocotb backends, so `gl_sim={skipped: True}` is
+        # only emitted when something downstream chose to skip
+        # explicitly (future infra-skip cases). The all_passed gate
+        # must still treat that as PASS — the flow itself succeeded.
         r = IdeaToRTLResult(
             success=True,
             work_dir=Path("/tmp"),
             gl_sim={
                 "all_passed": None,
                 "skipped": True,
-                "reason": "cocotb_tb_no_gl_sim_support",
+                "reason": "explicit_skip",
             },
         )
         assert r.all_passed is True
@@ -466,12 +468,18 @@ class TestGlSimHelperErrors:
         )
         assert "Testbench not found" in report["error"]
 
-    def test_cocotb_testbench_skips_cleanly(self, tmp_path):
-        # Fase 1.5: when tb_framework=cocotb is used, the agent writes
-        # test_<design>.py instead of tb_<design>.v. GlSimRunner's
-        # post-synth/post-PnR path is iverilog-only, so we must return
-        # an explicit skipped marker rather than silently passing or
-        # noisily failing.
+    def test_cocotb_testbench_runs_through_gl_sim(
+        self, tmp_path, monkeypatch
+    ):
+        # S12-A Gap 2: when tb_framework=cocotb is used, the agent
+        # writes tb/test_<design>.py + tb/Makefile. GlSimRunner now
+        # dispatches to its cocotb backend instead of returning a
+        # skip dict. We stub GlSimRunner here because the real path
+        # needs iverilog + cocotb + a populated LibreLane run dir;
+        # those are exercised end-to-end by the live bench task.
+        from eda_agents.core.flow_stage import FlowStage
+        from eda_agents.core.stages import gl_sim_runner as gl_mod
+
         (tmp_path / "config.yaml").write_text(
             yaml.safe_dump({"DESIGN_NAME": "widget"})
         )
@@ -480,16 +488,49 @@ class TestGlSimHelperErrors:
         tb_dir = tmp_path / "tb"
         tb_dir.mkdir(parents=True)
         (tb_dir / "test_widget.py").write_text("# cocotb test\n")
+        (tb_dir / "Makefile").write_text("# cocotb makefile\n")
+
+        from eda_agents.core.flow_stage import StageResult
+
+        def _ok(stage):
+            return StageResult(
+                stage=stage,
+                success=True,
+                metrics_delta={"gl_sim_pass": 1},
+                run_time_s=0.1,
+            )
+
+        captured: dict = {}
+
+        class _StubRunner:
+            def __init__(self, **kwargs):
+                captured["kwargs"] = kwargs
+
+            def run_post_synth(self):
+                return _ok(FlowStage.POST_SYNTH_SIM)
+
+            def run_post_pnr(self, corner=None):  # noqa: ARG002
+                return _ok(FlowStage.GL_SIM_POST_PNR)
+
+        monkeypatch.setattr(gl_mod, "GlSimRunner", _StubRunner)
 
         report = run_post_flow_gl_sim_check(
             work_dir=tmp_path,
             pdk_key="gf180mcu",
             pdk_root="/tmp/fake",
+            librelane_python="/tmp/fake_venv/bin/python",
         )
-        assert report["skipped"] is True
-        assert report["all_passed"] is None
-        assert report["reason"] == "cocotb_tb_no_gl_sim_support"
-        assert "cocotb" in report["note"].lower()
+
+        assert report["all_passed"] is True
+        assert "skipped" not in report or report.get("skipped") is False
+        assert report["post_synth"]["success"] is True
+        assert report["post_pnr"]["success"] is True
+        # librelane_python must reach GlSimRunner so the cocotb
+        # backend can locate cocotb-config in the right venv.
+        assert (
+            captured["kwargs"]["librelane_python"]
+            == "/tmp/fake_venv/bin/python"
+        )
 
     def test_print_gl_sim_report_handles_skip(self, capsys):
         report = {"all_passed": False, "error": "config.yaml not found"}
@@ -618,20 +659,29 @@ class TestBenchAdapterCocotbSkipPath:
             gl_sim=gl_sim,
         )
 
-    def test_cocotb_skipped_gl_sim_reports_pass(self, tmp_path, monkeypatch):
-        # Short-circuit generate_rtl_draft to yield a fake successful
-        # IdeaToRTLResult with gl_sim.skipped=True — same shape the live
-        # cocotb wiring probe produced.
-        from eda_agents.agents import idea_to_rtl as idea_to_rtl_mod
-        from eda_agents.bench import adapters as adapters_mod
-
+    def test_cocotb_gl_sim_passes_through_adapter(self, tmp_path, monkeypatch):
+        # S12-A Gap 2: cocotb runs through the real GlSimRunner cocotb
+        # backend now, so the gl_sim payload carries post_synth /
+        # post_pnr dicts (no more skipped marker for cocotb).
+        # Adapter must surface gl_post_synth_ok / gl_post_pnr_ok = 1
+        # and the audit on the cocotb live YAML — which now requires
+        # those metrics — must PASS.
         fake = self._fake_idea_result(
             tmp_path,
             gl_sim={
-                "all_passed": None,
-                "skipped": True,
-                "reason": "cocotb_tb_no_gl_sim_support",
-                "note": "...",
+                "all_passed": True,
+                "run_dir": str(tmp_path / "runs" / "RUN_1"),
+                "post_synth": {
+                    "success": True,
+                    "error": None,
+                    "run_time_s": 12.4,
+                },
+                "post_pnr": {
+                    "success": True,
+                    "error": None,
+                    "run_time_s": 21.7,
+                    "sdf_warnings": 0,
+                },
             },
         )
 
@@ -654,12 +704,14 @@ class TestBenchAdapterCocotbSkipPath:
 
         result = run_idea_to_digital_chip(task, tmp_path / "adapter_work")
         assert result.status is BenchStatus.PASS, (
-            f"adapter should treat cocotb gl_sim_skipped as PASS "
+            f"adapter should treat cocotb GL-sim PASS as overall PASS "
             f"(errors={result.errors}, notes={result.notes})"
         )
         assert result.sim_ok is True
         assert result.compile_ok is True
-        assert result.metrics["gl_sim_skipped"] == 1.0
+        assert result.metrics["gl_post_synth_ok"] == 1.0
+        assert result.metrics["gl_post_pnr_ok"] == 1.0
+        assert "gl_sim_skipped" not in result.metrics
         assert result.metrics["gds_exists"] == 1.0
 
     def test_failed_gl_sim_still_fails_audit(self, tmp_path, monkeypatch):

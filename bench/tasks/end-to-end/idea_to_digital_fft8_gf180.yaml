@@ -1,0 +1,161 @@
+id: e2e_idea_to_digital_fft8_gf180
+family: end-to-end
+category: digital
+domain: digital
+pdk: gf180mcu
+difficulty: hard
+expected_backend: librelane
+harness: callable
+topology: fft8
+inputs:
+  callable: eda_agents.bench.adapters:run_idea_to_digital_chip
+  description: |
+    8-point radix-2 decimation-in-time (DIT) FFT for 8-bit signed REAL
+    inputs, producing 8 complex frequency bins. Pipelined into 3
+    butterfly stages (one stage per radix-2 column) so LibreLane STA
+    sees a real clock domain. Stretch goal for the S12-A IdeaToRTLLoop:
+    twiddle coefficients beyond W4 are non-trivial and force the agent
+    to commit to a fixed-point format and a post-multiply scaling
+    shift, which is where the loop's critique-feedback path is
+    expected to earn its keep.
+
+    Top-level module name: `fft8`.
+
+    Interfaces (all signals synchronous on rising edge of clk):
+      - clk:      clock.
+      - rst_n:    active-low async reset (clears all stage registers
+                  and valid_out to 0).
+      - in_valid: 1 when the eight input samples below are valid this
+                  cycle.
+      - x0[7:0] .. x7[7:0]: eight signed 8-bit input samples in
+                            two's complement, presented in NATURAL
+                            order (x0 = time index 0, x7 = time 7).
+      - out_valid: 1 when the bin outputs below correspond to inputs
+                   sampled exactly 3 clocks earlier.
+      - X0_re[15:0], X0_im[15:0], ... X7_re[15:0], X7_im[15:0]:
+        eight complex frequency bins in NATURAL order (X0 = DC,
+        X4 = Nyquist), each split into 16-bit signed real + 16-bit
+        signed imaginary parts. Bin reordering (bit reversal) MUST
+        happen INSIDE the module so the consumer always sees
+        natural order.
+
+    Math (radix-2 DIT FFT, 3 stages):
+
+      Twiddles W8^k = exp(-j * 2*pi*k / 8) for k in {0,1,2,3}:
+        W8^0 =  1 +  0 j           (trivial)
+        W8^1 =  c - c j  where c = cos(pi/4) = 1/sqrt(2)
+        W8^2 =  0 -  1 j           (trivial — swap re/im, flip sign)
+        W8^3 = -c - c j
+
+      The non-trivial twiddles W8^1 and W8^3 require a fixed-point
+      approximation of c = 1/sqrt(2) ~ 0.70710678. Use Q1.7 signed
+      with c ~ 91 / 128 (so c is encoded as the 8-bit signed integer
+      91, and any product `signal * c` must be sign-extended to a
+      wide accumulator and then arithmetic-shift-right by 7 to
+      recover Q-format, with explicit truncation toward zero — do
+      NOT use rounding bias).
+
+      The standard radix-2 DIT butterfly is:
+        upper' = upper + (twiddle * lower)
+        lower' = upper - (twiddle * lower)
+
+      Three stages, with the input bit-reversed (so x_br[k] = x[bitrev3(k)]
+      where bitrev3 is the 3-bit bit-reversal). The consumer sees natural
+      order, so EITHER bit-reverse the inputs and emit in natural order,
+      OR run in natural order and bit-reverse the outputs. Pick ONE
+      consistently and document which.
+
+      Bit growth: each stage adds 1 bit; twiddle multiplication adds
+      another bit before the >>7 shift. Allocate internal pipeline
+      registers wide enough that stage-3 output fits in 16 bits
+      signed (one bit head-room over 8 + 3 = 11 bits).
+
+    Pipeline structure:
+      Stage 1 (Butterflies on adjacent pairs, twiddle = W8^0 only):
+        bf(x0,x1), bf(x2,x3), bf(x4,x5), bf(x6,x7)
+        -> stage1[0..7] registered, complex (re + im).
+      Stage 2 (Butterflies on pairs separated by 2, twiddles
+        {W8^0, W8^2} = {1, -j}):
+        bf(s1[0],s1[2]) *W8^0, bf(s1[1],s1[3]) *W8^2,
+        bf(s1[4],s1[6]) *W8^0, bf(s1[5],s1[7]) *W8^2
+        -> stage2[0..7] registered.
+      Stage 3 (Butterflies on pairs separated by 4, twiddles
+        {W8^0, W8^1, W8^2, W8^3}):
+        bf(s2[0],s2[4]) *W8^0, bf(s2[1],s2[5]) *W8^1,
+        bf(s2[2],s2[6]) *W8^2, bf(s2[3],s2[7]) *W8^3
+        -> stage3[0..7] registered, then bit-reversed into
+           X[0..7] outputs.
+
+      Latency: in_valid -> out_valid is exactly 3 clocks.
+
+    Reset behaviour:
+      - All stage registers <= 0, out_valid <= 0.
+      - in_valid is honoured the cycle AFTER rst_n goes high; the
+        first valid output appears 3 clocks after the first valid
+        input.
+
+    Testbench requirements (cocotb, see digital.cocotb_testbench):
+      - At least 5 vectors, including:
+          (a) x = {0, 0, 0, 0, 0, 0, 0, 0}   ; all bins zero.
+          (b) x = {100, 0, 0, 0, 0, 0, 0, 0} ; impulse;
+              all |X[k]| = 100 (within twiddle quantisation).
+          (c) x = {1, 1, 1, 1, 1, 1, 1, 1}   ; DC;
+              X[0] = 8, others = 0.
+          (d) x = {50, -50, 50, -50, 50, -50, 50, -50}
+              ; pure Nyquist; X[4] non-zero, others 0.
+          (e) x = {64, 45, 0, -45, -64, -45, 0, 45}
+              ; quarter-cycle sine at f = 1/8;
+              expect X[1] dominant magnitude.
+      - Drive in_valid for 1 clock per vector and check the
+        corresponding outputs exactly 3 clocks later inside a
+        ReadOnly settle.
+      - Numerical tolerance: because the testbench computes the
+        floating-point reference and the DUT uses Q1.7 twiddle
+        91/128, allow |X_dut - X_ref_int| <= 4 LSBs on each of
+        re and im for non-trivial-twiddle bins (k in {1,3,5,7}).
+        Trivial-twiddle bins (k in {0,2,4,6}) must match exactly.
+      - Print "PASS" only when every vector matched within
+        tolerance.
+      - Gate-level-safe: no # delay-driven stimulus, all cycles
+        posedge-aligned, no correctness check before the first
+        posedge after reset release.
+
+    Synthesis hints:
+      - CLOCK_PERIOD: start with 50 ns. The deepest combinational
+        path is one signed multiply + one signed add per stage,
+        which should fit comfortably on GF180MCU.
+      - Density: leave LibreLane defaults; estimated cell count is
+        ~6-12k after 4 multipliers + bit-reversal logic + 3 stages
+        of 32-bit-wide complex registers.
+  design_name: fft8
+  pdk: gf180mcu
+  complexity: complex
+  tb_framework: cocotb
+  dry_run: true
+  skip_gl_sim: false
+  allow_dangerous: false
+  loop_budget: 8
+  timeout_s: 7200
+  per_turn_timeout_s: 1800
+  librelane_python: /home/montanares/git/librelane/.venv/bin/python
+expected_metrics:
+  prompt_length: {min: 4000}
+scoring:
+  - compile
+weight: 1.0
+timeout_s: 7200
+notes: |
+  S12-A stretch dry probe. Validates the loop-budget=8 plumbing
+  builds a well-formed prompt for the FFT-8 stretch design. The
+  live counterpart (idea_to_digital_fft8_gf180_live.yaml) drives
+  the real IdeaToRTLLoop with a $25 budget and a 2 h timeout and
+  is intended to FORCE the loop's critique-feedback path to fire
+  at least once.
+
+  FFT-8 was chosen over the RV32E pipelined CPU as the cheaper
+  stretch target. The non-trivial twiddles W8^1 and W8^3 require
+  the agent to commit to a fixed-point format and a post-multiply
+  scaling shift; both are common LLM stumbling points and either
+  cocotb assertion failure (wrong tolerance bin) or yosys-lint
+  failure (wrong bit width on the multiplier output) would push
+  the loop into turn 2 with the new critique skill text injected.

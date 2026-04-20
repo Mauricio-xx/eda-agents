@@ -270,6 +270,27 @@ class IdeaToDigitalChipInputs(BaseModel):
             "Same post-synth / post-PnR GlSimRunner check either way."
         ),
     )
+    loop_budget: int = Field(
+        default=1, ge=1, le=20,
+        description=(
+            "Iterative idea-to-chip loop budget. ``1`` (default) keeps "
+            "S11 single-shot behaviour. ``> 1`` dispatches to the "
+            "IdeaToRTLLoop wrapper which runs propose -> sim -> "
+            "critique -> re-propose for designs that exceed the "
+            "single-turn ceiling (>~2k cells)."
+        ),
+    )
+    per_turn_timeout_s: int | None = Field(
+        default=None, ge=60, le=14400,
+        description=(
+            "Per-loop-turn wall-clock cap (seconds). Only consulted "
+            "when ``loop_budget > 1``. ``None`` (default) lets each "
+            "turn use the full task ``timeout_s``; set explicitly "
+            "when a single runaway CC CLI turn must not consume the "
+            "entire wall-clock budget (root cause of the S12-A FFT8 "
+            "stretch honest-fail)."
+        ),
+    )
 
     @field_validator("pdk")
     @classmethod

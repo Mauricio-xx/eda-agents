@@ -14,6 +14,7 @@ runs, not here.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -457,3 +458,349 @@ class TestRunPostPnr:
 
         assert not result.success
         assert "Post-PnR netlist" in (result.error or "")
+
+
+# ---------------------------------------------------------------------------
+# Cocotb backend (S12-A Gap 2)
+# ---------------------------------------------------------------------------
+
+
+def _make_cocotb_env(
+    *,
+    has_make: bool = True,
+    rc: int = 0,
+    stdout: str = "",
+    stderr: str = "",
+):
+    """Stub ToolEnvironment whose .run() returns a canned ``make`` outcome.
+
+    Captures the full call payload (cmd, cwd, env) into a list the
+    test reads back so it can assert on env vars and Makefile shape.
+    """
+    env = MagicMock()
+    env.which.side_effect = lambda t: Path(f"/usr/bin/{t}") if has_make else None
+
+    captured: list[dict] = []
+
+    def _run(cmd, cwd=None, env=None, timeout_s=None):  # noqa: ARG001
+        captured.append({"cmd": cmd, "cwd": Path(cwd) if cwd else None, "env": env})
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=rc, stdout=stdout, stderr=stderr
+        )
+
+    env.run.side_effect = _run
+    env._captured = captured  # noqa: SLF001 — test handle
+    return env
+
+
+def _make_cocotb_project(
+    project: Path, design_name: str, *, with_makefile: bool = True
+) -> None:
+    """Lay down a tb/ directory shaped like a cocotb run."""
+    tb_dir = project / "tb"
+    tb_dir.mkdir(parents=True, exist_ok=True)
+    (tb_dir / f"test_{design_name}.py").write_text(
+        f"# cocotb test for {design_name}\nimport cocotb\n"
+    )
+    if with_makefile:
+        (tb_dir / "Makefile").write_text(
+            "include $(shell cocotb-config --makefiles)/Makefile.sim\n"
+        )
+
+
+class TestDetectTbFlavour:
+    """Filesystem-only TB detection inside GlSimRunner."""
+
+    def test_detects_cocotb_when_test_and_makefile_exist(self, tmp_path, pdk_config):
+        project = tmp_path / "project"
+        _make_cocotb_project(project, "dut_top")
+        run_dir = _make_run_dir(tmp_path, "dut_top")
+        design = _make_design(project_dir=project, tb=None)
+
+        runner = GlSimRunner(
+            design=design, env=_make_env(),
+            run_dir=run_dir, pdk_config=pdk_config, pdk_root=tmp_path,
+        )
+        assert runner._detect_tb_flavour() == "cocotb"  # noqa: SLF001
+
+    def test_detects_iverilog_when_only_v_file_present(self, tmp_path, pdk_config):
+        project = tmp_path / "project"
+        (project / "tb").mkdir(parents=True)
+        (project / "tb" / "tb_dut_top.v").write_text("module tb; endmodule\n")
+        run_dir = _make_run_dir(tmp_path, "dut_top")
+        design = _make_design(project_dir=project, tb=None)
+
+        runner = GlSimRunner(
+            design=design, env=_make_env(),
+            run_dir=run_dir, pdk_config=pdk_config, pdk_root=tmp_path,
+        )
+        assert runner._detect_tb_flavour() == "iverilog"  # noqa: SLF001
+
+    def test_detects_none_when_tb_dir_empty(self, tmp_path, pdk_config):
+        project = tmp_path / "project"
+        (project / "tb").mkdir(parents=True)
+        run_dir = _make_run_dir(tmp_path, "dut_top")
+        design = _make_design(project_dir=project, tb=None)
+
+        runner = GlSimRunner(
+            design=design, env=_make_env(),
+            run_dir=run_dir, pdk_config=pdk_config, pdk_root=tmp_path,
+        )
+        assert runner._detect_tb_flavour() == "none"  # noqa: SLF001
+
+    def test_cocotb_test_without_makefile_falls_back(self, tmp_path, pdk_config):
+        # If only the cocotb test file exists (no Makefile), we cannot
+        # run cocotb — fall back to iverilog detection.
+        project = tmp_path / "project"
+        _make_cocotb_project(project, "dut_top", with_makefile=False)
+        (project / "tb" / "tb_dut_top.v").write_text("module tb; endmodule\n")
+        run_dir = _make_run_dir(tmp_path, "dut_top")
+        design = _make_design(project_dir=project, tb=None)
+
+        runner = GlSimRunner(
+            design=design, env=_make_env(),
+            run_dir=run_dir, pdk_config=pdk_config, pdk_root=tmp_path,
+        )
+        assert runner._detect_tb_flavour() == "iverilog"  # noqa: SLF001
+
+
+class TestCocotbPostSynth:
+    """Cocotb backend dispatch from run_post_synth."""
+
+    def _setup(self, tmp_path, pdk_config):
+        project = tmp_path / "project"
+        _make_cocotb_project(project, "dut_top")
+        cell_dir = (
+            tmp_path
+            / "fake_pdk"
+            / pdk_config.stdcell_verilog_models_glob.rsplit("/", 1)[0]
+        )
+        cell_dir.mkdir(parents=True)
+        (cell_dir / "stub.v").write_text("// stub\n")
+        run_dir = _make_run_dir(tmp_path, "dut_top")
+        design = _make_design(project_dir=project, tb=None)
+        return project, design, run_dir, tmp_path / "fake_pdk"
+
+    def test_dispatches_to_cocotb_and_invokes_make_sim(self, tmp_path, pdk_config):
+        project, design, run_dir, pdk_root = self._setup(tmp_path, pdk_config)
+        env = _make_cocotb_env(stdout="** TESTS=3 PASS=3 FAIL=0 SKIP=0 **\n")
+
+        runner = GlSimRunner(
+            design=design, env=env, run_dir=run_dir,
+            pdk_config=pdk_config, pdk_root=pdk_root,
+            librelane_python="/path/to/librelane/.venv/bin/python",
+        )
+        result = runner.run_post_synth()
+
+        assert result.success is True
+        assert result.metrics_delta["gl_sim_pass"] == 1
+        assert result.metrics_delta["gl_sim_tests"] == 3
+        assert result.metrics_delta["gl_sim_test_pass"] == 3
+        # make sim invoked, not iverilog/vvp
+        calls = env._captured  # noqa: SLF001
+        assert len(calls) == 1
+        assert calls[0]["cmd"] == ["make", "sim"]
+        # cwd is the GL-sim per-mode work dir
+        assert calls[0]["cwd"] == run_dir / "gl_sim" / "post_synth"
+        # PATH was prepended with the librelane venv bin
+        assert calls[0]["env"]["PATH"].startswith("/path/to/librelane/.venv/bin")
+
+    def test_path_prepend_uses_lexical_parent_not_resolved_symlink(
+        self, tmp_path, pdk_config
+    ):
+        """Regression: production venv pythons are symlinks back to the
+        system interpreter, so ``Path.resolve().parent`` would land in
+        ``/usr/bin`` instead of the venv's bin/. Cocotb-config lives in
+        the venv only, so the wrong PATH silently fails ``make sim``
+        (exit code 2) the way the first S12-A live attempt did. Lock
+        the lexical-parent contract here so this can't re-break.
+        """
+        project, design, run_dir, pdk_root = self._setup(tmp_path, pdk_config)
+        env = _make_cocotb_env(stdout="** TESTS=1 PASS=1 FAIL=0 SKIP=0 **\n")
+
+        # Build a fake venv whose python is a symlink to a script in
+        # an unrelated dir (mimics the real /usr/bin symlink target).
+        real_dir = tmp_path / "system" / "bin"
+        real_dir.mkdir(parents=True)
+        real_python = real_dir / "python3.12"
+        real_python.write_text("#!/bin/sh\nexit 0\n")
+        real_python.chmod(0o755)
+
+        venv_bin = tmp_path / "fake_venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        venv_python = venv_bin / "python"
+        venv_python.symlink_to(real_python)
+
+        runner = GlSimRunner(
+            design=design, env=env, run_dir=run_dir,
+            pdk_config=pdk_config, pdk_root=pdk_root,
+            librelane_python=str(venv_python),
+        )
+        runner.run_post_synth()
+
+        calls = env._captured  # noqa: SLF001
+        path = calls[0]["env"]["PATH"]
+        prepended = path.split(os.pathsep)[0]
+        # The PATH segment we add must be the LEXICAL parent — the
+        # venv's bin dir — not the real interpreter's directory.
+        assert prepended == str(venv_bin), (
+            f"PATH prepended {prepended!r}, expected the venv bin "
+            f"{str(venv_bin)!r}. If this asserts the resolved parent, "
+            "cocotb-config will not be findable in production."
+        )
+        assert prepended != str(real_dir)
+
+    def test_path_prepend_skipped_for_bare_python_command(
+        self, tmp_path, pdk_config
+    ):
+        """A bare ``python3`` (no path separator) means the caller is
+        relying on whatever PATH is already set up. The prepend logic
+        must NOT inject ``.`` (parent of a bare name) — that is both
+        useless and a privilege-escalation footgun.
+        """
+        project, design, run_dir, pdk_root = self._setup(tmp_path, pdk_config)
+        env = _make_cocotb_env(stdout="** TESTS=1 PASS=1 FAIL=0 SKIP=0 **\n")
+
+        runner = GlSimRunner(
+            design=design, env=env, run_dir=run_dir,
+            pdk_config=pdk_config, pdk_root=pdk_root,
+            librelane_python="python3",
+        )
+        runner.run_post_synth()
+
+        calls = env._captured  # noqa: SLF001
+        path = calls[0]["env"]["PATH"]
+        # PATH must be the inherited os.environ PATH unchanged — no
+        # leading "." segment.
+        first = path.split(os.pathsep)[0]
+        assert first != ".", (
+            "PATH was prepended with '.' — bare-command librelane_python "
+            "should leave PATH alone."
+        )
+
+    def test_writes_makefile_with_verilog_sources(self, tmp_path, pdk_config):
+        project, design, run_dir, pdk_root = self._setup(tmp_path, pdk_config)
+        env = _make_cocotb_env(stdout="** TESTS=1 PASS=1 FAIL=0 SKIP=0 **\n")
+
+        runner = GlSimRunner(
+            design=design, env=env, run_dir=run_dir,
+            pdk_config=pdk_config, pdk_root=pdk_root,
+        )
+        runner.run_post_synth()
+
+        makefile = (run_dir / "gl_sim" / "post_synth" / "Makefile").read_text()
+        assert "TOPLEVEL = dut_top" in makefile
+        assert "MODULE = test_dut_top" in makefile
+        assert "VERILOG_SOURCES" in makefile
+        # netlist + stdcell stub appear in VERILOG_SOURCES
+        assert "stub.v" in makefile
+        assert "dut_top.nl.v" in makefile
+        # No SDF flags for post-synth.
+        assert "-gspecify" not in makefile
+
+    def test_copies_cocotb_test_into_workdir(self, tmp_path, pdk_config):
+        project, design, run_dir, pdk_root = self._setup(tmp_path, pdk_config)
+        env = _make_cocotb_env(stdout="** TESTS=1 PASS=1 FAIL=0 SKIP=0 **\n")
+
+        runner = GlSimRunner(
+            design=design, env=env, run_dir=run_dir,
+            pdk_config=pdk_config, pdk_root=pdk_root,
+        )
+        runner.run_post_synth()
+
+        copied = run_dir / "gl_sim" / "post_synth" / "test_dut_top.py"
+        assert copied.is_file()
+        assert "cocotb test for dut_top" in copied.read_text()
+
+    def test_failed_summary_marks_stage_failure(self, tmp_path, pdk_config):
+        project, design, run_dir, pdk_root = self._setup(tmp_path, pdk_config)
+        env = _make_cocotb_env(stdout="** TESTS=2 PASS=1 FAIL=1 SKIP=0 **\n")
+
+        runner = GlSimRunner(
+            design=design, env=env, run_dir=run_dir,
+            pdk_config=pdk_config, pdk_root=pdk_root,
+        )
+        result = runner.run_post_synth()
+
+        assert result.success is False
+        assert result.metrics_delta["gl_sim_test_fail"] == 1
+        assert "1/2 cocotb tests failed" in (result.error or "")
+
+    def test_missing_summary_marks_stage_failure(self, tmp_path, pdk_config):
+        # cocotb did not run (e.g. Makefile syntax error before sim).
+        project, design, run_dir, pdk_root = self._setup(tmp_path, pdk_config)
+        env = _make_cocotb_env(stdout="cocotb: nothing happened here\n")
+
+        runner = GlSimRunner(
+            design=design, env=env, run_dir=run_dir,
+            pdk_config=pdk_config, pdk_root=pdk_root,
+        )
+        result = runner.run_post_synth()
+
+        assert result.success is False
+        assert "summary line not found" in (result.error or "")
+
+
+class TestCocotbPostPnr:
+    """Cocotb backend dispatch from run_post_pnr (with optional SDF)."""
+
+    def _setup_with_pnr(self, tmp_path, pdk_config):
+        project = tmp_path / "project"
+        _make_cocotb_project(project, "dut_top")
+        cell_dir = (
+            tmp_path
+            / "fake_pdk"
+            / pdk_config.stdcell_verilog_models_glob.rsplit("/", 1)[0]
+        )
+        cell_dir.mkdir(parents=True)
+        (cell_dir / "stub.v").write_text("// stub\n")
+        run_dir = _make_run_dir(tmp_path, "dut_top")
+        # Add post-PnR netlist + SDF.
+        _add_post_pnr_artifacts(run_dir, "dut_top", pdk_config.default_sta_corner)
+        design = _make_design(project_dir=project, tb=None)
+        return project, design, run_dir, tmp_path / "fake_pdk"
+
+    def test_post_pnr_without_sdf_annotation(self, tmp_path, pdk_config):
+        project, design, run_dir, pdk_root = self._setup_with_pnr(tmp_path, pdk_config)
+        env = _make_cocotb_env(stdout="** TESTS=1 PASS=1 FAIL=0 SKIP=0 **\n")
+
+        runner = GlSimRunner(
+            design=design, env=env, run_dir=run_dir,
+            pdk_config=pdk_config, pdk_root=pdk_root,
+            enable_sdf_annotation=False,
+        )
+        result = runner.run_post_pnr()
+
+        assert result.success is True
+        makefile = (run_dir / "gl_sim" / "post_pnr" / "Makefile").read_text()
+        assert "VERILOG_SOURCES" in makefile
+        # Wrapper not included when SDF annotation disabled.
+        assert "_sdf_annotate_wrapper.v" not in makefile
+
+    def test_post_pnr_with_sdf_annotation_includes_wrapper(self, tmp_path, pdk_config):
+        project, design, run_dir, pdk_root = self._setup_with_pnr(tmp_path, pdk_config)
+        env = _make_cocotb_env(stdout="** TESTS=1 PASS=1 FAIL=0 SKIP=0 **\n")
+
+        runner = GlSimRunner(
+            design=design, env=env, run_dir=run_dir,
+            pdk_config=pdk_config, pdk_root=pdk_root,
+            enable_sdf_annotation=True,
+        )
+        result = runner.run_post_pnr()
+
+        assert result.success is True
+        work_dir = run_dir / "gl_sim" / "post_pnr"
+        wrapper = work_dir / "_sdf_annotate_wrapper.v"
+        assert wrapper.is_file()
+        # Wrapper anchors on the design top, NOT tb.dut, because cocotb
+        # instantiates TOPLEVEL=<design> directly.
+        wrapper_text = wrapper.read_text()
+        assert "$sdf_annotate(" in wrapper_text
+        assert "dut_top" in wrapper_text
+        assert "tb.dut" not in wrapper_text
+        # Wrapper is part of VERILOG_SOURCES.
+        makefile = (work_dir / "Makefile").read_text()
+        assert "_sdf_annotate_wrapper.v" in makefile
+        # Compile flags carry the SDF-annotation enablers.
+        assert "-gspecify" in makefile
+        assert "-ginterconnect" in makefile

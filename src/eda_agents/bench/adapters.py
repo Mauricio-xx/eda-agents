@@ -1508,6 +1508,8 @@ def run_idea_to_digital_chip(
                 model=inputs.model,
                 allow_dangerous=inputs.allow_dangerous,
                 tb_framework=inputs.tb_framework,
+                loop_budget=inputs.loop_budget,
+                per_turn_timeout_s=inputs.per_turn_timeout_s,
             )
         )
     except Exception as exc:  # noqa: BLE001 — surface to bench runner
@@ -1526,19 +1528,30 @@ def run_idea_to_digital_chip(
         "num_turns": float(result.num_turns),
         "gds_exists": 1.0 if result.gds_path else 0.0,
     }
+    # Loop metrics: only emitted when loop_budget > 1 actually
+    # dispatched. The bench task can gate on these to assert
+    # convergence (loop_converged=1) or budget exhaustion in
+    # honest-fail probes.
+    if result.loop_result is not None:
+        lr = result.loop_result
+        metrics["loop_turns_used"] = float(len(lr.iterations))
+        metrics["loop_total_cost_usd"] = float(lr.total_cost_usd)
+        metrics["loop_converged"] = 1.0 if lr.converged_turn is not None else 0.0
+        metrics["loop_budget_exhausted"] = 1.0 if lr.budget_exhausted else 0.0
+        if lr.converged_turn is not None:
+            metrics["loop_converged_turn"] = float(lr.converged_turn)
     gl = result.gl_sim or {}
     if "post_synth" in gl:
         metrics["gl_post_synth_ok"] = 1.0 if gl["post_synth"].get("success") else 0.0
     if "post_pnr" in gl:
         metrics["gl_post_pnr_ok"] = 1.0 if gl["post_pnr"].get("success") else 0.0
     if gl.get("skipped"):
-        # Cocotb TB path: GlSimRunner doesn't support cocotb yet, so
-        # surface that honestly in the metrics rather than treating it
-        # as a silent PASS. 1.0 means "skipped cleanly", 0.0 means
-        # "skipped due to infra failure". Keeping bench tasks that
-        # require gl_post_*_ok honest when they run against cocotb
-        # means those YAMLs should drop those metrics or accept this
-        # signal instead.
+        # Defensive: from S12-A onward both iverilog and cocotb run
+        # through GlSimRunner, so this branch only fires when a
+        # downstream caller explicitly emits a skip dict (e.g. future
+        # infra-skip cases). The kwarg ``skip_gl_sim=True`` does not
+        # populate ``result.gl_sim`` at all — it leaves it ``None`` —
+        # so it never reaches here. 1.0 = skipped cleanly.
         metrics["gl_sim_skipped"] = 1.0
 
     artifacts: list[str] = []

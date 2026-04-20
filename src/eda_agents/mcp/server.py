@@ -206,6 +206,8 @@ async def generate_rtl_draft(
     max_budget_usd: float | None = None,
     model: str | None = None,
     tb_framework: str = "iverilog",
+    loop_budget: int = 1,
+    per_turn_timeout_s: int | None = None,
 ) -> dict[str, Any]:
     """Run the NL idea -> digital GDS pipeline (S11 Fase 0).
 
@@ -251,13 +253,25 @@ async def generate_rtl_draft(
         the from-spec prompt between the plain-Verilog TB + iverilog
         and the cocotb + Makefile path guided by the
         ``digital.cocotb_testbench`` skill.
+    loop_budget:
+        Iterative idea-to-chip loop budget. ``1`` (default) runs the
+        S11 single-shot path. ``> 1`` dispatches to
+        ``IdeaToRTLLoop`` which feeds critique back between turns;
+        the result includes a ``loop_result`` block with per-turn
+        diagnostics.
+    per_turn_timeout_s:
+        Per-loop-turn wall-clock cap (60..14400 s). Only consulted
+        when ``loop_budget > 1``. ``None`` (default) lets each turn
+        use the full ``timeout_s``; set when a single runaway turn
+        must not be allowed to consume the entire wall-clock budget.
 
     Returns
     -------
     dict
         JSON-serialisable result: ``success``, ``all_passed``,
         ``prompt_length``, ``work_dir``, ``gds_path`` (when produced),
-        ``run_dir``, ``gl_sim`` verdict, ``cost_usd``, ``error``.
+        ``run_dir``, ``gl_sim`` verdict, ``cost_usd``, ``error``,
+        and ``loop_result`` when ``loop_budget > 1``.
     """
     if complexity not in ("simple", "medium", "complex"):
         return {
@@ -273,6 +287,21 @@ async def generate_rtl_draft(
             "error": (
                 f"unknown tb_framework {tb_framework!r}; "
                 "allowed: iverilog, cocotb"
+            ),
+        }
+    if not 1 <= loop_budget <= 20:
+        return {
+            "success": False,
+            "error": (
+                f"loop_budget {loop_budget!r} out of range 1..20"
+            ),
+        }
+    if per_turn_timeout_s is not None and not 60 <= per_turn_timeout_s <= 14400:
+        return {
+            "success": False,
+            "error": (
+                f"per_turn_timeout_s {per_turn_timeout_s!r} "
+                "out of range 60..14400"
             ),
         }
     try:
@@ -291,6 +320,8 @@ async def generate_rtl_draft(
             max_budget_usd=max_budget_usd,
             model=model,
             tb_framework=tb_framework,
+            loop_budget=loop_budget,
+            per_turn_timeout_s=per_turn_timeout_s,
         )
     except Exception as exc:  # noqa: BLE001 — surface all failures to caller
         return {

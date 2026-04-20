@@ -73,19 +73,30 @@ class IdeaToRTLResult:
     gl_sim: dict[str, Any] | None = None
     # Raw CLI JSON (useful for audit).
     raw_json: dict[str, Any] = field(default_factory=dict)
+    # Iterative-loop metadata, populated when generate_rtl_draft was
+    # called with loop_budget > 1 and dispatched to
+    # eda_agents.agents.idea_to_rtl_loop.run_idea_to_rtl_loop.
+    # Carries the per-turn record so honest-fail diagnostics survive
+    # in the same artefact callers already consume. Typed loosely
+    # (Any) to avoid importing the loop module here and creating a
+    # circular dep — the concrete type is IdeaToRTLLoopResult.
+    loop_result: Any | None = None
 
     @property
     def all_passed(self) -> bool:
         """Overall gate: success AND (gl_sim skipped OR gl_sim passed).
 
-        Three cases, in order:
+        Cases, in order:
           1. harness failure            -> False (always).
-          2. gl_sim is None             -> True  (gl_sim explicitly skipped
-                                                  via ``skip_gl_sim=True``).
-          3. gl_sim["skipped"] is True  -> True  (gl_sim ran but was
-                                                  not applicable, e.g.
-                                                  cocotb testbench with
-                                                  no GL sim support yet).
+          2. gl_sim is None             -> True  (gl_sim explicitly
+                                                  skipped via
+                                                  ``skip_gl_sim=True``).
+          3. gl_sim["skipped"] is True  -> True  (defensive: future
+                                                  infra-skip cases or
+                                                  user-driven skip
+                                                  reported via the
+                                                  helper rather than
+                                                  the kwarg).
           4. gl_sim["all_passed"]       -> that boolean.
         """
         if not self.success:
@@ -119,6 +130,8 @@ async def generate_rtl_draft(
     skip_gl_sim: bool = False,
     dry_run: bool = False,
     tb_framework: str = "iverilog",
+    loop_budget: int = 1,
+    per_turn_timeout_s: int | None = None,
 ) -> IdeaToRTLResult:
     """Generate RTL + testbench + config + GDS from a natural language spec.
 
@@ -168,7 +181,49 @@ async def generate_rtl_draft(
         guided by the ``digital.cocotb_testbench`` skill). Same
         post-synth / post-PnR GlSimRunner check either way; cocotb
         just changes what the agent writes in Phase 2.5.
+    loop_budget:
+        Number of idea-to-chip iterations the caller will tolerate.
+        Default ``1`` keeps S11 single-shot behaviour byte-equivalent
+        (no new code path is reached). When ``loop_budget > 1`` and
+        ``dry_run is False``, the call is delegated to
+        :func:`eda_agents.agents.idea_to_rtl_loop.run_idea_to_rtl_loop`
+        with sim/lint critique skills feeding back between turns;
+        the final turn's :class:`IdeaToRTLResult` is returned with
+        ``loop_result`` populated for honest-fail diagnostics.
+    per_turn_timeout_s:
+        Wall-clock cap per loop turn (passed as the inner harness
+        ``timeout_s``). Only consulted on the loop dispatch path
+        (``loop_budget > 1``). ``None`` (default) keeps each turn
+        bounded by the full ``timeout_s``; set explicitly when the
+        loop should be able to abort a runaway turn and still have
+        budget left for re-propose iterations.
     """
+    if loop_budget > 1 and not dry_run:
+        # Lazy import to break the cycle: the loop module imports us.
+        from eda_agents.agents.idea_to_rtl_loop import run_idea_to_rtl_loop
+
+        loop_outcome = await run_idea_to_rtl_loop(
+            description=description,
+            design_name=design_name,
+            work_dir=work_dir,
+            max_turns=loop_budget,
+            max_budget_usd=max_budget_usd,
+            pdk=pdk if isinstance(pdk, str) else pdk.name,
+            pdk_root=pdk_root,
+            librelane_python=librelane_python,
+            allow_dangerous=allow_dangerous,
+            cli_path=cli_path,
+            timeout_s=timeout_s,
+            per_turn_timeout_s=per_turn_timeout_s,
+            model=model,
+            skip_gl_sim=skip_gl_sim,
+            tb_framework=tb_framework,
+        )
+        # The loop module already attached itself to the final turn's
+        # result. Return that result directly so callers consuming
+        # IdeaToRTLResult keep working unchanged.
+        return loop_outcome.idea_result
+
     work_dir = Path(work_dir).resolve()
     pdk_config = resolve_pdk(pdk) if not isinstance(pdk, PdkConfig) else pdk
 
@@ -244,6 +299,7 @@ async def generate_rtl_draft(
             work_dir=work_dir,
             pdk_key=pdk_config.name,
             pdk_root=resolved_root,
+            librelane_python=librelane_python,
         )
 
     return result
@@ -310,6 +366,7 @@ def run_post_flow_gl_sim_check(
     work_dir: Path,
     pdk_key: str,
     pdk_root: str,
+    librelane_python: str | None = None,
 ) -> dict[str, Any]:
     """Run post-synth + post-PnR GL sim against the agent's artefacts.
 
@@ -317,6 +374,14 @@ def run_post_flow_gl_sim_check(
     recent ``{work_dir}/runs/RUN_*/`` directory, reconstructs a minimal
     :class:`DigitalDesign` pointing at the agent's testbench, and
     invokes :class:`GlSimRunner` twice.
+
+    Both iverilog (``tb/tb_<design>.v``) and cocotb (``tb/Makefile``
+    + ``tb/test_<design>.py``) flavours are supported. Detection lives
+    in :meth:`GlSimRunner._detect_tb_flavour` so this helper just
+    forwards the work directory and lets the runner pick the right
+    backend. The cocotb path needs ``librelane_python`` to find
+    ``cocotb-config`` (cocotb 2.x is installed in the LibreLane venv,
+    not in the eda-agents venv).
 
     Returns a dict with:
 
@@ -373,29 +438,35 @@ def run_post_flow_gl_sim_check(
 
     tb_path = work_dir / "tb" / f"tb_{design_name}.v"
     cocotb_tb = work_dir / "tb" / f"test_{design_name}.py"
-    if not tb_path.is_file():
-        if cocotb_tb.is_file():
-            # The agent wrote a cocotb testbench instead of a plain-
-            # Verilog one. GlSimRunner's post-synth / post-PnR path is
-            # iverilog-only today; cocotb gate-level sim is S12+ work.
-            # Surface this as an explicit skip, not a silent PASS.
-            return {
-                "all_passed": None,
-                "skipped": True,
-                "reason": "cocotb_tb_no_gl_sim_support",
-                "note": (
-                    f"Found cocotb test file at {cocotb_tb}; GL sim "
-                    "against post-synth and post-PnR netlists for "
-                    "cocotb testbenches is not implemented in "
-                    "GlSimRunner yet. The agent's pre-synth cocotb "
-                    "simulation + LibreLane signoff STA + DRC/LVS "
-                    "are the verification floor for this run."
-                ),
-            }
+    cocotb_makefile = work_dir / "tb" / "Makefile"
+    has_iverilog_tb = tb_path.is_file()
+    has_cocotb_tb = cocotb_tb.is_file() and cocotb_makefile.is_file()
+    if not has_iverilog_tb and not has_cocotb_tb:
         return {
             "all_passed": False,
-            "error": f"Testbench not found at {tb_path}",
+            "error": (
+                f"Testbench not found: looked for iverilog at "
+                f"{tb_path} and cocotb at {cocotb_tb} + "
+                f"{cocotb_makefile}"
+            ),
         }
+
+    # Build the testbench spec the runner will see. The cocotb GL-sim
+    # path inside GlSimRunner uses its own filesystem detection, so
+    # this spec is mostly informational — but we keep it accurate so
+    # logs and downstream callers (autoresearch, manual re-runs) can
+    # tell which flavour was active.
+    if has_cocotb_tb:
+        tb_spec = TestbenchSpec(
+            driver="cocotb",
+            target="make sim",
+            work_dir_relative="tb",
+        )
+    else:
+        tb_spec = TestbenchSpec(
+            driver="iverilog",
+            target=str(tb_path.relative_to(work_dir)),
+        )
 
     class _AgentDesign(DigitalDesign):
         """Minimal DigitalDesign reconstructed from agent artefacts."""
@@ -440,10 +511,7 @@ def run_post_flow_gl_sim_check(
             return ""
 
         def testbench(self):
-            return TestbenchSpec(
-                driver="iverilog",
-                target=str(tb_path.relative_to(work_dir)),
-            )
+            return tb_spec
 
     design = _AgentDesign()
     runner = GlSimRunner(
@@ -453,6 +521,7 @@ def run_post_flow_gl_sim_check(
         pdk_config=pdk_config,
         pdk_root=pdk_root,
         design_name=design_name,
+        librelane_python=librelane_python,
     )
 
     synth_res = runner.run_post_synth()
@@ -510,6 +579,15 @@ def result_to_dict(result: IdeaToRTLResult) -> dict[str, Any]:
     def _maybe_str(p: Path | None) -> str | None:
         return str(p) if p is not None else None
 
+    loop_payload: Any | None = None
+    if result.loop_result is not None:
+        # Avoid importing the loop module just to type-narrow.
+        # ``IdeaToRTLLoopResult.to_dict`` is a stable surface.
+        try:
+            loop_payload = result.loop_result.to_dict()
+        except AttributeError:
+            loop_payload = None
+
     return {
         "success": result.success,
         "all_passed": result.all_passed,
@@ -525,6 +603,7 @@ def result_to_dict(result: IdeaToRTLResult) -> dict[str, Any]:
         "gds_path": _maybe_str(result.gds_path),
         "run_dir": _maybe_str(result.run_dir),
         "gl_sim": result.gl_sim,
+        "loop_result": loop_payload,
     }
 
 
