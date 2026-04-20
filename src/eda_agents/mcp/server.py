@@ -1,6 +1,6 @@
 """FastMCP server exposing eda-agents semantic tools.
 
-Six tools are registered:
+Seven tools are registered:
 
 * ``render_skill`` — render a named skill's prompt, optionally bound
   to a topology.
@@ -8,6 +8,9 @@ Six tools are registered:
   dotted prefix.
 * ``evaluate_topology`` — run a SPICE evaluation through
   ``SpiceEvaluationHandler`` for a topology at the given parameters.
+* ``describe_topology`` — return a topology's design-space, defaults,
+  target specs and FoM formula so MCP clients can prepare a valid
+  ``evaluate_topology`` call without Python introspection.
 * ``generate_rtl_draft`` — drive the NL idea -> digital GDS pipeline
   (S11 Fase 0) via Claude Code CLI + LibreLane + post-flow gate-level
   simulation. Async, long-running; callers should pass a work_dir and
@@ -139,6 +142,116 @@ def render_skill(name: str, topology_name: str | None = None) -> str:
 def list_skills(prefix: str | None = None) -> list[str]:
     """List registered skill names, optionally filtered by dotted prefix."""
     return [s.name for s in _list_skills(prefix=prefix)]
+
+
+def _relevant_skills_as_names(topology: Any) -> list[str]:
+    """Flatten ``relevant_skills()`` to a list of bare skill names.
+
+    ``CircuitTopology.relevant_skills`` may return either strings or
+    ``(name, kwargs)`` tuples. The MCP surface only needs the names.
+    """
+    try:
+        entries = topology.relevant_skills()
+    except Exception:  # noqa: BLE001 — metadata is optional
+        return []
+    names: list[str] = []
+    for entry in entries or []:
+        if isinstance(entry, tuple) and entry:
+            names.append(str(entry[0]))
+        elif isinstance(entry, str):
+            names.append(entry)
+    return names
+
+
+@mcp.tool()
+def describe_topology(name: str) -> dict[str, Any]:
+    """Return design-space and metadata for a registered topology.
+
+    Lets MCP clients discover what parameters a topology accepts —
+    their ranges, default values, target specs, and FoM formula —
+    without shelling out to Python for introspection. The output is a
+    strict superset of what :func:`evaluate_topology` needs to be
+    called successfully, plus human-readable prompt blocks.
+
+    Parameters
+    ----------
+    name:
+        Canonical topology name (from :func:`list_topology_names`).
+
+    Returns
+    -------
+    dict
+        On success::
+
+            {
+              "name": str,
+              "design_space": {
+                  var: {"min": float, "max": float, "default": float}
+              },
+              "default_params": {var: float},
+              "description": str,          # prompt_description()
+              "design_vars": str,          # design_vars_description()
+              "specs": str,                # specs_description()
+              "fom": str,                  # fom_description()
+              "reference": str,            # reference_description()
+              "exploration_hints": dict,
+              "relevant_skills": list[str],
+              "auxiliary_tools": str,
+            }
+
+        On unknown name::
+
+            {"error": "Unknown topology ..."}
+    """
+    try:
+        topology = get_topology_by_name(name)
+    except KeyError as exc:
+        return {"error": str(exc)}
+
+    try:
+        space = topology.design_space()
+    except Exception as exc:  # noqa: BLE001 — surface misconfigured topologies
+        return {"error": f"design_space() failed for {name!r}: {exc}"}
+
+    try:
+        defaults = topology.default_params()
+    except Exception:  # noqa: BLE001 — fall back to midpoint per ABC default
+        defaults = {n: (lo + hi) / 2.0 for n, (lo, hi) in space.items()}
+
+    design_space: dict[str, dict[str, float]] = {}
+    for var, (lo, hi) in space.items():
+        entry: dict[str, float] = {"min": float(lo), "max": float(hi)}
+        if var in defaults:
+            entry["default"] = float(defaults[var])
+        design_space[var] = entry
+
+    def _safe(getter_name: str) -> str:
+        getter = getattr(topology, getter_name, None)
+        if getter is None:
+            return ""
+        try:
+            return str(getter() or "")
+        except Exception:  # noqa: BLE001 — optional prompt metadata
+            return ""
+
+    try:
+        hints = dict(topology.exploration_hints() or {})
+    except Exception:  # noqa: BLE001 — optional
+        hints = {}
+
+    return {
+        "name": name,
+        "design_space": design_space,
+        "default_params": {k: float(v) for k, v in defaults.items()},
+        "description": _safe("prompt_description"),
+        "design_vars": _safe("design_vars_description"),
+        "specs": _safe("specs_description"),
+        "fom": _safe("fom_description"),
+        "reference": _safe("reference_description"),
+        "exploration_hints": hints,
+        "relevant_skills": _relevant_skills_as_names(topology),
+        "auxiliary_tools": _safe("auxiliary_tools_description"),
+    }
 
 
 @mcp.tool()
