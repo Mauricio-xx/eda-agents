@@ -1,0 +1,65 @@
+.subckt NMOS D G S B l=1.0 w=6.0 m=4 dm=1 
+XMAIN   D G S B sg13_lv_nmos l={l} w={w} m={m}
+XDUMMY1 B B B B sg13_lv_nmos l={l} w={w} m={dm}
+.ends NMOS
+
+.subckt DIFF_PAIR VP VN VDD1 VDD2 VTAIL B
+X0 VDD1 VP VTAIL B NMOS l=1.0 w=6.0 m=4 dm=1
+X1 VDD1 VP VTAIL B NMOS l=1.0 w=6.0 m=4 dm=1
+X2 VDD2 VN VTAIL B NMOS l=1.0 w=6.0 m=4 dm=1
+X3 VDD2 VN VTAIL B NMOS l=1.0 w=6.0 m=4 dm=1
+.ends DIFF_PAIR
+
+.subckt CMIRROR VREF VCOPY VSS VB l=2.0 w=6.0 m=1 
+XA VREF VREF VSS VB sg13_lv_nmos l={l} w={w} m={m}
+XB VCOPY VREF VSS VB sg13_lv_nmos l={l} w={w} m={m}
+XDUMMY VB VB VB VB sg13_lv_nmos l={l} w={w} m={2}
+.ends CMIRROR
+
+.subckt INPUT_STAGE VP VN VDD1 VDD2 IBIAS VSS B
+X0 VP VN VDD1 VDD2 wire0 B DIFF_PAIR
+X1 IBIAS wire0 VSS VSS CMIRROR l=2.0 w=6.0 m=4
+.ends INPUT_STAGE
+
+.subckt DIFF_TO_SINGLE VIN VOUT VSS VSS2 l=1.0 w=6.0 mt=8 mb=12 
+XTOP1 V1   VIN VSS  VSS sg13_lv_pmos l={l} w={w} m={mt}
+XTOP2 VSS2 VIN VSS  VSS sg13_lv_pmos l={l} w={w} m={mt}
+XBOT1 VIN  VIN V1   VSS sg13_lv_pmos l={l} w={w} m={mb}
+XBOT2 VOUT VIN VSS2 VSS sg13_lv_pmos l={l} w={w} m={mb}
+.ends DIFF_TO_SINGLE
+
+.subckt PMOS D G S B l=1.0 w=7.0 m=30 dm=3 
+XMAIN   D G S B sg13_lv_pmos l={l} w={w} m={m}
+XDUMMY1 B B B B sg13_lv_pmos l={l} w={w} m={dm}
+XDUMMY2 B B B B sg13_lv_pmos l={l} w={w} m={dm}
+.ends PMOS
+
+.subckt DIFF_TO_SINGLE_CS VIN1 VIN2 VOUT VSS VSS2
+X0 VIN1 VIN2 VSS VSS2 DIFF_TO_SINGLE l=1.0 w=6.0 mt=8 mb=12
+X1 VOUT VIN2 VSS VSS PMOS l=1.0 w=7.0 m=30 dm=3
+X2 VOUT VIN2 VSS VSS PMOS l=1.0 w=7.0 m=30 dm=3
+.ends DIFF_TO_SINGLE_CS
+
+.subckt MIMCap V1 V2 l=1 w=1
+X1 V1 V2 cap_cmim l={l} w={w}
+.ends MIMCap
+
+.subckt MIMCAP_ARR V1 V2
+X0 V1 V2 MIMCap l=12.0 w=12.0
+X1 V1 V2 MIMCap l=12.0 w=12.0
+X2 V1 V2 MIMCap l=12.0 w=12.0
+X3 V1 V2 MIMCap l=12.0 w=12.0
+X4 V1 V2 MIMCap l=12.0 w=12.0
+X5 V1 V2 MIMCap l=12.0 w=12.0
+.ends MIMCAP_ARR
+
+.subckt GAIN_STAGE VIN1 VIN2 VOUT VDD IBIAS GND
+X0 VIN1 VIN2 VOUT VDD wire0 DIFF_TO_SINGLE_CS
+X1 IBIAS VOUT GND GND CMIRROR l=2.0 w=6.0 m=4
+X2 VOUT wire0 MIMCAP_ARR
+.ends GAIN_STAGE
+
+.subckt OPAMP_TWO_STAGE VDD GND DIFFPAIR_BIAS VP VN CS_BIAS VOUT
+X0 VP VN wire0 wire1 DIFFPAIR_BIAS GND GND INPUT_STAGE
+X1 wire0 wire1 VOUT VDD CS_BIAS GND GAIN_STAGE
+.ends OPAMP_TWO_STAGE

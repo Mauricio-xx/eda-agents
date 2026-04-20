@@ -1,0 +1,91 @@
+* Composition: custom
+
+.lib $PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_tt
+.lib $PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/models/cornerCAP.lib cap_typ
+
+Xcm_unit_ref IBIAS IBIAS GND GND sg13_lv_nmos w=2.0u l=1.0u nf=1
+Xcm_unit_out cm_b0.VREF IBIAS GND GND sg13_lv_nmos w=2.0u l=1.0u nf=1 m=1
+
+Xcm_b0_ref cm_b0.VREF cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=1
+Xcm_b0_out cm_b0.VCOPY cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=1 m=1
+
+Xcm_b1_ref cm_b0.VREF cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=2
+Xcm_b1_out cm_b1.VCOPY cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=2 m=2
+
+Xcm_b2_ref cm_b0.VREF cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=4
+Xcm_b2_out cm_b2.VCOPY cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=4 m=4
+
+Xcm_b3_ref cm_b0.VREF cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=8
+Xcm_b3_out cm_b3.VCOPY cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=8 m=8
+
+Xsw_b0_p cm_b0.VCOPY B0 IOP GND sg13_lv_nmos w=1.0u l=0.13u nf=1 m=1
+
+Xsw_b0_n cm_b0.VCOPY B0N ION GND sg13_lv_nmos w=1.0u l=0.13u nf=1 m=1
+
+Xsw_b1_p cm_b1.VCOPY B1 IOP GND sg13_lv_nmos w=2.0u l=0.13u nf=1 m=1
+
+Xsw_b1_n cm_b1.VCOPY B1N ION GND sg13_lv_nmos w=2.0u l=0.13u nf=1 m=1
+
+Xsw_b2_p cm_b2.VCOPY B2 IOP GND sg13_lv_nmos w=4.0u l=0.13u nf=1 m=1
+
+Xsw_b2_n cm_b2.VCOPY B2N ION GND sg13_lv_nmos w=4.0u l=0.13u nf=1 m=1
+
+Xsw_b3_p cm_b3.VCOPY B3 IOP GND sg13_lv_nmos w=8.0u l=0.13u nf=1 m=1
+
+Xsw_b3_n cm_b3.VCOPY B3N ION GND sg13_lv_nmos w=8.0u l=0.13u nf=1 m=1
+
+* Testbench
+* source for VDD
+VVDD VDD 0 dc 1.2
+* source for IBIAS
+IIBIAS IBIAS 0 dc 1u
+* source for B0
+VB0 B0 0 pulse 0 1.2 0 1n 1n 100n 200n
+* source for B0N
+VB0N B0N 0 pulse 1.2 0 0 1n 1n 100n 200n
+* source for B1
+VB1 B1 0 pulse 0 1.2 0 1n 1n 200n 400n
+* source for B1N
+VB1N B1N 0 pulse 1.2 0 0 1n 1n 200n 400n
+* source for B2
+VB2 B2 0 pulse 0 1.2 0 1n 1n 400n 800n
+* source for B2N
+VB2N B2N 0 pulse 1.2 0 0 1n 1n 400n 800n
+* source for B3
+VB3 B3 0 pulse 0 1.2 0 1n 1n 800n 1600n
+* source for B3N
+VB3N B3N 0 pulse 1.2 0 0 1n 1n 800n 1600n
+
+.control
+tran 1n 3.2u
+measure tran iop_avg_0001 avg i(V_IOP) from=100n to=200n
+measure tran ion_avg_0001 avg i(V_ION) from=100n to=200n
+measure tran iop_avg_0010 avg i(V_IOP) from=200n to=400n
+measure tran ion_avg_0010 avg i(V_ION) from=200n to=400n
+measure tran iop_avg_0011 avg i(V_IOP) from=300n to=400n
+measure tran ion_avg_0011 avg i(V_ION) from=300n to=400n
+measure tran iop_avg_0100 avg i(V_IOP) from=400n to=800n
+measure tran ion_avg_0100 avg i(V_ION) from=400n to=800n
+measure tran iop_avg_1000 avg i(V_IOP) from=800n to=1600n
+measure tran ion_avg_1000 avg i(V_ION) from=800n to=1600n
+measure tran iop_avg_1111 avg i(V_IOP) from=1500n to=1600n
+measure tran ion_avg_1111 avg i(V_ION) from=1500n to=1600n
+.param lsb_current = 1e-6
+.param dac_range = 15 * lsb_current
+.param i_out_0001 = iop_avg_0001 - ion_avg_0001
+.param i_out_0010 = iop_avg_0010 - ion_avg_0010
+.param i_out_0011 = iop_avg_0011 - ion_avg_0011
+.param i_out_0000 = 0
+.param i_out_ideal_0001 = lsb_current
+.param i_out_ideal_0010 = 2 * lsb_current
+.param i_out_ideal_0011 = 3 * lsb_current
+.param i_out_ideal_0000 = 0
+.param inl_0001 = (i_out_0001 - i_out_ideal_0001) / lsb_current
+.param inl_0010 = (i_out_0010 - i_out_ideal_0010) / lsb_current
+.param inl_0011 = (i_out_0011 - i_out_ideal_0011) / lsb_current
+.param dnl_0001 = (i_out_0001 - i_out_0000) / lsb_current - 1
+.param dnl_0010 = (i_out_0010 - i_out_0001) / lsb_current - 1
+.param dnl_0011 = (i_out_0011 - i_out_0010) / lsb_current - 1
+quit
+.endc
+.end

@@ -1,0 +1,73 @@
+* Composition: custom
+
+.lib $PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_tt
+.lib $PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/models/cornerCAP.lib cap_typ
+
+Xcm_unit_ref IBIAS IBIAS GND GND sg13_lv_nmos w=2.0u l=1.0u nf=1
+Xcm_unit_out cm_b0.VREF IBIAS GND GND sg13_lv_nmos w=2.0u l=1.0u nf=1 m=1
+
+Xcm_b0_ref cm_b0.VREF cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=1
+Xcm_b0_out cm_b0.VCOPY cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=1 m=1
+
+Xcm_b1_ref cm_b0.VREF cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=2
+Xcm_b1_out cm_b1.VCOPY cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=2 m=2
+
+Xcm_b2_ref cm_b0.VREF cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=4
+Xcm_b2_out cm_b2.VCOPY cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=4 m=4
+
+Xcm_b3_ref cm_b0.VREF cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=8
+Xcm_b3_out cm_b3.VCOPY cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=8 m=8
+
+Xsw_b0_p cm_b0.VCOPY B0 IOP GND sg13_lv_nmos w=1.0u l=0.13u nf=1 m=1
+
+Xsw_b0_n cm_b0.VCOPY B0N ION GND sg13_lv_nmos w=1.0u l=0.13u nf=1 m=1
+
+Xsw_b1_p cm_b1.VCOPY B1 IOP GND sg13_lv_nmos w=2.0u l=0.13u nf=1 m=1
+
+Xsw_b1_n cm_b1.VCOPY B1N ION GND sg13_lv_nmos w=2.0u l=0.13u nf=1 m=1
+
+Xsw_b2_p cm_b2.VCOPY B2 IOP GND sg13_lv_nmos w=4.0u l=0.13u nf=1 m=1
+
+Xsw_b2_n cm_b2.VCOPY B2N ION GND sg13_lv_nmos w=4.0u l=0.13u nf=1 m=1
+
+Xsw_b3_p cm_b3.VCOPY B3 IOP GND sg13_lv_nmos w=8.0u l=0.13u nf=1 m=1
+
+Xsw_b3_n cm_b3.VCOPY B3N ION GND sg13_lv_nmos w=8.0u l=0.13u nf=1 m=1
+
+* Testbench
+* source for VDD
+VVDD VDD 0 1.2
+* source for IBIAS
+IIBIAS IBIAS 0 DC 1u
+* source for B0
+VB0 B0 0 PWL(0n 0V 10n 1.2V 20n 0V)
+* source for B0N
+VB0N B0N 0 PWL(0n 1.2V 10n 0V 20n 1.2V)
+* source for B1
+VB1 B1 0 PWL(0n 0V 20n 1.2V 40n 0V)
+* source for B1N
+VB1N B1N 0 PWL(0n 1.2V 20n 0V 40n 1.2V)
+* source for B2
+VB2 B2 0 PWL(0n 0V 40n 1.2V 80n 0V)
+* source for B2N
+VB2N B2N 0 PWL(0n 1.2V 40n 0V 80n 1.2V)
+* source for B3
+VB3 B3 0 PWL(0n 0V 80n 1.2V 160n 0V)
+* source for B3N
+VB3N B3N 0 PWL(0n 1.2V 80n 0V 160n 1.2V)
+* source for V_IOP_SENSE
+VV_IOP_SENSE V_IOP_SENSE 0 DC 0V
+* source for V_ION_SENSE
+VV_ION_SENSE V_ION_SENSE 0 DC 0V
+
+.control
+tran 1n 160n
+measure tran iop_max FIND i(V_IOP_SENSE) AT = 150n
+measure tran ion_max FIND i(V_ION_SENSE) AT = 150n
+measure tran iop_min FIND i(V_IOP_SENSE) AT = 5n
+measure tran ion_min FIND i(V_ION_SENSE) AT = 5n
+measure tran iout_diff_max PARAM = (iop_max - ion_max)
+measure tran iout_diff_min PARAM = (iop_min - ion_min)
+quit
+.endc
+.end

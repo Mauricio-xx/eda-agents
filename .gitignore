@@ -20,6 +20,8 @@ SESSION_HANDOFF.md
 data/gf180-template/
 trackd_results/
 .venv-glayout/
+# Also match symlinks to a shared .venv-glayout (worktrees).
+.venv-glayout
 # Autoresearch digital default output dir (when a test / script runs
 # with no explicit work_dir). Never committed.
 autoresearch_digital/
@@ -238,3 +240,12 @@ bench/results/s12c_ihp_live_lvs/e2e_idea_to_digital_counter_ihp_live/*.error.log
 # Re-assert non-baseline hygiene inside the baselines (ngspice scratch).
 bench/results/s9_initial_smoke/**/*.dat
 bench/results/gap_closure_llm_proof/**/*.dat
+
+# S12-B Gap 4 partial-landing evidence (SG13G2 opamp_twostage). The
+# local .gitignore inside the dir excludes GDS/lvsdb/extracted netlists.
+!bench/results/s12b_sg13g2_opamp_layout/
+!bench/results/s12b_sg13g2_opamp_layout/**
+
+# S12-B Gap 5 live bench for 4-bit current-steering DAC.
+!bench/results/s12b_custom_composition_live_i4dac/
+!bench/results/s12b_custom_composition_live_i4dac/**

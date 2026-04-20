@@ -1,0 +1,119 @@
+* Composition: custom
+
+.lib $PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_tt
+.lib $PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/models/cornerCAP.lib cap_typ
+
+Xcm_unit_ref IBIAS IBIAS GND GND sg13_lv_nmos w=2.0u l=1.0u nf=1
+Xcm_unit_out cm_b0.VREF IBIAS GND GND sg13_lv_nmos w=2.0u l=1.0u nf=1 m=1
+
+Xcm_b0_ref cm_b0.VREF cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=1
+Xcm_b0_out cm_b0.VCOPY cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=1 m=1
+
+Xcm_b1_ref cm_b0.VREF cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=2
+Xcm_b1_out cm_b1.VCOPY cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=2 m=2
+
+Xcm_b2_ref cm_b0.VREF cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=4
+Xcm_b2_out cm_b2.VCOPY cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=4 m=4
+
+Xcm_b3_ref cm_b0.VREF cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=8
+Xcm_b3_out cm_b3.VCOPY cm_b0.VREF GND GND sg13_lv_nmos w=2.0u l=1.0u nf=8 m=8
+
+Xsw_b0_p cm_b0.VCOPY B0_P IOP_SENSE_IN GND sg13_lv_nmos w=1.0u l=0.13u nf=1 m=1
+
+Xsw_b0_n cm_b0.VCOPY B0_N ION_SENSE_IN GND sg13_lv_nmos w=1.0u l=0.13u nf=1 m=1
+
+Xsw_b1_p cm_b1.VCOPY B1_P IOP_SENSE_IN GND sg13_lv_nmos w=1.0u l=0.13u nf=2 m=1
+
+Xsw_b1_n cm_b1.VCOPY B1_N ION_SENSE_IN GND sg13_lv_nmos w=1.0u l=0.13u nf=2 m=1
+
+Xsw_b2_p cm_b2.VCOPY B2_P IOP_SENSE_IN GND sg13_lv_nmos w=1.0u l=0.13u nf=4 m=1
+
+Xsw_b2_n cm_b2.VCOPY B2_N ION_SENSE_IN GND sg13_lv_nmos w=1.0u l=0.13u nf=4 m=1
+
+Xsw_b3_p cm_b3.VCOPY B3_P IOP_SENSE_IN GND sg13_lv_nmos w=1.0u l=0.13u nf=8 m=1
+
+Xsw_b3_n cm_b3.VCOPY B3_N ION_SENSE_IN GND sg13_lv_nmos w=1.0u l=0.13u nf=8 m=1
+
+* Testbench
+* source for VDD
+VVDD VDD 0 1.2V
+* source for IBIAS
+IIBIAS IBIAS 0 DC 1u
+* source for B0_P
+VB0_P B0_P 0 PWL(0 0V 1n 0V)
+* source for B0_N
+VB0_N B0_N 0 PWL(0 1.2V 1n 1.2V)
+* source for B1_P
+VB1_P B1_P 0 PWL(0 0V 1n 0V)
+* source for B1_N
+VB1_N B1_N 0 PWL(0 1.2V 1n 1.2V)
+* source for B2_P
+VB2_P B2_P 0 PWL(0 0V 1n 0V)
+* source for B2_N
+VB2_N B2_N 0 PWL(0 1.2V 1n 1.2V)
+* source for B3_P
+VB3_P B3_P 0 PWL(0 0V 1n 0V)
+* source for B3_N
+VB3_N B3_N 0 PWL(0 1.2V 1n 1.2V)
+* source for V_IOP_SENSE
+VV_IOP_SENSE V_IOP_SENSE 0 0V
+* source for V_ION_SENSE
+VV_ION_SENSE V_ION_SENSE 0 0V
+
+.control
+op
+.control
+foreach code 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+let b0 = (code & 1)
+let b1 = (code & 2) / 2
+let b2 = (code & 4) / 4
+let b3 = (code & 8) / 8
+alter B0_P = {b0 * 1.2}
+alter B0_N = {(1-b0) * 1.2}
+alter B1_P = {b1 * 1.2}
+alter B1_N = {(1-b1) * 1.2}
+alter B2_P = {b2 * 1.2}
+alter B2_N = {(1-b2) * 1.2}
+alter B3_P = {b3 * 1.2}
+alter B3_N = {(1-b3) * 1.2}
+op
+let iop_val = i(V_IOP_SENSE)
+let ion_val = i(V_ION_SENSE)
+let diff_i = iop_val - ion_val
+set @(code)iop = iop_val
+set @(code)ion = ion_val
+set @(code)diff = diff_i
+end
+let ideal_lsb = 1e-6
+let ideal_currents = vector(16)
+foreach code 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+let ideal_currents[code] = code * ideal_lsb
+end
+let measured_currents = vector(16)
+foreach code 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+let measured_currents[code] = @(code)diff
+end
+let dnl_values = vector(15)
+let inl_values = vector(16)
+let sum_dnl = 0
+let max_dnl = 0
+let max_inl = 0
+let zero_offset = measured_currents[0] - ideal_currents[0]
+foreach code 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+let dnl_values[code-1] = (measured_currents[code] - measured_currents[code-1]) / ideal_lsb - 1
+if abs(dnl_values[code-1]) > max_dnl
+set max_dnl = abs(dnl_values[code-1])
+end
+end
+foreach code 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+let inl_values[code] = (measured_currents[code] - ideal_currents[code]) / ideal_lsb - zero_offset / ideal_lsb
+if abs(inl_values[code]) > max_inl
+set max_inl = abs(inl_values[code])
+end
+end
+measure DNL_LSB max_dnl
+measure INL_LSB max_inl
+.endc
+quit
+.endc
+.end

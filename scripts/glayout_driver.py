@@ -308,23 +308,6 @@ def generate(spec: dict) -> dict:
 
     component_lower = component.lower()
 
-    # opamp_twostage is gf180-only at the time this driver was last
-    # exercised; the SG13G2 port is WIP upstream. Fail fast rather than
-    # surface a cryptic gLayout error.
-    if (
-        component_lower in ("opamp", "opamp_twostage", "ota")
-        and pdk_name != "gf180mcu"
-    ):
-        return {
-            "success": False,
-            "error": (
-                f"opamp_twostage is gf180mcu-only today. "
-                f"Asked for pdk={pdk_name!r}. SG13G2 opamp is WIP in the "
-                "gLayout fork (branch feature/sg13g2-pdk-support) — use "
-                "diff_pair / current_mirror / fvf for that PDK instead."
-            ),
-        }
-
     try:
         if component_lower in ("nmos", "nfet"):
             nmos = _import_fet("nmos")
@@ -369,7 +352,8 @@ def generate(spec: dict) -> dict:
                 "success": False,
                 "error": (
                     f"Unknown component: {component!r} for pdk={pdk_name!r}. "
-                    f"Supported: nmos, pmos, mimcap, opamp (gf180 only), "
+                    f"Supported: nmos, pmos, mimcap, opamp (gf180 LVS-clean; "
+                    f"SG13G2 GDS-only, see docs/s12_findings/), "
                     f"diff_pair, current_mirror, fvf."
                 ),
             }

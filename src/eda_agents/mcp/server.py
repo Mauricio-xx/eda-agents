@@ -502,6 +502,101 @@ async def generate_analog_layout(
     return await _asyncio.to_thread(_run_blocking)
 
 
+@mcp.tool()
+async def explore_custom_topology(
+    description: str,
+    constraints: dict[str, Any] | None = None,
+    pdk: str = "ihp_sg13g2",
+    max_iterations: int = 8,
+    max_budget_usd: float = 10.0,
+    model: str = "google/gemini-2.5-flash",
+    output_dir: str | None = None,
+    attempt_layout: bool = True,
+    timeout_s: int = 1800,
+) -> dict[str, Any]:
+    """Run the custom-composition loop for a novel analog block (S12-B Gap 5).
+
+    Entry point when ``recommend_topology`` returned
+    ``confidence: low`` or ``topology: custom``. Launches the
+    propose -> size -> simulate -> critique loop from
+    :class:`eda_agents.agents.analog_composition_loop.AnalogCompositionLoop`
+    and returns the :class:`AnalogCompositionResult` as a dict.
+
+    **Honest-fail is a first-class outcome** — a return with
+    ``converged: false`` and a populated ``honest_fail_reason`` is
+    considered successful tool execution.
+
+    Parameters
+    ----------
+    description:
+        Natural-language description of the desired block (e.g.
+        ``"4-bit current-steering DAC, 1 uA LSB, differential output"``).
+    constraints:
+        Optional numeric constraints (``supply_v``, ``inl_lsb_max`` …)
+        passed verbatim into the loop's prompt.
+    pdk:
+        ``ihp_sg13g2`` or ``gf180mcu``. Default IHP.
+    max_iterations:
+        Upper bound on outer iterations (default 8).
+    max_budget_usd:
+        USD budget ceiling across LLM calls. The loop aborts early
+        once ``cumulative_cost >= 0.9 * max_budget_usd``.
+    model:
+        OpenRouter model id (default Gemini Flash).
+    output_dir:
+        Work directory for ``program.md`` + ``iterations.jsonl`` +
+        per-iteration artefacts. When ``None``, uses a fresh tempdir.
+    attempt_layout:
+        When True, sub-block layouts are generated per iteration once
+        SPICE passes all target specs. DRC / LVS on the top-level
+        composition is NOT attempted yet (MVP — placer is future work).
+    timeout_s:
+        Hard subprocess timeout (default 30 min).
+
+    Returns
+    -------
+    dict
+        The serialised :class:`AnalogCompositionResult`. On tool-level
+        failure (module import, PDK lookup), returns
+        ``{"success": false, "error": str}``.
+    """
+    from eda_agents.agents.analog_composition_loop import AnalogCompositionLoop
+
+    def _run_blocking() -> dict[str, Any]:
+        import tempfile
+
+        work_dir = output_dir or tempfile.mkdtemp(prefix="custom_composition_")
+        loop = AnalogCompositionLoop(
+            pdk=pdk,
+            work_dir=work_dir,
+            model=model,
+            max_iterations=max_iterations,
+            max_budget_usd=max_budget_usd,
+            attempt_layout=attempt_layout,
+        )
+        result = loop.loop(description, constraints=constraints or {})
+        return result.to_json()
+
+    import asyncio as _asyncio
+
+    try:
+        return await _asyncio.wait_for(
+            _asyncio.to_thread(_run_blocking), timeout=timeout_s,
+        )
+    except _asyncio.TimeoutError:
+        return {
+            "success": False,
+            "converged": False,
+            "error": f"tool timeout after {timeout_s}s",
+        }
+    except Exception as exc:
+        return {
+            "success": False,
+            "converged": False,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
 def run_server(
     transport: str = "stdio",
     *,

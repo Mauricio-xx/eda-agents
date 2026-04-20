@@ -1,0 +1,40 @@
+{
+  "nl_description": "A 4-bit binary-weighted current-steering DAC on IHP SG13G2 1.2 V. Four NMOS current sources sized as 1x, 2x, 4x, 8x unit currents (LSB = 1 uA, MSB = 8 uA). Each source steered to either the positive (IOP) or negative (ION) output leg by a pair of NMOS differential switches whose gates are the 4-bit thermometer / binary control inputs B0..B3. The outputs sum on a pair of resistors (or sense nodes) to produce a differential analog current. Target: INL < 0.5 LSB, DNL < 0.5 LSB, static, op point.",
+  "constraints": {
+    "supply_v": 1.2,
+    "lsb_current_uA": 1.0,
+    "n_bits": 4,
+    "inl_lsb_max": 0.5,
+    "dnl_lsb_max": 0.5
+  },
+  "converged": false,
+  "honest_fail_reason": "loop exhausted 8/8 iterations without a 'converged' verdict",
+  "iterations_run": 8,
+  "total_tokens": 220169,
+  "total_cost_usd": 0.066,
+  "total_time_s": 203.36,
+  "final_composition_keys": [
+    "composition",
+    "connectivity",
+    "testbench",
+    "target_specs"
+  ],
+  "final_sizing_keys": [
+    "cm_unit",
+    "cm_b0",
+    "cm_b1",
+    "cm_b2",
+    "cm_b3",
+    "sw_b0_p",
+    "sw_b0_n",
+    "sw_b1_p",
+    "sw_b1_n",
+    "sw_b2_p",
+    "sw_b2_n",
+    "sw_b3_p",
+    "sw_b3_n"
+  ],
+  "final_spice_pass_per_spec": {},
+  "gds_paths": {},
+  "last_iteration_verdict": "patch"
+}

@@ -1,0 +1,180 @@
+* Composition: custom
+
+.lib $PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib mos_tt
+.lib $PDK_ROOT/ihp-sg13g2/libs.tech/ngspice/models/cornerCAP.lib cap_typ
+
+Xcm_unit_ref IBIAS IBIAS GND IBIAS sg13_lv_nmos w=2.0u l=1.0u nf=1
+Xcm_unit_out cm_b0.VREF IBIAS GND IBIAS sg13_lv_nmos w=2.0u l=1.0u nf=1 m=1
+
+Xcm_b0_ref cm_b0.VREF cm_b0.VREF GND IBIAS sg13_lv_nmos w=2.0u l=1.0u nf=1
+Xcm_b0_out cm_b0.VCOPY cm_b0.VREF GND IBIAS sg13_lv_nmos w=2.0u l=1.0u nf=1 m=1
+
+Xcm_b1_ref cm_b0.VREF cm_b0.VREF GND IBIAS sg13_lv_nmos w=2.0u l=1.0u nf=2
+Xcm_b1_out cm_b1.VCOPY cm_b0.VREF GND IBIAS sg13_lv_nmos w=2.0u l=1.0u nf=2 m=2
+
+Xcm_b2_ref cm_b0.VREF cm_b0.VREF GND IBIAS sg13_lv_nmos w=2.0u l=1.0u nf=4
+Xcm_b2_out cm_b2.VCOPY cm_b0.VREF GND IBIAS sg13_lv_nmos w=2.0u l=1.0u nf=4 m=4
+
+Xcm_b3_ref cm_b0.VREF cm_b0.VREF GND IBIAS sg13_lv_nmos w=2.0u l=1.0u nf=8
+Xcm_b3_out cm_b3.VCOPY cm_b0.VREF GND IBIAS sg13_lv_nmos w=2.0u l=1.0u nf=8 m=8
+
+Xsw_b0_p cm_b0.VCOPY B0_P IOP GND sg13_lv_nmos w=1.0u l=0.13u nf=1 m=1
+
+Xsw_b0_n cm_b0.VCOPY B0_N ION GND sg13_lv_nmos w=1.0u l=0.13u nf=1 m=1
+
+Xsw_b1_p cm_b1.VCOPY B1_P IOP GND sg13_lv_nmos w=1.0u l=0.13u nf=2 m=1
+
+Xsw_b1_n cm_b1.VCOPY B1_N ION GND sg13_lv_nmos w=1.0u l=0.13u nf=2 m=1
+
+Xsw_b2_p cm_b2.VCOPY B2_P IOP GND sg13_lv_nmos w=1.0u l=0.13u nf=4 m=1
+
+Xsw_b2_n cm_b2.VCOPY B2_N ION GND sg13_lv_nmos w=1.0u l=0.13u nf=4 m=1
+
+Xsw_b3_p cm_b3.VCOPY B3_P IOP GND sg13_lv_nmos w=1.0u l=0.13u nf=8 m=1
+
+Xsw_b3_n cm_b3.VCOPY B3_N ION GND sg13_lv_nmos w=1.0u l=0.13u nf=8 m=1
+
+* Testbench
+* source for VDD
+VVDD VDD 0 1.2
+* source for IBIAS
+IIBIAS IBIAS 0 dc 1u
+* source for B0_P
+VB0_P B0_P 0 dc 0
+* source for B0_N
+VB0_N B0_N 0 dc 0
+* source for B1_P
+VB1_P B1_P 0 dc 0
+* source for B1_N
+VB1_N B1_N 0 dc 0
+* source for B2_P
+VB2_P B2_P 0 dc 0
+* source for B2_N
+VB2_N B2_N 0 dc 0
+* source for B3_P
+VB3_P B3_P 0 dc 0
+* source for B3_N
+VB3_N B3_N 0 dc 0
+* source for IOP
+IIOP IOP 0 0
+* source for ION
+VION ION 0 0
+
+.control
+op
+.control
+let vdd_val = 1.2
+let lsb_current = 1e-6
+let num_bits = 4
+let num_codes = 2**num_bits
+let iop_vals = []
+let ion_vals = []
+let ideal_iop_vals = []
+let ideal_ion_vals = []
+let code_vals = []
+let dac_codes = []
+let iout_diff_vals = []
+let ideal_iout_diff_vals = []
+let inl_vals = []
+let dnl_vals = []
+let max_inl = 0
+let max_dnl = 0
+let min_dnl = 0
+let max_inl_code = 0
+let max_dnl_code = 0
+let min_dnl_code = 0
+let iop_res = 1k
+let ion_res = 1k
+alter R_IOP = iop_res
+alter R_ION = ion_res
+foreach code (0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15)
+let b0 = (code & 1)
+let b1 = (code & 2) / 2
+let b2 = (code & 4) / 4
+let b3 = (code & 8) / 8
+let b0_p_val = b0 * vdd_val
+let b0_n_val = (1 - b0) * vdd_val
+let b1_p_val = b1 * vdd_val
+let b1_n_val = (1 - b1) * vdd_val
+let b2_p_val = b2 * vdd_val
+let b2_n_val = (1 - b2) * vdd_val
+let b3_p_val = b3 * vdd_val
+let b3_n_val = (1 - b3) * vdd_val
+alter V(B0_P) = b0_p_val
+alter V(B0_N) = b0_n_val
+alter V(B1_P) = b1_p_val
+alter V(B1_N) = b1_n_val
+alter V(B2_P) = b2_p_val
+alter V(B2_N) = b2_n_val
+alter V(B3_P) = b3_p_val
+alter V(B3_N) = b3_n_val
+op
+let iop_val = i(V_IOP)
+let ion_val = i(V_ION)
+let iout_diff = iop_val - ion_val
+let ideal_iout_diff = (code - num_codes/2) * lsb_current
+let ideal_iop = (code * lsb_current) + (num_codes/2 * lsb_current)
+let ideal_ion = ((num_codes - code) * lsb_current) + (num_codes/2 * lsb_current)
+set iop_vals = [ $iop_vals, iop_val ]
+set ion_vals = [ $ion_vals, ion_val ]
+set iout_diff_vals = [ $iout_diff_vals, iout_diff ]
+set ideal_iout_diff_vals = [ $ideal_iout_diff_vals, ideal_iout_diff ]
+set ideal_iop_vals = [ $ideal_iop_vals, ideal_iop ]
+set ideal_ion_vals = [ $ideal_ion_vals, ideal_ion ]
+set dac_codes = [ $dac_codes, code ]
+end
+let iout_diff_norm = []
+let ideal_iout_diff_norm = []
+let first_iout_diff = iout_diff_vals[0]
+let last_iout_diff = iout_diff_vals[num_codes - 1]
+let first_ideal_iout_diff = ideal_iout_diff_vals[0]
+let last_ideal_iout_diff = ideal_iout_diff_vals[num_codes - 1]
+let full_scale_range = last_iout_diff - first_iout_diff
+let ideal_full_scale_range = last_ideal_iout_diff - first_ideal_iout_diff
+let lsb_actual = full_scale_range / (num_codes - 1)
+let lsb_ideal_calc = ideal_full_scale_range / (num_codes - 1)
+echo 'LSB Actual: ' $&lsb_actual
+echo 'LSB Ideal Calc: ' $&lsb_ideal_calc
+let offset = iout_diff_vals[0] - ideal_iout_diff_vals[0]
+let gain_error = (full_scale_range / ideal_full_scale_range) - 1
+echo 'Offset: ' $&offset
+echo 'Gain Error: ' $&gain_error
+foreach i (0 (num_codes - 1))
+let iout_diff_norm_val = (iout_diff_vals[i] - first_iout_diff) / lsb_actual
+let ideal_iout_diff_norm_val = (ideal_iout_diff_vals[i] - first_ideal_iout_diff) / lsb_ideal_calc
+set iout_diff_norm = [ $iout_diff_norm, iout_diff_norm_val ]
+set ideal_iout_diff_norm = [ $ideal_iout_diff_norm, ideal_iout_diff_norm_val ]
+end
+foreach i (0 (num_codes - 1))
+let inl_val = (iout_diff_vals[i] - ideal_iout_diff_vals[i]) / lsb_actual
+set inl_vals = [ $inl_vals, inl_val ]
+if abs(inl_val) > abs(max_inl)
+set max_inl = inl_val
+set max_inl_code = dac_codes[i]
+end
+end
+foreach i (1 (num_codes - 1))
+let dnl_val = ((iout_diff_vals[i] - iout_diff_vals[i-1]) / lsb_actual) - 1
+set dnl_vals = [ $dnl_vals, dnl_val ]
+if dnl_val > max_dnl
+set max_dnl = dnl_val
+set max_dnl_code = dac_codes[i]
+end
+if dnl_val < min_dnl
+set min_dnl = dnl_val
+set min_dnl_code = dac_codes[i]
+end
+end
+measure INL_LSB MAX(abs(inl_vals))
+measure DNL_LSB MAX(max_dnl, abs(min_dnl))
+echo 'Max INL (LSB): ' $&max_inl ' at code ' $&max_inl_code
+echo 'Max DNL (LSB): ' $&max_dnl ' at code ' $&max_dnl_code
+echo 'Min DNL (LSB): ' $&min_dnl ' at code ' $&min_dnl_code
+.endc
+V_IOP IOP 0 dc 0
+V_ION ION 0 dc 0
+R_IOP IOP VDD 1k
+R_ION ION VDD 1k
+quit
+.endc
+.end

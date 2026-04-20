@@ -603,3 +603,34 @@ register_skill(
         prompt_fn=_idea_to_topology_prompt,
     )
 )
+
+
+def _custom_composition_prompt() -> str:
+    """System prompt for the analog custom-composition loop.
+
+    Zero-arg: the loop code passes iteration state in the user message.
+    This prompt establishes the contract (JSON-only outputs, stage
+    vocabulary, honest-fail discipline) and the gLayout-primitive
+    inventory the LLM may draw from.
+    """
+    return _load_markdown_bundle(
+        "custom_composition", ["core", "primitives", "sizing", "iteration"]
+    )
+
+
+register_skill(
+    Skill(
+        name="analog.custom_composition",
+        description=(
+            "System prompt for synthesising novel analog blocks from "
+            "gLayout primitives when recommend_topology returns "
+            "confidence=low or topology=custom. Enumerates the SG13G2/GF180-"
+            "ready primitives, gm/ID sizing rules, propose -> size -> "
+            "simulate -> critique iteration contract, and honest-fail "
+            "discipline. Composed from "
+            "docs/skills/custom_composition/{core,primitives,sizing,"
+            "iteration}.md. Signature: ()."
+        ),
+        prompt_fn=_custom_composition_prompt,
+    )
+)
