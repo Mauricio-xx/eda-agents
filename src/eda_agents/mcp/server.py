@@ -13,9 +13,11 @@ Six tools are registered:
   simulation. Async, long-running; callers should pass a work_dir and
   a pdk_root.
 * ``recommend_topology`` — map a natural-language analog idea to one
-  of the registered topologies (S11 Fase 3) via OpenRouter + the
-  ``analog.idea_to_topology`` skill. Returns structured JSON with
-  topology, rationale, starter specs and a confidence flag.
+  of the registered topologies (S11 Fase 3) via LiteLLM + the
+  ``analog.idea_to_topology`` skill. Provider-agnostic: any LiteLLM-
+  routed model string works (``openrouter/``, ``zai/``, ``anthropic/``,
+  ``gemini/`` …). Returns structured JSON with topology, rationale,
+  starter specs and a confidence flag.
 * ``generate_analog_layout`` — drive the gLayout runner to emit a
   GDS for a primitive or composite on GF180 or SG13G2 (S11 Fase 4).
   Reuses ``GLayoutRunner`` so the heavy lifting is in a separate
@@ -41,7 +43,8 @@ from fastmcp import FastMCP
 from eda_agents.agents.handler import SpiceEvaluationHandler
 from eda_agents.agents.idea_to_rtl import generate_rtl_draft as _generate_rtl_draft
 from eda_agents.agents.idea_to_rtl import result_to_dict as _result_to_dict
-from eda_agents.agents.openrouter_client import call_openrouter as _call_openrouter
+from eda_agents.agents.llm_client import call_llm as _call_llm
+from eda_agents.agents.llm_client import validate_model_env as _validate_model_env
 from eda_agents.core.spice_runner import SpiceRunner
 from eda_agents.skills import Skill
 from eda_agents.skills.registry import get_skill
@@ -335,7 +338,7 @@ async def generate_rtl_draft(
 def recommend_topology(
     description: str,
     constraints: dict[str, Any] | None = None,
-    model: str = "google/gemini-2.5-flash",
+    model: str = "openrouter/google/gemini-3-flash-preview",
     temperature: float = 0.0,
     dry_run: bool = False,
 ) -> dict[str, Any]:
@@ -343,8 +346,8 @@ def recommend_topology(
 
     Renders the ``analog.idea_to_topology`` skill as system prompt,
     packs the caller's description + optional constraints dict into a
-    user prompt, asks OpenRouter (Gemini Flash by default), and parses
-    the JSON response back into a structured dict.
+    user prompt, asks the chosen LLM via LiteLLM, and parses the JSON
+    response back into a structured dict.
 
     Parameters
     ----------
@@ -358,16 +361,24 @@ def recommend_topology(
         power_uW, ENOB, fs_Hz) are most useful — the skill prompts
         the LLM to emit starter_specs in the same shape.
     model:
-        OpenRouter model id. Defaults to ``google/gemini-2.5-flash``.
+        LiteLLM-routed model id. Default
+        ``openrouter/google/gemini-3-flash-preview``. Any provider
+        prefix supported by LiteLLM works; examples:
+
+        * ``openrouter/google/gemini-3-flash-preview`` (needs
+          ``OPENROUTER_API_KEY``)
+        * ``zai/glm-4.6`` (needs ``ZAI_API_KEY``)
+        * ``anthropic/claude-haiku-4-5`` (needs ``ANTHROPIC_API_KEY``)
+        * ``gemini/gemini-2.5-flash`` (needs ``GEMINI_API_KEY``)
     temperature:
         Sampling temperature (default 0.0 for deterministic
         classification).
     dry_run:
-        When True, render the prompt and validate the topology
-        registry without calling the LLM. Returns
-        ``{"success": true, "dry_run": true, ...}`` with the
-        rendered prompt length — useful for MCP clients that just
-        want to probe the tool shape.
+        When True, render the prompt, validate the topology registry
+        AND probe the provider env var for ``model`` without calling
+        the LLM. Returns ``{"success": true, "dry_run": true,
+        "env_ok": bool, "missing_keys": [...], ...}`` so MCP clients
+        can sanity-check setup before spending tokens.
 
     Returns
     -------
@@ -380,8 +391,8 @@ def recommend_topology(
         the string "custom" — the caller decides whether to retry.
 
         On failure: ``{"success": false, "error": str}``. Typical
-        failures: OPENROUTER_API_KEY missing, upstream HTTP error,
-        JSON parse failure.
+        failures: required env var missing, upstream HTTP error, JSON
+        parse failure.
     """
     try:
         skill = get_skill("analog.idea_to_topology")
@@ -399,16 +410,22 @@ def recommend_topology(
     user_prompt = "\n\n".join(user_lines)
 
     if dry_run:
+        try:
+            env = _validate_model_env(model)
+        except RuntimeError as exc:
+            env = {"env_ok": False, "missing_keys": [], "error": str(exc)}
         return {
             "success": True,
             "dry_run": True,
             "model": model,
+            "env_ok": env["env_ok"],
+            "missing_keys": env["missing_keys"],
             "prompt_length": len(system_prompt) + len(user_prompt),
             "known_topologies": list_topology_names(),
         }
 
     try:
-        raw, total_tokens = _call_openrouter(
+        raw, total_tokens = _call_llm(
             model=model,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
