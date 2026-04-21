@@ -17,9 +17,9 @@ venv/
 .mypy_cache/
 SESSION_LOG.md
 SESSION_HANDOFF.md
-# Per-user MCP configs. Repo ships .claude/mcp.json.example; users
-# copy it to .claude/mcp.json and customise locally without dirtying
-# the tree.
+# Per-user MCP configs. Repo ships .mcp.json.example; users copy it
+# to .mcp.json and customise locally without dirtying the tree.
+.mcp.json
 .claude/mcp.json
 data/gf180-template/
 trackd_results/

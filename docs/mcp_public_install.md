@@ -72,12 +72,14 @@ Two equivalent options. Either register globally via the CLI:
 claude mcp add eda-agents -- eda-mcp
 ```
 
-Or drop a project-level `.claude/mcp.json`:
+Or drop a project-level `.mcp.json` at the repo root (this is the
+path Claude Code auto-loads, not `.claude/mcp.json`):
 
 ```json
 {
   "mcpServers": {
     "eda-agents": {
+      "type": "stdio",
       "command": "eda-mcp",
       "args": [],
       "env": {}
@@ -86,10 +88,26 @@ Or drop a project-level `.claude/mcp.json`:
 }
 ```
 
-The repo ships `.claude/mcp.json.example` with this exact content.
-Copy it: `cp .claude/mcp.json.example .claude/mcp.json` (the real
-`.claude/mcp.json` is gitignored so per-user overrides don't dirty
-the tree).
+The repo ships `.mcp.json.example` with this exact content. Copy it:
+`cp .mcp.json.example .mcp.json` (the real `.mcp.json` is gitignored
+so per-user overrides don't dirty the tree).
+
+#### Curated subagents
+
+The repo also ships three Claude Code subagents under `.claude/agents/`
+that front-load the eda-agents MCP into focused workflows:
+
+| Agent | Purpose |
+|-------|---------|
+| `analog-topology-recommender` | Map a natural-language analog brief to a registered topology. MCP-only (no bash/write). |
+| `analog-sizing-advisor` | gm/ID sizing loop against `describe_topology` + `evaluate_topology` + optional `run_autoresearch`. MCP-only. |
+| `digital-testbench-author` | Write cocotb testbenches that survive RTL / gate-level / post-PnR-SDF. Has filesystem access. |
+
+Claude Code's allowlist is per-server, not per-tool — each subagent
+gets access to the full `eda-agents` MCP surface, with its prompt
+body steering it to the right handful. The opencode equivalents at
+`.opencode/agent/` use per-tool whitelisting; functionally the two
+sets behave the same from a user's point of view.
 
 ## 4. Smoke test
 
