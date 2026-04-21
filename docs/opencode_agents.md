@@ -25,6 +25,8 @@ exploration runs where no human approves each tool call), add a
 | `analog-topology-recommender` | `opencode --agent analog-topology-recommender` | `analog.idea_to_topology` | `recommend_topology`, `describe_topology` |
 | `analog-sizing-advisor` | `opencode --agent analog-sizing-advisor` | `analog.gmid_sizing` (+ operational loop) | `describe_topology`, `evaluate_topology`, `run_autoresearch` |
 | `digital-testbench-author` | `opencode --agent digital-testbench-author` | `digital.cocotb_testbench` (+ authoring enabled) | `render_skill`, `generate_rtl_draft` + built-in read/write/edit |
+| `gf180-docker-digital` | `opencode --agent gf180-docker-digital` | `flow.rtl2gds_gf180_docker` (+ docker driver loop) | `render_skill` + built-in bash/read/write/edit |
+| `gf180-docker-analog` | `opencode --agent gf180-docker-analog` | `flow.analog_signoff_gf180_docker` (+ docker driver loop) | `render_skill` + built-in bash/read/write/edit |
 
 "Primary MCP tools" describes what the prompt body steers toward;
 the agent can still access other tools if the user asks directly.

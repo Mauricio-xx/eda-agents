@@ -32,6 +32,7 @@ from eda_agents.skills import analog as _analog  # noqa: F401
 from eda_agents.skills import analog_roles as _analog_roles  # noqa: F401
 from eda_agents.skills import digital as _digital  # noqa: F401
 from eda_agents.skills import flow as _flow  # noqa: F401
+from eda_agents.skills import flow_docker as _flow_docker  # noqa: F401
 
 __all__ = [
     "Skill",

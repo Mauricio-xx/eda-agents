@@ -94,21 +94,24 @@ so per-user overrides don't dirty the tree).
 
 #### Curated subagents
 
-The repo also ships three Claude Code subagents under `.claude/agents/`
-that front-load the eda-agents MCP into focused workflows:
+The repo ships five Claude Code subagents under `.claude/agents/` that
+front-load the eda-agents MCP into focused workflows:
 
 | Agent | Purpose |
 |-------|---------|
 | `analog-topology-recommender` | Map a natural-language analog brief to a registered topology. |
 | `analog-sizing-advisor` | gm/ID sizing loop against `describe_topology` + `evaluate_topology` + optional `run_autoresearch`. |
 | `digital-testbench-author` | Write cocotb testbenches that survive RTL / gate-level / post-PnR-SDF. |
+| `gf180-docker-digital` | Drive an end-to-end GF180MCU RTL-to-GDS flow inside the `hpretl/iic-osic-tools` container via `docker exec`. Needs `Bash`. |
+| `gf180-docker-analog` | Drive GF180 analog signoff (KLayout DRC + Magic/Netgen LVS) inside the same container. Needs `Bash`. |
 
 The agents inherit the full tool surface (built-ins + every MCP
 server you have configured) so they stay useful in interactive chat
 — a user can ask the sizing advisor to inspect a `results.tsv` from
-a prior autoresearch run without hitting a permission wall. The
-prompt body of each agent keeps it on-task; Claude Code's per-call
-approval is the user's real safety net.
+a prior autoresearch run without hitting a permission wall. The two
+`gf180-docker-*` agents in particular rely on `Bash` to drive the
+container; Claude Code's per-call approval prompts are the real
+safety net when they issue `docker run` / `docker exec`.
 
 If you need a **headless / budget-guard** variant (scripted runs
 where no human approves each call), add a `tools:` allowlist to the
