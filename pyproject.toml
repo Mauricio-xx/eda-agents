@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 authors = [
-    {name = "Mauricio-xx", email = "mauricio.xmonatanares@gmail.com"},
+    {name = "Mauricio-xx", email = "mauricio.xmontanares@gmail.com"},
 ]
 keywords = ["eda", "analog", "spice", "agents", "llm", "ihp-sg13g2", "circuit-design"]
 classifiers = [
@@ -33,6 +33,7 @@ Issues = "https://github.com/Mauricio-xx/eda-agents/issues"
 
 [project.scripts]
 eda-bridge = "eda_agents.bridge.cli:main"
+eda-mcp = "eda_agents.mcp.server:run_server"
 
 [project.optional-dependencies]
 agents = [
@@ -48,6 +49,8 @@ coordination = [
 ]
 mcp = [
     "fastmcp>=0.1.0",
+    "litellm>=1.50",
+    "httpx>=0.27",
 ]
 adc = [
     "adctoolbox>=0.6.4",

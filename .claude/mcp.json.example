@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "eda-agents": {
+      "command": "eda-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}
