@@ -6,7 +6,7 @@ thin compatibility shim that delegates to ``get_skill(...)``.
 
 from __future__ import annotations
 
-from pathlib import Path
+from importlib.resources import files as _files
 from typing import TYPE_CHECKING
 
 from eda_agents.skills.base import Skill
@@ -16,13 +16,15 @@ if TYPE_CHECKING:
     from eda_agents.core.topology import CircuitTopology
 
 
-# Repository root relative to this file: src/eda_agents/skills/analog.py
-# -> up three levels lands at the repo root where ``docs/`` lives.
-_DOCS_DIR = Path(__file__).resolve().parents[3] / "docs" / "skills"
+# Skill markdown bundles ship inside the package at
+# ``src/eda_agents/skills/_bundles/<topic>/<part>.md``. Resolved via
+# importlib.resources so it works under editable installs, wheel
+# installs, and zipped wheels alike.
+_BUNDLES = _files("eda_agents.skills") / "_bundles"
 
 
 def _load_markdown_bundle(topic: str, parts: list[str]) -> str:
-    """Concatenate ``docs/skills/<topic>/<part>.md`` files into one string.
+    """Concatenate ``skills/_bundles/<topic>/<part>.md`` files.
 
     Used by prompt_fns that ship their body as versionable markdown
     instead of a hardcoded Python f-string. Missing files raise
@@ -31,8 +33,8 @@ def _load_markdown_bundle(topic: str, parts: list[str]) -> str:
     """
     sections: list[str] = []
     for part in parts:
-        path = _DOCS_DIR / topic / f"{part}.md"
-        sections.append(path.read_text())
+        path = _BUNDLES / topic / f"{part}.md"
+        sections.append(path.read_text(encoding="utf-8"))
     return "\n\n".join(sections)
 
 
@@ -429,7 +431,7 @@ Three SystemTopology flavours ship in ``src/eda_agents/topologies/``:
     cdac_C_unit_fF + bias_V). Schematic + ngspice + Verilator only
     (no layout until the IHP Magic upstream blocker is resolved).
 
-Reference documentation lives under ``docs/skills/sar_adc/``:
+Reference documentation lives under ``skills/_bundles/sar_adc/``:
 
   - ``core-architecture.md`` — three-block decomposition and timing.
   - ``comparator.md`` — StrongARM vs ideal swap, SAR-specific asks.
@@ -472,7 +474,7 @@ register_skill(
         description=(
             "SAR ADC architecture guide: navigates the 8-bit "
             "transistor-level, 8-bit behavioural and 11-bit design_"
-            "reference topologies plus the docs/skills/sar_adc/ "
+            "reference topologies plus the skills/_bundles/sar_adc/ "
             "catalog. Enumerates when to use each and how to "
             "interpret ENOB / FoM / validity outputs. Signature: "
             "(topology=None)."
@@ -501,7 +503,7 @@ register_skill(
             "Miller OTA design guide covering two-stage topology, "
             "small-signal model, gm/ID sizing per device, and Miller "
             "compensation (Cc choice, RHP zero, PM targets). Composed "
-            "from docs/skills/miller_ota/{core,sizing,compensation}.md. "
+            "from skills/_bundles/miller_ota/{core,sizing,compensation}.md. "
             "Signature: (topology=None)."
         ),
         prompt_fn=_miller_ota_design_prompt,
@@ -628,7 +630,7 @@ register_skill(
             "ready primitives, gm/ID sizing rules, propose -> size -> "
             "simulate -> critique iteration contract, and honest-fail "
             "discipline. Composed from "
-            "docs/skills/custom_composition/{core,primitives,sizing,"
+            "skills/_bundles/custom_composition/{core,primitives,sizing,"
             "iteration}.md. Signature: ()."
         ),
         prompt_fn=_custom_composition_prompt,
