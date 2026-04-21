@@ -6,6 +6,29 @@ RTL-to-GDS, analog composition) as MCP tools. Any MCP-capable client
 can use it — this guide covers [opencode](https://opencode.ai) and
 [Claude Code](https://claude.ai/code).
 
+## 0. Quickstart from a fresh Ubuntu machine
+
+If you are starting with nothing and want the whole thing done for
+you — Python 3.12, pipx, eda-agents, API-key handling, project
+bootstrap — run:
+
+```bash
+bash <(curl -sSL https://raw.githubusercontent.com/Mauricio-xx/eda-agents/main/scripts/install_eda_agents.sh)
+```
+
+The script is interactive: it prompts for an API key (hidden input),
+writes it to `<project>/.env` with mode `600`, and adds `.env` to the
+project's `.gitignore`. Tested on Ubuntu 22.04 and 24.04.
+
+It assumes Docker Engine is already installed and you are in the
+`docker` group; it does not install `opencode` or Claude Code CLI
+(grab those from their own sites). Use `bash <(...)` — not
+`curl ... | bash` — or the interactive prompts will not see your
+terminal.
+
+If you prefer the manual path, step 1 below does the same work by
+hand.
+
 ## 1. Install and bootstrap a project
 
 ```bash
