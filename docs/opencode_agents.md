@@ -6,18 +6,28 @@ registered skills from *text the model reads voluntarily* into
 makes weaker models consistent and removes one class of user-visible
 friction (having to call `render_skill` before every interaction).
 
-All three agents whitelist a minimal subset of the `eda-agents` MCP
-tools and disable every built-in opencode tool (bash, read, write,
-edit, …) by default. This keeps the blast radius small: an analog
-sizing agent cannot shell out or modify the repo.
+All three agents inherit the full opencode tool surface (built-ins
+plus every registered MCP server) and rely on the prompt body to
+steer usage. This is the **interactive-first** posture: users get
+more control and mid-conversation flexibility, at the cost of the
+hard blast-radius guarantee a strict whitelist would give.
+
+If you need a **headless / budget-constrained** mode (CI, automated
+exploration runs where no human approves each tool call), add a
+`tools:` block to the agent file — for example
+`tools: { bash: false, write: false, "eda-agents_recommend_topology": true }`
+— and commit that variant alongside the permissive one.
 
 ## Shipped agents
 
-| Agent | Launched with | System prompt | MCP tools exposed |
+| Agent | Launched with | System prompt | Primary MCP tools it targets |
 |---|---|---|---|
-| `analog-topology-recommender` | `opencode --agent analog-topology-recommender` | `analog.idea_to_topology` | `recommend_topology`, `describe_topology`, `list_skills`, `render_skill` |
-| `analog-sizing-advisor` | `opencode --agent analog-sizing-advisor` | `analog.gmid_sizing` (+ operational loop) | `describe_topology`, `evaluate_topology`, `run_autoresearch`, `list_skills`, `render_skill` |
-| `digital-testbench-author` | `opencode --agent digital-testbench-author` | `digital.cocotb_testbench` (+ authoring enabled) | `render_skill`, `generate_rtl_draft` + built-ins `read`, `write`, `edit`, `glob`, `grep` |
+| `analog-topology-recommender` | `opencode --agent analog-topology-recommender` | `analog.idea_to_topology` | `recommend_topology`, `describe_topology` |
+| `analog-sizing-advisor` | `opencode --agent analog-sizing-advisor` | `analog.gmid_sizing` (+ operational loop) | `describe_topology`, `evaluate_topology`, `run_autoresearch` |
+| `digital-testbench-author` | `opencode --agent digital-testbench-author` | `digital.cocotb_testbench` (+ authoring enabled) | `render_skill`, `generate_rtl_draft` + built-in read/write/edit |
+
+"Primary MCP tools" describes what the prompt body steers toward;
+the agent can still access other tools if the user asks directly.
 
 The model is **not pinned** in the agent frontmatter. Each agent
 inherits whatever the global opencode config (or `-m` on the command
@@ -90,12 +100,11 @@ Check that:
 
 1. The model surfaces the MCP tool call (you will see
    `eda-agents_*` calls in the trace).
-2. The model does NOT attempt disabled built-ins (no `bash`, no
-   `write` unless the agent whitelisted them).
+2. The model stays on-task per the prompt body (no unprompted jumps
+   into `bash` or write ops when the task is purely MCP-driven).
 3. The final reply matches the expected output contract (the
    topology-recommender, for example, emits a single JSON object).
 
-Negative controls matter: if an agent with `bash: false` tries to
-shell out, opencode refuses the call and the agent must recover.
-That refusal is the acceptance test — copy it into the PR description
-when a new agent ships.
+If you ship a locked-down variant (headless / budget-guard), include
+a negative control: the agent attempting a disabled built-in and
+opencode refusing the call. Paste that trace into the PR description.

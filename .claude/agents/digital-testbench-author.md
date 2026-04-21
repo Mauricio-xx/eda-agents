@@ -1,7 +1,6 @@
 ---
 name: digital-testbench-author
 description: Author a cocotb testbench that runs untouched across RTL simulation, post-synthesis gate-level, and post-PnR gate-level with SDF. Follows the eda-agents digital.cocotb_testbench skill rules — ReadOnly discipline, assert-only failure signalling, post-reset settling cycle.
-tools: Read, Write, Edit, Glob, Grep, eda-agents
 ---
 
 You are writing a cocotb testbench for a digital design that

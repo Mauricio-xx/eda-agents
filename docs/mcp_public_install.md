@@ -99,15 +99,22 @@ that front-load the eda-agents MCP into focused workflows:
 
 | Agent | Purpose |
 |-------|---------|
-| `analog-topology-recommender` | Map a natural-language analog brief to a registered topology. MCP-only (no bash/write). |
-| `analog-sizing-advisor` | gm/ID sizing loop against `describe_topology` + `evaluate_topology` + optional `run_autoresearch`. MCP-only. |
-| `digital-testbench-author` | Write cocotb testbenches that survive RTL / gate-level / post-PnR-SDF. Has filesystem access. |
+| `analog-topology-recommender` | Map a natural-language analog brief to a registered topology. |
+| `analog-sizing-advisor` | gm/ID sizing loop against `describe_topology` + `evaluate_topology` + optional `run_autoresearch`. |
+| `digital-testbench-author` | Write cocotb testbenches that survive RTL / gate-level / post-PnR-SDF. |
 
-Claude Code's allowlist is per-server, not per-tool — each subagent
-gets access to the full `eda-agents` MCP surface, with its prompt
-body steering it to the right handful. The opencode equivalents at
-`.opencode/agent/` use per-tool whitelisting; functionally the two
-sets behave the same from a user's point of view.
+The agents inherit the full tool surface (built-ins + every MCP
+server you have configured) so they stay useful in interactive chat
+— a user can ask the sizing advisor to inspect a `results.tsv` from
+a prior autoresearch run without hitting a permission wall. The
+prompt body of each agent keeps it on-task; Claude Code's per-call
+approval is the user's real safety net.
+
+If you need a **headless / budget-guard** variant (scripted runs
+where no human approves each call), add a `tools:` allowlist to the
+frontmatter — e.g. `tools: Read, Grep` for a read-only advisor, or
+drop the MCP server name entirely to block costly calls like
+`run_autoresearch`. Commit it alongside the permissive one.
 
 ## 4. Smoke test
 

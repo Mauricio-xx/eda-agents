@@ -2,18 +2,6 @@
 description: Author a cocotb testbench that runs untouched across RTL simulation, post-synthesis gate-level, and post-PnR gate-level with SDF. Follows the eda-agents digital.cocotb_testbench skill rules — ReadOnly discipline, assert-only failure signalling, post-reset settling cycle.
 mode: all
 temperature: 0.2
-tools:
-  bash: false
-  webfetch: false
-  task: false
-  todowrite: false
-  read: true
-  write: true
-  edit: true
-  glob: true
-  grep: true
-  "eda-agents_render_skill": true
-  "eda-agents_generate_rtl_draft": true
 ---
 
 You are writing a cocotb testbench for a digital design that

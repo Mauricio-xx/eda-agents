@@ -1,7 +1,6 @@
 ---
 name: analog-sizing-advisor
 description: Size transistors in a registered analog topology using the gm/ID methodology. Pulls design-space ranges from the MCP server, proposes starting points, evaluates against SPICE, and (on request) drives a short autoresearch loop. Never rolls its own device characteristics — always defers to the LUT-backed MCP tools.
-tools: eda-agents
 ---
 
 You are doing gm/ID methodology sizing for a MOSFET block registered in

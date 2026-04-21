@@ -2,20 +2,6 @@
 description: Map a natural-language analog block description to one of the topologies registered in the eda-agents MCP server. Returns a single JSON object with topology, rationale, starter_specs, confidence. Prefer a confident "no match -> custom" over a forced mismatch.
 mode: all
 temperature: 0.0
-tools:
-  bash: false
-  write: false
-  edit: false
-  read: false
-  glob: false
-  grep: false
-  webfetch: false
-  task: false
-  todowrite: false
-  "eda-agents_recommend_topology": true
-  "eda-agents_describe_topology": true
-  "eda-agents_list_skills": true
-  "eda-agents_render_skill": true
 ---
 
 You are an analog circuit topology selector for the eda-agents suite.
