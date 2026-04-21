@@ -3,9 +3,11 @@
 Invokes gLayout (from OpenFASOC) in an isolated venv to avoid
 numpy version conflicts with the main eda-agents environment.
 
-The driver script (scripts/glayout_driver.py) runs inside the
-gLayout venv, reads a JSON spec from stdin, and writes a JSON
-result to stdout.
+The driver script ships inside the package as
+``eda_agents.core._glayout_driver`` and is resolved via
+``importlib.resources`` so it works under editable and wheel
+installs alike. It runs inside the gLayout venv, reads a JSON spec
+from stdin, and writes a JSON result to stdout.
 
 Setup::
 
@@ -21,13 +23,16 @@ import logging
 import os
 import time
 from dataclasses import dataclass
+from importlib.resources import files as _files
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 # Default paths
 _DEFAULT_GLAYOUT_VENV = ".venv-glayout"
-_DRIVER_SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "glayout_driver.py"
+# Driver script resolved via importlib.resources so it works in
+# editable installs (src/) and wheel installs (site-packages/) alike.
+_DRIVER_SCRIPT = Path(str(_files("eda_agents.core") / "_glayout_driver.py"))
 
 
 @dataclass

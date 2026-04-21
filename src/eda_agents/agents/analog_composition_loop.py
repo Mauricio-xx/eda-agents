@@ -45,6 +45,7 @@ Design notes
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -161,9 +162,16 @@ class AnalogCompositionLoop:
         self.temperature_critique = temperature_critique
         self.max_tokens_per_call = max_tokens_per_call
 
+        # gLayout venv path: explicit arg -> EDA_AGENTS_GLAYOUT_VENV env
+        # var -> GLayoutRunner default (``.venv-glayout`` relative to
+        # cwd). Layout attempts are skipped gracefully if the venv is
+        # not present (see ``validate_setup`` in GLayoutRunner).
         self.glayout_runner = GLayoutRunner(
-            glayout_venv=glayout_venv
-            or "/home/montanares/personal_exp/eda-agents/.venv-glayout",
+            glayout_venv=(
+                glayout_venv
+                or os.environ.get("EDA_AGENTS_GLAYOUT_VENV")
+                or ".venv-glayout"
+            ),
             pdk=pdk,
             timeout_s=600,
         )
