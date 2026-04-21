@@ -143,27 +143,39 @@ class TestResolvePdkRoot:
         assert root == str(fake_root)
 
     def test_env_var_wrong_pdk_falls_through(self, monkeypatch):
-        # PDK_ROOT pointing to IHP should NOT be used for GF180
+        # PDK_ROOT pointing to one PDK tree must NOT be used for a
+        # different PDK. With no default_pdk_root set, the resolver
+        # raises ValueError rather than returning the mismatched path.
         monkeypatch.setenv("PDK_ROOT", "/env/pdk")
-        root = resolve_pdk_root(GF180MCU_D)
-        assert root == GF180MCU_D.default_pdk_root
+        with pytest.raises(ValueError, match="No PDK_ROOT"):
+            resolve_pdk_root(GF180MCU_D)
 
-    def test_default_fallback(self, monkeypatch):
+    def test_default_fallback_when_configured(self, monkeypatch):
+        # Built-in PDK configs ship with empty default_pdk_root for
+        # portability, but the fallback path is still honoured when a
+        # PdkConfig explicitly sets one (e.g. a user-registered PDK).
         monkeypatch.delenv("PDK_ROOT", raising=False)
-        root = resolve_pdk_root(IHP_SG13G2)
-        assert root == IHP_SG13G2.default_pdk_root
+        custom_pdk = PdkConfig(
+            name="test_with_default", display_name="Test", technology_nm=65,
+            VDD=1.0, Lmin_m=65e-9, Wmin_m=100e-9, z1_m=200e-9,
+            model_lib_rel="test.lib", model_corner="tt",
+            default_pdk_root="/opt/my-pdk",
+        )
+        assert resolve_pdk_root(custom_pdk) == "/opt/my-pdk"
+
+    def test_builtin_pdks_have_no_default_root(self):
+        # Guardrail: built-in PDKs must not embed user-home paths in
+        # default_pdk_root so the wheel is portable across machines.
+        assert IHP_SG13G2.default_pdk_root == ""
+        assert GF180MCU_D.default_pdk_root == ""
 
     def test_no_root_raises(self, monkeypatch):
         monkeypatch.delenv("PDK_ROOT", raising=False)
-        # Create a PDK with no default_pdk_root to test the error
-        no_root_pdk = PdkConfig(
-            name="test_no_root", display_name="Test", technology_nm=65,
-            VDD=1.0, Lmin_m=65e-9, Wmin_m=100e-9, z1_m=200e-9,
-            model_lib_rel="test.lib", model_corner="tt",
-            default_pdk_root="",
-        )
+        # Built-in IHP PDK has empty default_pdk_root, so without
+        # PDK_ROOT the resolver must raise rather than silently pick
+        # a path that doesn't exist.
         with pytest.raises(ValueError, match="No PDK_ROOT"):
-            resolve_pdk_root(no_root_pdk)
+            resolve_pdk_root(IHP_SG13G2)
 
 
 class TestSpiceRunnerPdk:

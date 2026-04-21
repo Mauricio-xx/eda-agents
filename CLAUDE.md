@@ -37,8 +37,10 @@ The `pdk_config` fixture in `conftest.py` parametrizes tests across
 ## Environment
 
 - `PDK_ROOT` — path to the active PDK install. `resolve_pdk_root()`
-  accepts it only if it contains the target PDK's model files;
-  otherwise falls back to `PdkConfig.default_pdk_root`.
+  accepts it only if it contains the target PDK's model files.
+  Raises if neither env var nor explicit arg is provided; the
+  built-in `PdkConfig.default_pdk_root` fallbacks are empty for
+  pip-installed use (set `PDK_ROOT` or pass `pdk_root=...`).
 - `EDA_AGENTS_PDK` — selects the active PDK by registry name
   (`ihp_sg13g2` | `gf180mcu`). Default is IHP SG13G2.
 - `OPENROUTER_API_KEY`, `ZAI_API_KEY` — model backends used by the
@@ -86,9 +88,11 @@ prompts, or tool specs.
   parse. The work directory must not already contain a `.spiceinit`
   when extras are used.
 - `gmid_lookup.py` — gm/ID LUT reader used for analytical
-  pre-sizing before spending SPICE budget. GF180 LUTs live under
-  `data/gmid_luts/`; IHP LUTs default to the external ihp-gmid-kit
-  path in `IHP_SG13G2.lut_dir_default`.
+  pre-sizing before spending SPICE budget. IHP LUTs resolve from
+  `EDA_AGENTS_IHP_LUT_DIR` (clone of ihp-gmid-kit). GF180 LUTs
+  auto-download on first use into `~/.cache/eda-agents/gmid_luts/`
+  via `lut_fetcher.py`; override with `EDA_AGENTS_GMID_LUT_DIR`.
+  `EDA_AGENTS_OFFLINE=1` disables the fetcher.
 - `glayout_runner.py`, `magic_pex.py`, `klayout_drc.py`,
   `klayout_lvs.py`, `librelane_runner.py` — subprocess wrappers for
   the physical-verification tool chain. They accept paths/venvs so the

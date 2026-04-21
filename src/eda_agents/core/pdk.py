@@ -176,7 +176,10 @@ IHP_SG13G2 = PdkConfig(
     AVT_nmos_Vum=3.9e-3,
     AVT_pmos_Vum=2.2e-3,
 
-    lut_dir_default="/home/montanares/personal_exp/ihp-gmid-kit/data",
+    # LUT directory resolved at runtime: EDA_AGENTS_IHP_LUT_DIR env var or
+    # explicit lut_dir=... to GmIdLookup. IHP LUTs live in ihp-gmid-kit
+    # (external repo) and are not bundled in the wheel.
+    lut_dir_default="",
     lut_nmos_file="sg13_lv_nmos.npz",
     lut_pmos_file="sg13_lv_pmos.npz",
     lut_model_key_nmos="sg13_lv_nmos",
@@ -186,7 +189,9 @@ IHP_SG13G2 = PdkConfig(
     vds_max=1.5,
     vbs_max=1.2,
 
-    default_pdk_root="/home/montanares/git/IHP-Open-PDK",
+    # PDK root resolved at runtime from PDK_ROOT env var or explicit
+    # pdk_root=... argument. IHP-Open-PDK is an external git repo.
+    default_pdk_root="",
 
     # LibreLane digital flow (PDK config at
     # ihp-sg13g2/libs.tech/librelane/config.tcl supplies RT layers + PDN)
@@ -244,7 +249,10 @@ GF180MCU_D = PdkConfig(
     AVT_nmos_Vum=5.0e-3,   # placeholder -- extract from PDK mismatch data
     AVT_pmos_Vum=5.0e-3,
 
-    lut_dir_default="data/gmid_luts",  # relative to eda-agents root
+    # LUTs resolved at runtime: EDA_AGENTS_GMID_LUT_DIR env var, or
+    # explicit lut_dir=... to GmIdLookup, or download-on-first-use from
+    # the project's GitHub Release (see eda_agents.core.lut_fetcher).
+    lut_dir_default="",
     lut_nmos_file="gf180_nfet_03v3.npz",
     lut_pmos_file="gf180_pfet_03v3.npz",
     lut_model_key_nmos="nfet_03v3",
@@ -254,7 +262,9 @@ GF180MCU_D = PdkConfig(
     vds_max=3.3,
     vbs_max=3.3,
 
-    default_pdk_root="/home/montanares/git/wafer-space-gf180mcu",
+    # PDK root resolved at runtime from PDK_ROOT env var or explicit
+    # pdk_root=... argument. wafer-space-gf180mcu is an external repo.
+    default_pdk_root="",
 
     # LibreLane digital flow
     librelane_pdk_name="gf180mcuD",

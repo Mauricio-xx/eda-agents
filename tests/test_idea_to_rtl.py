@@ -545,6 +545,24 @@ class TestGlSimHelperErrors:
 
 
 class TestBenchAdapterDry:
+    @pytest.fixture(autouse=True)
+    def _fake_pdk_root(self, tmp_path_factory, monkeypatch):
+        """Expose a fake multi-PDK tree so dry-run tests don't require
+        real IHP or GF180 installs on the host.
+
+        ``resolve_pdk_root()`` now raises when neither ``PDK_ROOT`` nor
+        ``default_pdk_root`` resolves to the requested PDK's model
+        file. The dry-run path still calls the resolver (so the dry
+        failure mirrors the live one), so we synthesise the minimum
+        skeleton that satisfies the resolver for both PDKs.
+        """
+        root = tmp_path_factory.mktemp("fake_multi_pdk")
+        (root / "ihp-sg13g2/libs.tech/ngspice/models").mkdir(parents=True)
+        (root / "ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib").write_text("* fake\n")
+        (root / "gf180mcuD/libs.tech/ngspice").mkdir(parents=True)
+        (root / "gf180mcuD/libs.tech/ngspice/sm141064.ngspice").write_text("* fake\n")
+        monkeypatch.setenv("PDK_ROOT", str(root))
+
     def _task_dry(self) -> "BenchTask":
         return load_task(_TASK_DIR / "idea_to_digital_counter.yaml")
 
