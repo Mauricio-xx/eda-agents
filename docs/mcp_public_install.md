@@ -6,21 +6,27 @@ RTL-to-GDS, analog composition) as MCP tools. Any MCP-capable client
 can use it — this guide covers [opencode](https://opencode.ai) and
 [Claude Code](https://claude.ai/code).
 
-## 1. Install
+## 1. Install and bootstrap a project
 
 ```bash
-pip install -e "git+https://github.com/Mauricio-xx/eda-agents.git#egg=eda-agents[mcp]"
+pip install "git+https://github.com/Mauricio-xx/eda-agents.git#egg=eda-agents[mcp]"
+
+mkdir my-chip && cd my-chip
+eda-init
 ```
 
 The `[mcp]` extra pulls in `fastmcp`, `litellm` (for the LLM-powered
 tools `recommend_topology` and `run_autoresearch`), and `httpx` (for
-on-demand LUT downloads).
+on-demand LUT downloads). Two console scripts land on your `PATH`:
 
-Once installed, the `eda-mcp` console script is on your `PATH`:
+- `eda-mcp` — the MCP server that an MCP client spawns over stdio.
+- `eda-init` — one-shot bootstrapper that drops the canonical
+  `opencode.json`, `.mcp.json`, `.opencode/agent/*.md`, and
+  `.claude/agents/*.md` into your project. Safe to re-run: it skips
+  any file that already exists. Pass `--force` to overwrite.
 
-```bash
-eda-mcp --help      # stdio transport, no args needed for MCP clients
-```
+After `eda-init`, opencode and Claude Code both see the eda-agents
+MCP server and the curated subagents with zero further config.
 
 ## 2. Configure environment
 
@@ -44,9 +50,12 @@ LUTs from the project's GitHub Release into
 
 ## 3. Wire up your MCP client
 
-### opencode
+If you ran `eda-init` in step 1, the client configs already exist at
+`opencode.json` and `.mcp.json`. Skip to step 4.
 
-Create `opencode.json` in your project root:
+### opencode (manual setup)
+
+`eda-init` writes `opencode.json` for you. The shipped template is:
 
 ```json
 {
@@ -61,10 +70,7 @@ Create `opencode.json` in your project root:
 }
 ```
 
-The repo ships `opencode.json.example` with this exact content. Copy
-it: `cp opencode.json.example opencode.json`.
-
-### Claude Code
+### Claude Code (manual setup)
 
 Two equivalent options. Either register globally via the CLI:
 
@@ -72,8 +78,9 @@ Two equivalent options. Either register globally via the CLI:
 claude mcp add eda-agents -- eda-mcp
 ```
 
-Or drop a project-level `.mcp.json` at the repo root (this is the
-path Claude Code auto-loads, not `.claude/mcp.json`):
+Or use the project-level `.mcp.json` that `eda-init` writes at the
+repo root (this is the path Claude Code auto-loads, not
+`.claude/mcp.json`):
 
 ```json
 {
@@ -88,14 +95,14 @@ path Claude Code auto-loads, not `.claude/mcp.json`):
 }
 ```
 
-The repo ships `.mcp.json.example` with this exact content. Copy it:
-`cp .mcp.json.example .mcp.json` (the real `.mcp.json` is gitignored
-so per-user overrides don't dirty the tree).
+The real `.mcp.json` is gitignored so your per-project overrides stay
+out of git.
 
 #### Curated subagents
 
-The repo ships five Claude Code subagents under `.claude/agents/` that
-front-load the eda-agents MCP into focused workflows:
+`eda-init` drops five Claude Code subagents under `.claude/agents/`
+(and five opencode twins under `.opencode/agent/`) that front-load
+the eda-agents MCP into focused workflows:
 
 | Agent | Purpose |
 |-------|---------|

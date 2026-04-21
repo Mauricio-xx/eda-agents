@@ -34,6 +34,7 @@ Issues = "https://github.com/Mauricio-xx/eda-agents/issues"
 [project.scripts]
 eda-bridge = "eda_agents.bridge.cli:main"
 eda-mcp = "eda_agents.mcp.server:run_server"
+eda-init = "eda_agents.bootstrap:main"
 
 [project.optional-dependencies]
 agents = [

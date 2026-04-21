@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "eda-agents": {
+      "type": "stdio",
+      "command": "eda-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}
