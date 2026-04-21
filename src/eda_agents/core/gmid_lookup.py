@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 
 import numpy as np
@@ -26,6 +27,15 @@ import numpy as np
 from eda_agents.core.pdk import PdkConfig, resolve_pdk
 
 logger = logging.getLogger(__name__)
+
+
+# Per-PDK env var that can override cfg.lut_dir_default. Keeps IHP LUTs
+# (ihp-gmid-kit, external repo) separate from GF180 LUTs (shipped via
+# GitHub Release + on-demand download).
+_LUT_DIR_ENV_VARS: dict[str, str] = {
+    "ihp_sg13g2": "EDA_AGENTS_IHP_LUT_DIR",
+    "gf180mcu": "EDA_AGENTS_GMID_LUT_DIR",
+}
 
 
 class GmIdLookup:
@@ -49,17 +59,47 @@ class GmIdLookup:
         lut_dir: Path | None = None,
     ):
         self.pdk = resolve_pdk(pdk)
-        if lut_dir:
-            self.lut_dir = Path(lut_dir)
-        elif self.pdk.lut_dir_default:
-            self.lut_dir = Path(self.pdk.lut_dir_default)
-        else:
-            raise ValueError(
-                f"No LUT directory for PDK '{self.pdk.name}'. "
-                "Pass lut_dir explicitly or set pdk.lut_dir_default."
-            )
+        self.lut_dir = self._resolve_lut_dir(lut_dir)
         self._nmos: dict | None = None
         self._pmos: dict | None = None
+
+    def _resolve_lut_dir(self, lut_dir: Path | None) -> Path:
+        """Pick the LUT directory following the PDK-aware fallback chain.
+
+        Order:
+          1. Explicit ``lut_dir=...`` argument.
+          2. ``cfg.lut_dir_default`` if set (legacy in-repo override).
+          3. Per-PDK env var (``EDA_AGENTS_IHP_LUT_DIR`` for IHP,
+             ``EDA_AGENTS_GMID_LUT_DIR`` for GF180).
+          4. GF180 only: on-demand download via ``lut_fetcher`` into
+             the XDG cache. IHP does not auto-download; the kit lives
+             in the external ``ihp-gmid-kit`` repo.
+          5. Raise ``ValueError`` with an actionable hint.
+        """
+        if lut_dir:
+            return Path(lut_dir)
+        if self.pdk.lut_dir_default:
+            return Path(self.pdk.lut_dir_default)
+
+        env_var = _LUT_DIR_ENV_VARS.get(self.pdk.name)
+        if env_var:
+            env_val = os.environ.get(env_var)
+            if env_val:
+                return Path(env_val)
+
+        if self.pdk.name == "gf180mcu":
+            from eda_agents.core import lut_fetcher
+
+            return lut_fetcher.ensure_gf180_cache(
+                self.pdk.lut_nmos_file,
+                self.pdk.lut_pmos_file,
+            )
+
+        raise ValueError(
+            f"No LUT directory for PDK '{self.pdk.name}'. Pass "
+            f"lut_dir explicitly"
+            + (f" or set {env_var}." if env_var else ".")
+        )
 
     def _load(self, mos_type: str) -> dict:
         """Load and cache LUT data for given type."""
