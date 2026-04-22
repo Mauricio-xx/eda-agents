@@ -1,0 +1,54 @@
+\section{Where to go next}
+
+\begin{frame}{Starting points}
+  \begin{itemize}\small
+    \item \textbf{Run the analog loop:}
+          \cmd{examples/07\_autoresearch\_circuit.py} -- Miller OTA
+          sizing with SPICE feedback.
+    \item \textbf{Run the digital loop:}
+          \cmd{examples/09\_rtl2gds\_digital.py --backend cc\_cli}
+          drives the 5-agent tree end-to-end on GF180 or IHP.
+    \item \textbf{Tune LibreLane knobs:}
+          \cmd{examples/10\_digital\_autoresearch.py} (greedy search).
+    \item \textbf{Claude Code agent invocations:}
+          \cmd{/agents gf180-docker-digital},
+          \cmd{/agents analog-sizing-advisor},
+          \cmd{/agents analog-topology-recommender}.
+    \item \textbf{Hands-on tutorial:}
+          \cmd{../rtl2gds-gf180-docker/demo/rtl2gds\_counter.ipynb} --
+          4-bit counter, 8 notebook cells.
+  \end{itemize}
+  \vspace{0.6em}
+  \footnotesize
+  Source of truth for names + tool rosters:
+  \cmd{.claude/agents/*.md}, \cmd{src/eda\_agents/agents/digital\_adk\_agents.py},
+  \cmd{src/eda\_agents/skills/\{analog,digital\}.py}.
+  \note{%
+    Starter recipe for a new user: run the analog example first (it's
+    fast, under 5 min on a laptop, and teaches the
+    \cmd{program.md} / \cmd{results.tsv} convention); then try
+    \cmd{09\_rtl2gds\_digital.py --dry-run} to see the agent flow
+    without spending LLM tokens; then the counter notebook.\par
+    For real work: invoke the Claude Code agent slash commands.
+    \cmd{/agents gf180-docker-digital} hands you a Claude Code session
+    with the toolchain, skills, and safety rails already wired in.
+    Safer than copy-pasting prompts.}
+\end{frame}
+
+\begin{frame}{Thank you}
+  \begin{center}
+    \Large The agents are infrastructure, not magic.\\[0.4em]
+    \normalsize Every tool they use is in the repo. Read the code.\\[0.8em]
+    \small \cmd{github.com/Mauricio-xx/eda-agents}
+  \end{center}
+  \note{%
+    Closing stance: resist the framing that ``AI does the design.''
+    What actually happens is that humans encoded a design methodology
+    (gm/ID for analog, the LibreLane flow for digital) as skills,
+    topologies, and evaluators; the LLM drives the loop, but the loop
+    is made of our code and our rules. Debugging an autoresearch run is
+    reading \cmd{program.md} and \cmd{results.tsv}, not prompting
+    harder.\par
+    Invite questions on: adding a new topology, adding a new skill,
+    wiring a new PDK, or integrating a custom evaluator.}
+\end{frame}

@@ -1,0 +1,81 @@
+\section{Digital side}
+
+\begin{frame}{Digital flow: master agent + four specialists}
+  \begin{center}
+  \begin{tikzpicture}[node distance=0.4cm and 0.5cm]
+    \node[agent, minimum width=3.4cm] (pm) {project\_manager};
+    \node[agent2, below=0.9cm of pm] (ve) {verification\\engineer};
+    \node[agent2, right=of ve] (se) {synthesis\\engineer};
+    \node[agent2, right=of se] (pd) {physical\\designer};
+    \node[agent2, right=of pd] (sc) {signoff\\checker};
+    \draw[arrow] (pm.south) -- (ve.north);
+    \draw[arrow] (pm.south) -- (se.north);
+    \draw[arrow] (pm.south) -- (pd.north);
+    \draw[arrow] (pm.south) -- (sc.north);
+  \end{tikzpicture}
+  \end{center}
+  \vspace{0.4em}
+  \footnotesize
+  \begin{tabular}{@{}p{0.28\textwidth}p{0.68\textwidth}@{}}
+    \toprule
+    \cmd{verification\_engineer} & RTL lint + cocotb sim; gates synthesis. \\
+    \cmd{synthesis\_engineer}    & Yosys via LibreLane partial flow (to SYNTH). \\
+    \cmd{physical\_designer}     & Floorplan, PDN, place, CTS, route. \\
+    \cmd{signoff\_checker}       & DRC, LVS, STA, precheck. \\
+    \bottomrule
+  \end{tabular}
+  \note{%
+    The five names here map directly to the factories in
+    \cmd{src/eda\_agents/agents/digital\_adk\_agents.py} (\cmd{project\_manager}
+    is the master LlmAgent at line 473; the four sub-agents at 248, 273,
+    302, 336). The hierarchy is an ADK tree -- the master can delegate,
+    receive results, and decide whether to re-try or escalate.\par
+    In practice: the project manager reads the design brief, asks the
+    verification engineer for a testbench + lint, only then lets the
+    synthesis engineer touch the RTL. Each sub-agent has a curated tool
+    list (\cmd{VERIF\_TOOLS}, \cmd{SYNTH\_TOOLS}, \cmd{PHYSICAL\_TOOLS},
+    \cmd{SIGNOFF\_TOOLS}) to reduce the blast radius.}
+\end{frame}
+
+\begin{frame}{Two entry points: ADK multi-agent vs Claude Code CLI}
+  \footnotesize
+  \begin{tabular}{@{}p{0.28\textwidth}p{0.68\textwidth}@{}}
+    \toprule
+    \textbf{Backend} & \textbf{When to use} \\
+    \midrule
+    \cmd{backend="adk"}      & Programmatic pipeline; the 5-agent tree
+        above runs end-to-end under Google ADK + LiteLLM. Good for
+        CI-style reproducible runs. \\
+    \cmd{backend="cc\_cli"}  & Delegates to a \cmd{claude --print --output-format json}
+        subprocess. Good for interactive sessions where the user stays
+        in the loop and the flow lives in a Claude Code conversation. \\
+    \bottomrule
+  \end{tabular}
+  \vspace{0.6em}
+  \textbf{Greedy-exploration wrapper:} \cmd{DigitalAutoresearchRunner}
+  (\cmd{src/.../digital\_autoresearch.py}) sweeps LibreLane knobs
+  (density, clock period, PDN pitch) and scores by a user-weighted FoM
+  (timing, area, power).
+  \vspace{0.4em}
+  \begin{itemize}\scriptsize
+    \item Example: \cmd{examples/09\_rtl2gds\_digital.py} (end-to-end flow).
+    \item Autoresearch: \cmd{examples/10\_digital\_autoresearch.py}
+          (greedy knob search).
+  \end{itemize}
+  \note{%
+    The two backends share the prompt library but differ in how they
+    execute. ADK path: a Python process orchestrates the 5 agents via
+    the ADK runner; each agent gets a locked-down tool set and a
+    deterministic model (\cmd{openrouter/google/gemini-3-flash-preview}
+    by default).\par
+    CC CLI path: we hand the whole prompt to \cmd{claude --print}
+    (Claude Code CLI) with an allow-list via \cmd{--allowed-tools}; the
+    CLI does the planning, tool use, and iteration. This is what the
+    \cmd{gf180-docker-digital} agent uses when a user invokes it from
+    \cmd{/agents gf180-docker-digital}.\par
+    The autoresearch wrapper does \emph{not} replace sizing -- it
+    optimises \emph{flow config}. Budget per evaluation is
+    100$\times$ higher than analog (minutes vs seconds), so the defaults
+    cap at 5 evaluations and the search space is discrete (nearest-value
+    snapping).}
+\end{frame}

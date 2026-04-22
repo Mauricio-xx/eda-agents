@@ -1,0 +1,70 @@
+% Shared preamble for the agents-analog-digital tutorial.
+% Mirrors tutorials/rtl2gds-gf180-docker/preamble.tex so both decks
+% look identical.
+
+\usetheme{metropolis}
+\setbeamertemplate{footline}[frame number]
+\setbeamertemplate{navigation symbols}{}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{tikz}
+\usepackage{hyperref}
+\usepackage{fancyvrb}
+\usepackage{pgfpages}
+
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,backgrounds,
+                calc,decorations.pathreplacing,shadows}
+
+\definecolor{accent}{HTML}{2B6CB0}
+\definecolor{accent2}{HTML}{2F855A}
+\definecolor{accent3}{HTML}{C05621}
+\definecolor{muted}{HTML}{4A5568}
+\definecolor{softbg}{HTML}{F7FAFC}
+\definecolor{codekw}{HTML}{805AD5}
+\definecolor{codestr}{HTML}{2F855A}
+\definecolor{codecom}{HTML}{718096}
+
+\lstdefinestyle{shellstyle}{
+  language=bash,
+  basicstyle=\ttfamily\scriptsize,
+  keywordstyle=\color{codekw}\bfseries,
+  commentstyle=\color{codecom}\itshape,
+  stringstyle=\color{codestr},
+  backgroundcolor=\color{softbg},
+  frame=single,
+  rulecolor=\color{muted!40},
+  showstringspaces=false,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  literate={~}{{\textasciitilde}}1 {\$}{{\$}}1 {-}{{-}}1,
+}
+\lstset{style=shellstyle}
+
+\newcommand{\term}[1]{\textbf{\color{accent}#1}}
+\newcommand{\cmd}[1]{\texttt{\small#1}}
+\newcommand{\warn}[1]{\textbf{\color{accent3}#1}}
+
+\tikzset{
+  agent/.style={
+    draw=accent, thick, rounded corners=2pt, fill=accent!8,
+    minimum width=2.6cm, minimum height=0.9cm, align=center, font=\small
+  },
+  agent2/.style={
+    draw=accent2, thick, rounded corners=2pt, fill=accent2!10,
+    minimum width=2.6cm, minimum height=0.9cm, align=center, font=\small
+  },
+  agent3/.style={
+    draw=accent3, thick, rounded corners=2pt, fill=accent3!10,
+    minimum width=2.6cm, minimum height=0.9cm, align=center, font=\small
+  },
+  arrow/.style={-Stealth, thick, accent!80},
+  arrow2/.style={-Stealth, thick, accent2!80},
+}

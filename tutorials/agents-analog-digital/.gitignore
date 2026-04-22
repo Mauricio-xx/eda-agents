@@ -1,0 +1,18 @@
+# LaTeX build artefacts
+*.aux
+*.log
+*.nav
+*.out
+*.snm
+*.toc
+*.vrb
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.bbl
+*.blg
+*.run.xml
+main.pdf
+main-with-notes.pdf
+
+sections/*.aux

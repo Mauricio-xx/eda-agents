@@ -1,0 +1,38 @@
+\section{MCP + skills registry}
+
+\begin{frame}[fragile]{MCP: making the stack portable}
+  \cmd{eda-mcp} (stdio Model Context Protocol server) exposes the repo's
+  primitives to any MCP-aware client (Claude Code, IDE extensions, custom
+  tools):
+  \begin{itemize}\footnotesize
+    \item \term{Skills}: named prompts rendered from Markdown bundles
+          (\cmd{analog.gmid\_sizing}, \cmd{digital.cocotb\_testbench},
+          \cmd{flow.drc\_checker}, \ldots).
+    \item \term{LUTs}: gm/ID tables for all registered PDK/device pairs.
+    \item \term{Runners}: SPICE, LibreLane, DRC, LVS -- same code the
+          agents call internally.
+    \item \term{Topology registry}: list + metadata of circuit topologies.
+  \end{itemize}
+  \begin{lstlisting}[style=shellstyle]
+# Register the server in ~/.config/claude-code/mcp.json
+{"mcpServers": {"eda-agents": {"type": "stdio",
+                "command": "eda-mcp"}}}
+  \end{lstlisting}
+  \footnotesize
+  Full example: \cmd{src/eda\_agents/templates/mcp.json}.
+  \note{%
+    The MCP server is the integration seam. Without it, every consumer
+    has to depend on the \cmd{eda\_agents} Python package and know the
+    internal module layout. With it, the consumer asks for
+    \cmd{get\_skill(\"analog.gmid\_sizing\")} or
+    \cmd{run\_librelane(project\_dir, to=\"SIGNOFF\")} by name.\par
+    Namespaces shipped today: \cmd{analog.*} (10+ skills),
+    \cmd{digital.*} (cocotb TB authoring, RTL-to-GDS driver, etc.),
+    \cmd{flow.*} (DRC checker, DRC fixer). The \cmd{list\_skills}
+    tool enumerates them at runtime so an agent can discover what is
+    available.\par
+    LUT access is non-trivial: IHP SG13G2 LUTs live in an external
+    \cmd{ihp-gmid-kit} clone; GF180 LUTs auto-download on first use and
+    cache under \cmd{\char126/.cache/eda-agents/gmid\_luts/}. The MCP
+    server hides all of that.}
+\end{frame}

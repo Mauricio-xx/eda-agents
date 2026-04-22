@@ -1,0 +1,137 @@
+\section{The stack, the container, the PDK}
+
+\begin{frame}{LibreLane runs the whole orchestra}
+  \begin{center}
+  \begin{tikzpicture}[node distance=0.4cm]
+    \node[pipelinebox, minimum width=3.3cm, minimum height=1.0cm]
+      (ll) {LibreLane\\\scriptsize(Python; one YAML in, artifacts out)};
+    \node[pipelinebox2, below=1.2cm of ll, minimum width=1.8cm] (yo) {Yosys};
+    \node[pipelinebox2, left=of yo,  minimum width=1.8cm] (or) {OpenROAD};
+    \node[pipelinebox2, right=of yo, minimum width=1.8cm] (kl) {KLayout};
+    \node[pipelinebox2, right=of kl, minimum width=1.8cm] (mg) {Magic};
+    \node[pipelinebox2, right=of mg, minimum width=1.8cm] (ng) {Netgen};
+    \draw[arrow] (ll) -- (or);
+    \draw[arrow] (ll) -- (yo);
+    \draw[arrow] (ll) -- (kl);
+    \draw[arrow] (ll) -- (mg);
+    \draw[arrow] (ll) -- (ng);
+  \end{tikzpicture}
+  \end{center}
+  \vspace{0.4em}
+  LibreLane reads one config, decides which tool runs when, passes files
+  along, and writes metrics. Its CLI is literally \cmd{librelane config.yaml}.
+  \note{%
+    This is the thesis of the deck: you drive LibreLane, LibreLane drives
+    the rest. Versions in the reference audit (2026-04-13, IIC-OSIC-TOOLS
+    \cmd{:next} image): LibreLane 3.0.2, Yosys v0.64, OpenROAD dcf36133,
+    KLayout v0.30.7, Magic 8.3.635, Netgen 1.5.318, ngspice-46, ciel v2.4.0.\par
+    Name LibreLane as the evolution of OpenLane 2 (same lineage, Python
+    rewrite). Reiterate that audiences will almost never type
+    \cmd{yosys ...} or \cmd{openroad ...} directly.}
+\end{frame}
+
+\begin{frame}{Host, container, and your files}
+  \begin{center}
+  \begin{tikzpicture}[x=1cm, y=1cm]
+    \draw[draw=muted, thick, rounded corners=3pt, fill=softbg]
+      (-6.2, -2.2) rectangle (6.2, 2.0);
+    \node[anchor=north, font=\small\bfseries, text=muted]
+      at (0, 1.95) {Your Linux host};
+    \draw[draw=accent, thick, rounded corners=3pt, fill=accent!6]
+      (-6.0, -2.0) rectangle (2.2, 1.5);
+    \node[anchor=north west, font=\scriptsize\bfseries, text=accent]
+      at (-5.95, 1.45) {Docker container (\texttt{hpretl/iic-osic-tools:next})};
+    \node[pipelinebox2, minimum width=7.6cm, minimum height=0.8cm,
+          align=center, font=\scriptsize]
+      at (-1.9, 0.35)
+      {LibreLane + Yosys + OpenROAD + KLayout + Magic + Netgen};
+    \node[pipelinebox3, minimum width=3.4cm, minimum height=1.0cm, font=\small]
+      at (-3.7, -0.95) {PDK\\\scriptsize gf180mcuD};
+    \node[pipelinebox, minimum width=3.4cm, minimum height=1.0cm, font=\small]
+      at (-0.1, -0.95) {Your design\\\scriptsize (mounted)};
+    \node[draw=accent2, thick, rounded corners=3pt, fill=accent2!10,
+          minimum width=3.0cm, minimum height=1.4cm, align=center,
+          font=\footnotesize] (hostdir)
+      at (4.4, -0.95) {\texttt{\char126/eda/designs}\\\tiny (your files)};
+    \draw[<->, thick, accent2] (1.8, -0.95) -- (2.9, -0.95);
+    \node[font=\tiny, text=accent2, align=center] at (2.35, -0.5) {bind\\mount};
+  \end{tikzpicture}
+  \end{center}
+  \vspace{0.2em}
+  \small The container is the \term{environment}; the bind-mount is the
+  \term{bridge} -- edits on the host appear instantly inside.
+  \note{%
+    Mental model is the whole point here. People comfortable with VMs get
+    it in 30 seconds; people who have never used containers need to hear:
+    the container is disposable, your host folder is not. Treat
+    \cmd{\char126/eda/designs} as the canonical workspace. Everything
+    written inside \cmd{/foss/designs} survives \cmd{docker rm}. Everything
+    outside that path inside the container is gone.\par
+    The bind-mount is the only reason we can run a heavy-weight image and
+    still keep our editor, git, and artifacts on the host where we already
+    have backups.}
+\end{frame}
+
+\begin{frame}[fragile]{Container bootstrap -- four commands}
+  \begin{lstlisting}[style=shellstyle]
+# 1. One-time image pull (~15 GB)
+docker pull hpretl/iic-osic-tools:next
+
+# 2. Start a long-running, headless container
+docker run -d --name gf180 \
+    -v ~/eda/designs:/foss/designs:rw \
+    --user $(id -u):$(id -g) \
+    hpretl/iic-osic-tools:next --skip sleep infinity
+
+# 3. (Optional) interactive shell for debugging
+docker exec -it gf180 bash
+
+# 4. Non-interactive use (what the rest of the deck does)
+docker exec gf180 bash -lc '<command>'
+  \end{lstlisting}
+  \note{%
+    Four commands is all a first-time user needs. The flags matter:
+    \cmd{-v} binds the workspace, \cmd{--user} keeps artifacts on the host
+    owned by the right UID, \cmd{--skip sleep infinity} is the image's
+    built-in ``do nothing, stay alive'' entrypoint so we can
+    \cmd{docker exec} into it later.\par
+    The \cmd{bash -lc} pattern is the non-interactive workhorse we use for
+    every subsequent command; it yields a login shell so the container's
+    \cmd{\$PATH}, \cmd{\$PDK\_ROOT}, etc. are set up. Use single quotes on
+    the host side so the entire payload is handed to the container shell
+    untouched.\par
+    Cleanup (not on slide): \cmd{docker stop gf180 \&\& docker rm gf180}
+    removes the container but leaves your host files untouched.}
+\end{frame}
+
+\begin{frame}[fragile]{GF180MCU: two PDK gotchas to know upfront}
+  \begin{itemize}\small
+    \item The image ships \cmd{gf180mcuD} (5\,V MCU flavour) via
+          \term{ciel}. Good to go.
+    \item The full-chip template needs two extra I/O cells
+          (\cmd{gf180mcu\_ws\_io\_\_dvdd}, \cmd{\_\_dvss}) that live in the
+          \term{wafer-space fork}:
+          \begin{lstlisting}[style=shellstyle]
+git clone --depth 1 --branch 1.8.0 \
+  https://github.com/wafer-space/gf180mcu.git gf180mcu
+          \end{lstlisting}
+    \item The container defaults to IHP SG13G2. Every new shell must
+          re-activate GF180:
+          \begin{lstlisting}[style=shellstyle]
+source sak-pdk-script.sh gf180mcuD gf180mcu_fd_sc_mcu7t5v0
+          \end{lstlisting}
+  \end{itemize}
+  \note{%
+    This is the single slide that saves every first-timer 2 hours of
+    debugging. Without the wafer-space fork, you get an obscure ``unknown
+    cell'' error during synthesis. Without the \cmd{sak-pdk-script}
+    activation, LibreLane cheerfully looks for \cmd{sg13g2\_stdcell} files
+    inside the GF180 directory and stops on a Tcl glob error.\par
+    Both issues show up in Section 6 ``Pitfalls'' with their exact error
+    messages -- mention that now so people recognise the symptoms later.
+    Tag 1.8.0 of the wafer-space fork is the version we audited; bump only
+    with intent.\par
+    A \term{PDK} itself is just foundry files (stdcell libs, LEF, Liberty,
+    SPICE models, DRC decks). We do not need to explain it in depth for a
+    first-timer; the container already has the bits.}
+\end{frame}

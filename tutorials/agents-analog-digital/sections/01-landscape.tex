@@ -1,0 +1,78 @@
+\section{The landscape}
+
+\begin{frame}{Two design loops, one pattern}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.48\textwidth}
+      \textbf{Analog loop}\\[0.3em]
+      \begin{itemize}\small
+        \item \term{Inputs}: spec (GBW, PM, noise), topology choice.
+        \item \term{Evaluator}: ngspice + gm/ID LUTs.
+        \item \term{Knobs}: W/L, bias current, mirror ratios.
+        \item \term{FoM}: meets spec? area? power?
+      \end{itemize}
+    \column{0.48\textwidth}
+      \textbf{Digital loop}\\[0.3em]
+      \begin{itemize}\small
+        \item \term{Inputs}: RTL, clock, die budget.
+        \item \term{Evaluator}: LibreLane (Yosys + OpenROAD + KLayout).
+        \item \term{Knobs}: density, clock period, PDN pitch.
+        \item \term{FoM}: timing slack, area, power, DRC/LVS green.
+      \end{itemize}
+  \end{columns}
+  \vspace{0.8em}
+  \begin{center}
+    \textit{Both loops share the pattern: propose $\rightarrow$ simulate
+    $\rightarrow$ score $\rightarrow$ repeat. The \cmd{eda-agents} repo
+    implements it twice, with the same autoresearch core.}
+  \end{center}
+  \note{%
+    Core thesis. Analog and digital feel like different worlds -- one is
+    Verilog and flows, the other is W/L ratios and SPICE. But at the
+    agent level they are structurally identical: a proposal engine (the
+    LLM) emits candidate parameter sets, an evaluator measures them, a
+    FoM turns those measurements into a scalar, and a loop repeats.\par
+    What differs is the per-evaluation cost. Analog: seconds (ngspice on
+    a few transistors). Digital: minutes (LibreLane through routing +
+    signoff). The budgets we spend and the search strategies we pick
+    follow from that asymmetry.}
+\end{frame}
+
+\begin{frame}{What \cmd{eda-agents} ships today}
+  \begin{center}
+  \begin{tikzpicture}[node distance=0.5cm]
+    \node[agent] (atr)  {analog-topology\\recommender};
+    \node[agent, right=of atr] (asa) {analog-sizing\\advisor};
+    \node[agent3, right=of asa] (gfa) {gf180-docker\\analog};
+    \node[agent2, below=0.8cm of atr] (dtb) {digital-testbench\\author};
+    \node[agent2, right=of dtb] (gfd) {gf180-docker\\digital};
+    \node[agent, right=of gfd] (llx) {librelane\\expert};
+
+    \node[draw=muted, dashed, rounded corners=2pt, font=\scriptsize,
+          minimum height=0.55cm, minimum width=11.5cm]
+         (mcp) at ($(asa.north)!0.5!(gfd.south) + (1.6cm, 1.2cm)$) {};
+  \end{tikzpicture}
+  \end{center}
+  \vspace{0.2em}
+  \footnotesize
+  \textbf{Analog agents} (blue): recommend a topology, size it with gm/ID,
+  harden on GF180 inside Docker.\\
+  \textbf{Digital agents} (green): author cocotb TB, drive RTL-to-GDS on
+  GF180 inside Docker.\\
+  \textbf{Shared infra} (orange/muted): LibreLane expert + MCP server.
+  \note{%
+    This diagram names the \emph{real} agents shipped in
+    \cmd{.claude/agents/} and \cmd{src/eda\_agents/templates/claude\_agents/}
+    as of the current main: \cmd{analog-topology-recommender},
+    \cmd{analog-sizing-advisor}, \cmd{digital-testbench-author},
+    \cmd{gf180-docker-analog}, \cmd{gf180-docker-digital}. There is also a
+    \cmd{librelane-expert} agent that specialises in config.yaml
+    authoring.\par
+    The dashed box above them is the MCP surface -- \cmd{eda-mcp} exposes
+    skill templates, LUT access, and tool runners so any outer Claude
+    Code session, or an ADK multi-agent hierarchy, can reuse the same
+    primitives. We cover that in Section 5.\par
+    Naming convention: \cmd{*-docker-*} agents drive
+    \cmd{hpretl/iic-osic-tools} via \cmd{docker exec} and own the
+    iteration inside the container. The others are planning / coding
+    aids that run on the host.}
+\end{frame}

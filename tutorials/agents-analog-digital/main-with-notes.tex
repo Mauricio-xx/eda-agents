@@ -1,0 +1,39 @@
+% Speaker build with notes on a second screen.
+\documentclass[aspectratio=169,11pt]{beamer}
+\input{preamble.tex}
+\setbeameroption{show notes on second screen=right}
+
+\title{AI Agents for Analog and Digital IC Design}
+\subtitle{What the eda-agents stack actually ships today}
+\author{EDA-Agents Project}
+\institute{Open-Source IC Design}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}[plain]
+  \titlepage
+\end{frame}
+
+\begin{frame}{What you will learn}
+  \begin{itemize}
+    \item How the \cmd{eda-agents} repo splits AI assistance into two
+          loops: analog (sizing + SPICE) and digital (RTL-to-GDS).
+    \item The roster of agents and the infra they plug into.
+    \item Where to go to drive a real block end-to-end.
+  \end{itemize}
+  \note{Speaker build: notes shown on the right-hand screen.}
+\end{frame}
+
+\begin{frame}{Agenda}
+  \tableofcontents
+\end{frame}
+
+\input{sections/01-landscape.tex}
+\input{sections/02-analog.tex}
+\input{sections/03-digital.tex}
+\input{sections/04-autoresearch.tex}
+\input{sections/05-mcp.tex}
+\input{sections/06-resources.tex}
+
+\end{document}

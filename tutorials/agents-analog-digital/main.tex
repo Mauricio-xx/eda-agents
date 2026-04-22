@@ -1,0 +1,57 @@
+% !TEX program = pdflatex
+% Short companion deck: AI agents for analog + digital block design.
+% Sibling of tutorials/rtl2gds-gf180-docker/.
+% Build:  make              -> main.pdf            (audience view)
+%         make notes        -> main-with-notes.pdf (speaker view)
+
+\documentclass[aspectratio=169,11pt]{beamer}
+\input{preamble.tex}
+
+\title{AI Agents for Analog and Digital IC Design}
+\subtitle{What the eda-agents stack actually ships today}
+\author{EDA-Agents Project}
+\institute{Open-Source IC Design}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}[plain]
+  \titlepage
+\end{frame}
+
+\begin{frame}{What you will learn}
+  \begin{itemize}
+    \item How the \cmd{eda-agents} repo splits AI assistance into two
+          complementary loops: \term{analog} (sizing + SPICE) and
+          \term{digital} (RTL-to-GDS).
+    \item The roster of agents you can invoke today, and the infra
+          they plug into (autoresearch, MCP, skills).
+    \item Where to go to drive a real block end-to-end.
+  \end{itemize}
+  \vspace{0.4em}
+  \textit{Sibling deck: \cmd{../rtl2gds-gf180-docker/} -- a hands-on
+  LibreLane tutorial that uses the same Docker toolchain.}
+  \note{%
+    Orientation slide. This deck is intentionally short
+    (~7 content frames) and schematic. Dense material lives in the
+    \cmd{\textbackslash note\{...\}} blocks so an expert designer can
+    import slides + notes into a polished deck with animations later.\par
+    The main audience here is someone who has watched the RTL-to-GDS
+    tutorial and is asking: ``can I automate the knob-turning?'' The
+    answer this deck gives: yes, with two loops -- analog uses gm/ID
+    sizing feedback from ngspice, digital uses LibreLane metrics --
+    both wrapped in a topology-agnostic greedy search.}
+\end{frame}
+
+\begin{frame}{Agenda}
+  \tableofcontents
+\end{frame}
+
+\input{sections/01-landscape.tex}
+\input{sections/02-analog.tex}
+\input{sections/03-digital.tex}
+\input{sections/04-autoresearch.tex}
+\input{sections/05-mcp.tex}
+\input{sections/06-resources.tex}
+
+\end{document}

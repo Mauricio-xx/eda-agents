@@ -1,0 +1,139 @@
+\section{Results, pitfalls, and next steps}
+
+\begin{frame}{Headline numbers -- reference run}
+  \footnotesize
+  \begin{tabular}{@{}p{0.55\textwidth}r@{}}
+    \toprule
+    \textbf{Metric} & \textbf{Value} \\
+    \midrule
+    Die area                                  & $3.93 \times 5.12$\,mm \\
+    Core area                                 & $3.05 \times 4.24$\,mm \\
+    Core utilisation                          & 10.45\,\% \\
+    Standard-cell instances                   & 84\,417 \\
+    Total instances (incl. padring, taps)     & 251\,615 \\
+    Macros                                    & 4 (2$\times$ SRAM + ID + logo) \\
+    I/O pads                                  & 58 \\
+    Routed wirelength                         & 153.5\,mm \\
+    Total power (tt\_025C\_5v00)              & 34.3\,mW \\
+    Clock period / frequency                  & 40\,ns / 25\,MHz \\
+    \bottomrule
+  \end{tabular}
+  \vspace{0.3em}\\
+  \scriptsize Source: \cmd{final/metrics.csv}, run 2026-04-13.
+  \note{%
+    These numbers anchor every conversation. Low core utilisation (10\%)
+    is normal for a full-chip padring design: the die is sized for the
+    shuttle slot, not the logic. If the goal were area, you would shrink
+    \cmd{DIE\_AREA} and drop the padring.\par
+    Power at 34\,mW at 25\,MHz, 5\,V: typical for 180\,nm with this much
+    logic. Scale linearly with frequency for first-order estimates.
+    Mention these numbers so the audience has a feel for ``what good
+    looks like'' before they run their own design.}
+\end{frame}
+
+\begin{frame}{Signoff checklist -- the things that must be zero}
+  \footnotesize
+  \begin{tabular}{@{}lr@{}}
+    \toprule
+    \textbf{Check}                                  & \textbf{Violations} \\
+    \midrule
+    Magic DRC                                       & 0 \\
+    KLayout DRC                                     & 0 \\
+    KLayout XOR (Magic vs KLayout)                  & 0 \\
+    KLayout antenna / density                       & 0 \\
+    Magic illegal overlap                           & 0 \\
+    Netgen LVS                                      & clean \\
+    Setup / Hold (all 9 STA corners)                & 0 / 0 \\
+    Routing DRC (final iteration)                   & 0 \\
+    IR drop                                         & 0 \\
+    \midrule
+    Max slew (ss\_125C corner only)                 & 3 (warning) \\
+    Max cap (all corners)                           & 100--103 (warning) \\
+    \bottomrule
+  \end{tabular}
+  \vspace{0.3em}\\
+  \small Chip is manufacturable; the warnings are slow-corner fine-tuning.
+  \note{%
+    Signoff is a binary gate. Everything above the line must be zero.
+    Warnings below the line are shipping-acceptable for a first silicon
+    spin but worth investigating before re-tapeout. The distinction
+    between ``violation'' and ``warning'' is tool-specific -- LibreLane
+    normalises them into \cmd{metrics.csv} so you can script gates in CI.\par
+    If you see non-zero LVS, stop. LVS failure means the GDS does not
+    match the netlist -- the chip will not behave like your simulation,
+    regardless of DRC or timing.}
+\end{frame}
+
+\begin{frame}[fragile]{Reading \texttt{metrics.csv} in one grep}
+  \begin{lstlisting}[style=shellstyle]
+grep -E '^(magic__drc|klayout__drc|lvs|timing__(setup|hold)_vio__count$|design__(violations|die__area|instance__count)|power__total)' \
+     ~/eda/designs/template/final/metrics.csv
+  \end{lstlisting}
+  \vspace{0.3em}
+  \cmd{metrics.json} has the same data in a friendlier shape for scripts.
+  Commit a trimmed copy as a regression baseline.
+  \note{%
+    This is the presenter's cheat-sheet slide. Keep it on screen during
+    Q\&A. The recipe grabs: DRC counts from both Magic and KLayout, LVS
+    status, setup/hold violation counts, die area, instance count, total
+    power. Enough to know a flow is green without opening a GUI.\par
+    CI pattern: on every push, run LibreLane, grep these fields, compare
+    to baseline with a tolerance band on numeric fields and an exact match
+    on violation counts. Fails loud the moment someone breaks the flow.}
+\end{frame}
+
+\begin{frame}[fragile]{Four pitfalls you \emph{will} hit}
+  \footnotesize
+  \textbf{1. Wrong PDK active.} Error mentions \cmd{sg13g2\_stdcell}.
+  \textbf{Fix:} \cmd{source sak-pdk-script.sh gf180mcuD gf180mcu\_fd\_sc\_mcu7t5v0}
+  before \cmd{make}.\\[0.4em]
+  \textbf{2. Missing SRAM / I/O files.} Error says path
+  \cmd{'/foss/pdks/ihp-sg13g2/libs.ref/gf180mcu\_fd\_ip\_sram/...'} does not exist.
+  \textbf{Fix:} pass \cmd{PDK\_ROOT=/foss/designs/template/gf180mcu} explicitly.\\[0.4em]
+  \textbf{3. Unknown I/O cell \cmd{gf180mcu\_ws\_io\_\_...}}.
+  \textbf{Fix:} clone the wafer-space PDK fork (\cmd{make clone-pdk}).\\[0.4em]
+  \textbf{4. Flow is absurdly slow.}
+  Magic DRC $\sim$32\,min + KLayout antenna $\sim$7\,min dominate runtime.
+  \textbf{Fix for iteration:} \cmd{make librelane-nodrc}; never hand in a
+  chip without one full DRC run.
+  \note{%
+    These four cover $>$80\,\% of the first-timer failure modes.\par
+    Pitfalls 1 and 2 look like ``the PDK is wrong'' but have different
+    fixes: 1 is \emph{shell env}, 2 is \emph{Make variable}. Teach people
+    to check both.\par
+    Pitfall 3 is the reason the wafer-space PDK fork exists at all --
+    upstream open\_pdks GF180 does not ship the custom padring cells.\par
+    Pitfall 4 is a philosophy point: iteration speed matters. Use
+    \cmd{nodrc} for design iteration, then run the full flow before tapeout.
+    This mirrors how unit tests vs integration tests work in software.}
+\end{frame}
+
+\begin{frame}{What to try next}
+  \begin{enumerate}\small
+    \item \textbf{Swap \cmd{chip\_core.sv}} for your own logic (same ports).
+          Re-run. You now have a custom chip.
+    \item \textbf{Change \cmd{CLOCK\_PERIOD}} and watch setup/hold slack move.
+    \item \textbf{Swap the slot} to \cmd{1x0p5} or \cmd{0p5x0p5}, adjust pad
+          lists, re-run -- see the floorplan scale.
+    \item \textbf{Submit to a shuttle}: Tiny Tapeout, wafer-space MPW. The
+          GDS you produced is fab-ready.
+  \end{enumerate}
+  \vspace{0.6em}
+  \footnotesize
+  \textbf{Further reading:}
+  LibreLane docs \url{https://librelane.readthedocs.io/en/stable/} $\cdot$
+  Image \url{https://github.com/iic-jku/IIC-OSIC-TOOLS} $\cdot$
+  Template \url{https://github.com/wafer-space/gf180mcu-project-template} $\cdot$
+  Wafer-space PDK fork \url{https://github.com/wafer-space/gf180mcu} $\cdot$
+  Audit in \cmd{eda-agents/docs/iic\_osic\_tools\_audit.md}.
+  \note{%
+    Call-to-action slide. The cheapest way to learn is to take the
+    template, replace \cmd{chip\_core.sv} with ``hello world'' logic
+    (blinky, counter, UART echo), and re-run. 45 minutes later you have a
+    real GDS.\par
+    For presenter: point people to the companion Jupyter notebook
+    (\cmd{demo/rtl2gds\_counter.ipynb}) which walks through a minimal
+    counter in 8 cells -- faster iteration target than the full chip
+    template. Mention the sister deck on using AI agents to drive the
+    flow (\cmd{tutorials/agents-analog-digital/}).}
+\end{frame}

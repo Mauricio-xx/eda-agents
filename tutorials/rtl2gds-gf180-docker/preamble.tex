@@ -1,0 +1,143 @@
+% Shared preamble for the tutorial slides.
+
+% ---- Theme ---------------------------------------------------------
+% If metropolis is not installed, replace the next line with:
+%   \usetheme{default}\usecolortheme{beaver}
+\usetheme{metropolis}
+
+\setbeamertemplate{footline}[frame number]
+\setbeamertemplate{navigation symbols}{}
+
+% ---- Speaker notes -------------------------------------------------
+% Every content frame carries a \note{...} with extended context.
+% Default build (main.tex): notes are hidden -> audience PDF.
+% Speaker build:   make notes  -> main-with-notes.pdf (notes on right).
+% Notes-only PDF:  make notes-only -> notes_only.pdf (hand-out).
+% The wrapper files (main-with-notes.tex, notes_only.tex) enable the
+% appropriate \setbeameroption before \input-ing main.tex.
+\usepackage{pgfpages}
+
+% ---- Packages ------------------------------------------------------
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{tikz}
+\usepackage{hyperref}
+\usepackage{fancyvrb}
+
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,backgrounds,
+                calc,decorations.pathreplacing,shadows}
+
+% ---- Colors --------------------------------------------------------
+\definecolor{accent}{HTML}{2B6CB0}      % blue
+\definecolor{accent2}{HTML}{2F855A}     % green
+\definecolor{accent3}{HTML}{C05621}     % orange
+\definecolor{muted}{HTML}{4A5568}       % gray
+\definecolor{softbg}{HTML}{F7FAFC}      % near-white
+\definecolor{codekw}{HTML}{805AD5}      % purple
+\definecolor{codestr}{HTML}{2F855A}     % green
+\definecolor{codecom}{HTML}{718096}     % gray
+
+% ---- listings for code snippets -----------------------------------
+\lstdefinestyle{shellstyle}{
+  language=bash,
+  basicstyle=\ttfamily\scriptsize,
+  keywordstyle=\color{codekw}\bfseries,
+  commentstyle=\color{codecom}\itshape,
+  stringstyle=\color{codestr},
+  backgroundcolor=\color{softbg},
+  frame=single,
+  rulecolor=\color{muted!40},
+  showstringspaces=false,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  literate={~}{{\textasciitilde}}1 {\$}{{\$}}1 {-}{{-}}1,
+}
+\lstdefinestyle{yamlstyle}{
+  basicstyle=\ttfamily\scriptsize,
+  keywordstyle=\color{codekw}\bfseries,
+  stringstyle=\color{codestr},
+  commentstyle=\color{codecom}\itshape,
+  backgroundcolor=\color{softbg},
+  frame=single,
+  rulecolor=\color{muted!40},
+  showstringspaces=false,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  morekeywords={meta,version,flow,DESIGN_NAME,VERILOG_FILES,CLOCK_PORT,
+                CLOCK_PERIOD,CLOCK_NET,PDN_VWIDTH,PDN_HWIDTH,PDN_CORE_RING,
+                MACROS,VDD_NETS,GND_NETS,FP_SIZING,DIE_AREA,CORE_AREA,
+                PAD_SOUTH,PAD_NORTH,PAD_EAST,PAD_WEST,PRIMARY_GDSII_STREAMOUT_TOOL},
+  morecomment=[l]{\#},
+  morestring=[b]",
+  morestring=[b]',
+}
+\lstdefinestyle{verilogstyle}{
+  language=Verilog,
+  basicstyle=\ttfamily\scriptsize,
+  keywordstyle=\color{codekw}\bfseries,
+  stringstyle=\color{codestr},
+  commentstyle=\color{codecom}\itshape,
+  backgroundcolor=\color{softbg},
+  frame=single,
+  rulecolor=\color{muted!40},
+  showstringspaces=false,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+}
+\lstset{style=shellstyle}
+
+% ---- Helper commands ----------------------------------------------
+\newcommand{\term}[1]{\textbf{\color{accent}#1}}
+\newcommand{\cmd}[1]{\texttt{\small#1}}
+\newcommand{\warn}[1]{\textbf{\color{accent3}#1}}
+
+% Placeholder box for manual screenshots.
+% Usage: \screenshotplaceholder{slides/figures/foo.png}{Short description}
+\newcommand{\screenshotplaceholder}[2]{%
+  \begin{center}
+    \IfFileExists{#1}{%
+      \includegraphics[width=0.85\textwidth,keepaspectratio]{#1}%
+    }{%
+      \fbox{\parbox[c][0.4\textheight][c]{0.85\textwidth}{%
+        \centering
+        \textit{\color{muted}Screenshot placeholder}\\[0.3em]
+        {\footnotesize\ttfamily\detokenize{#1}}\\[0.3em]
+        \small #2
+      }}%
+    }
+  \end{center}
+}
+
+% TikZ styles shared across diagrams.
+\tikzset{
+  pipelinebox/.style={
+    draw=accent, thick, rounded corners=2pt,
+    fill=accent!8, minimum width=2.0cm, minimum height=0.9cm,
+    align=center, font=\small
+  },
+  pipelinebox2/.style={
+    draw=accent2, thick, rounded corners=2pt,
+    fill=accent2!10, minimum width=2.0cm, minimum height=0.9cm,
+    align=center, font=\small
+  },
+  pipelinebox3/.style={
+    draw=accent3, thick, rounded corners=2pt,
+    fill=accent3!10, minimum width=2.0cm, minimum height=0.9cm,
+    align=center, font=\small
+  },
+  arrow/.style={-Stealth, thick, accent!80},
+  notebox/.style={
+    draw=muted!50, dashed, rounded corners=2pt,
+    fill=softbg, minimum height=0.6cm, align=center,
+    font=\scriptsize, text=muted
+  },
+}

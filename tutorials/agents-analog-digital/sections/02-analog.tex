@@ -1,0 +1,87 @@
+\section{Analog side}
+
+\begin{frame}{Analog flow: topology $\rightarrow$ sizing $\rightarrow$ SPICE}
+  \begin{center}
+  \begin{tikzpicture}[node distance=0.8cm]
+    \node[agent]  (nl)  {natural-language\\spec};
+    \node[agent, right=of nl]  (rec) {analog-topology\\recommender};
+    \node[agent, right=of rec] (adv) {analog-sizing\\advisor};
+    \node[agent2, below=0.9cm of adv] (ar)  {AutoresearchRunner\\\scriptsize greedy gm/ID loop};
+    \node[agent3, left=of ar] (ng) {ngspice\\\scriptsize + gm/ID LUTs};
+    \node[agent3, left=of ng] (gds) {GDS\\\scriptsize gLayout / Magic};
+
+    \draw[arrow]  (nl) -- (rec);
+    \draw[arrow]  (rec) -- (adv);
+    \draw[arrow]  (adv) -- (ar);
+    \draw[arrow2] (ar) -- (ng);
+    \draw[arrow2] (ng) -- (gds);
+  \end{tikzpicture}
+  \end{center}
+  \vspace{0.3em}
+  \begin{itemize}\footnotesize
+    \item \cmd{analog-topology-recommender}: maps a one-line spec
+          ("rail-to-rail OTA, 10 MHz GBW") to a registered topology
+          (Miller OTA, telescopic, folded cascode, SAR-ADC,\ldots).
+    \item \cmd{analog-sizing-advisor}: consumes the chosen topology plus
+          gm/ID LUTs; proposes a starting W/L + bias point; hands off to
+          \term{AutoresearchRunner} for the SPICE-scored greedy refinement.
+    \item \cmd{gf180-docker-analog}: finalises layout + runs DRC/LVS
+          inside \cmd{hpretl/iic-osic-tools}.
+  \end{itemize}
+  \note{%
+    The analog loop is where \cmd{eda-agents} has the most depth. The
+    methodology is \term{gm/ID}: pre-computed LUTs encode the
+    device-level trade-off (transconductance vs current) for each
+    transistor type on each PDK. The sizing advisor uses those tables to
+    hand the autoresearch runner a good starting point -- not a random
+    one -- so the subsequent SPICE budget is spent on refinement, not
+    discovery.\par
+    Supported circuit topologies today (registered as
+    \cmd{CircuitTopology} subclasses under
+    \cmd{src/eda\_agents/topologies/}): Miller OTA, AnalogAcademy OTA,
+    GF180 OTA, StrongArm comparator, SAR ADC (8b, both transistor-level
+    and behavioral variants). Topology-agnostic core means ``add another
+    circuit'' is \cmd{\~200} lines of code per topology.\par
+    Layout: \cmd{gLayout} (Python-based parametric layout) in a sibling
+    venv, Magic for DRC/LVS, KLayout for streamout. The ADK harness
+    drives those as sub-agents \cmd{FlowRunner}, \cmd{DRCChecker},
+    \cmd{LVSVerifier}.}
+\end{frame}
+
+\begin{frame}{Key skills and artefacts -- analog}
+  \footnotesize
+  \begin{tabular}{@{}p{0.40\textwidth}p{0.55\textwidth}@{}}
+    \toprule
+    \textbf{Asset} & \textbf{What it does} \\
+    \midrule
+    \cmd{analog.gmid\_sizing} skill & Prompt template + policy for gm/ID
+        starting-point selection. \\
+    \cmd{analog.explorer} skill & Proposes next-step sizing moves; reads
+        \cmd{program.md} and \cmd{results.tsv}. \\
+    \cmd{analog.corner\_validator} & Re-runs the best candidate across
+        PVT corners before accepting. \\
+    \cmd{analog.behavioral\_primitives} & Catalogue of XSPICE + Verilog-A
+        primitives (ideal comp, clock gen, sampler) for top-down SAR,
+        PLL, LDO blocks. \\
+    \cmd{analog.sar\_adc\_design} & End-to-end SAR ADC skill (8b-11b;
+        references \cmd{sar\_adc\_8bit\_behavioral} topology). \\
+    \midrule
+    \cmd{AutoresearchRunner}
+        (\cmd{src/.../autoresearch\_runner.py}) & The greedy loop.
+        Persists \cmd{program.md} (narrative) + \cmd{results.tsv} for
+        resumable runs. \\
+    \cmd{SpiceRunner}
+        (\cmd{src/.../spice\_runner.py}) & Sync + async ngspice with
+        measurement parsing. \\
+    \bottomrule
+  \end{tabular}
+  \note{%
+    All the skill names are dotted namespace entries registered in
+    \cmd{src/eda\_agents/skills/analog.py}. The MCP server exports them
+    so any agent (ours or a user's) can request the prompt by name
+    rather than copy-pasting text.\par
+    The \cmd{program.md} + \cmd{results.tsv} pair is a Karpathy-style
+    autoresearch trace: the LLM reads its own prior thinking and
+    measurements, making runs \emph{resumable}. That is how we handle
+    10+ hour budgets without blowing context windows.}
+\end{frame}

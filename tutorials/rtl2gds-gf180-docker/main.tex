@@ -1,0 +1,56 @@
+% !TEX program = pdflatex
+% Tutorial: RTL-to-GDS with Docker + LibreLane + GF180MCU
+% Audience: first-time users of open-source IC design flows
+% Build:  make              -> main.pdf  (audience view, notes hidden)
+%         make notes        -> main-with-notes.pdf  (speaker view)
+
+\documentclass[aspectratio=169,11pt]{beamer}
+
+\input{preamble.tex}
+
+\title{RTL-to-GDS on GF180MCU}
+\subtitle{LibreLane + Docker in practice}
+\author{EDA-Agents Project}
+\institute{Open-Source IC Design}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}[plain]
+  \titlepage
+\end{frame}
+
+\begin{frame}{What you will learn}
+  \begin{itemize}
+    \item What RTL-to-GDS means end-to-end, and where LibreLane sits.
+    \item How to get the full toolchain in \textbf{one Docker command}.
+    \item How to configure LibreLane for a GF180MCU full-chip design
+          (the config.yaml anatomy).
+    \item How to run the flow and read DRC / LVS / timing signoff.
+  \end{itemize}
+  \vspace{0.5em}
+  \textbf{Prerequisites:} Linux host, Docker installed, $\sim$40\,GB free disk.
+  \textit{No prior EDA knowledge assumed.}
+  \note{%
+    Reset expectations. This deck is compressed on purpose: background on
+    Docker, open-source philosophy, and tool internals is pushed to the
+    notes or external links. The slides chase the shortest path to
+    ``LibreLane runs and produces a green chip.''\par
+    A companion Jupyter notebook
+    (\cmd{tutorials/rtl2gds-gf180-docker/demo/rtl2gds\_counter.ipynb}) ships
+    a 4-bit counter through LibreLane in 8 cells. Use that for hands-on
+    iteration after this talk.}
+\end{frame}
+
+\begin{frame}{Agenda}
+  \tableofcontents
+\end{frame}
+
+\input{sections/01-pipeline.tex}
+\input{sections/02-stack-pdk-container.tex}
+\input{sections/03-librelane-config.tex}
+\input{sections/04-run-the-flow.tex}
+\input{sections/05-flow-stages.tex}
+\input{sections/06-results-pitfalls-next.tex}
+
+\end{document}

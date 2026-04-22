@@ -1,0 +1,176 @@
+\section{LibreLane config -- the heart of the flow}
+
+\begin{frame}[fragile]{The project template: files you actually touch}
+  Base: \cmd{github.com/wafer-space/gf180mcu-project-template}.\\[0.2em]
+  Five files matter:
+  \footnotesize
+  \begin{tabular}{@{}p{0.40\textwidth}p{0.55\textwidth}@{}}
+    \toprule
+    \textbf{File} & \textbf{Purpose} \\
+    \midrule
+    \cmd{src/chip\_top.sv}           & Top module: padring + core. \\
+    \cmd{src/chip\_core.sv}          & Your logic. \emph{Replace this for a custom chip.} \\
+    \cmd{librelane/config.yaml}      & Design-wide settings (RTL, clock, PDN, macros). \\
+    \cmd{librelane/slots/slot\_1x1.yaml} & Floorplan (die, core, pad order). \\
+    \cmd{librelane/pdn\_cfg.tcl}     & PDN script (trust it for now). \\
+    \bottomrule
+  \end{tabular}
+  \vspace{0.4em}\\
+  Plus a \cmd{Makefile} that wraps \cmd{librelane} in \cmd{make librelane}.
+  \note{%
+    The template is a \emph{working} full-chip design -- a tiny 42-bit
+    counter with two SRAM512x8 macros sitting inside a padring on a
+    $3.93 \times 5.12$\,mm die. Clone it into the mounted workspace with
+    \cmd{git clone --depth 1 https://github.com/wafer-space/gf180mcu-project-template.git template}.\par
+    The five files above are the surface area of the flow. Everything else
+    (flake.nix, scripts/, ip/, cocotb/) is either nix-only (we ignore) or
+    auxiliary (render helper, cocotb sim). Anchor the rest of this section
+    around those five paths.}
+\end{frame}
+
+\begin{frame}[fragile]{LibreLane v3 YAML -- two levels, one command}
+  \begin{itemize}\small
+    \item \cmd{config.yaml} -- \term{design-level} (clock, RTL files, PDN,
+          macros). Rarely changes.
+    \item \cmd{slots/slot\_*.yaml} -- \term{floorplan-level} (die size, pad
+          order). Changes per shuttle slot.
+  \end{itemize}
+  LibreLane merges both at the command line:
+  \begin{lstlisting}[style=shellstyle]
+librelane librelane/slots/slot_1x1.yaml librelane/config.yaml \
+         --pdk gf180mcuD --pdk-root <path> --manual-pdk
+  \end{lstlisting}
+  \note{%
+    Why two files? Because one template usually targets many shuttle slots
+    (different die sizes). Keep everything die-shape-specific in
+    \cmd{slot\_*.yaml} and the rest in \cmd{config.yaml}. LibreLane reads
+    the left-most file first and lets the right-most override, so list
+    slots first, design second.\par
+    \cmd{--manual-pdk} tells LibreLane not to activate ciel automatically;
+    we did that ourselves with \cmd{sak-pdk-script.sh}. Every
+    \cmd{meta.version: 3} flag on the slide reminds readers this is v3
+    syntax -- v2 examples on the internet are outdated.}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{config.yaml} -- the header}
+  \begin{lstlisting}[style=yamlstyle]
+meta:
+  version: 3
+  flow: Chip
+
+DESIGN_NAME: chip_top
+VERILOG_FILES:
+  - dir::../src/chip_top.sv
+  - dir::../src/chip_core.sv
+
+VDD_NETS: [VDD]
+GND_NETS: [VSS]
+
+CLOCK_PORT: clk_PAD
+CLOCK_NET:  clk_pad/Y
+CLOCK_PERIOD: 40           # ns -> 25 MHz
+  \end{lstlisting}
+  \note{%
+    \cmd{meta.flow: Chip} selects the full-chip padring flow (vs the
+    smaller \cmd{Classic} flow used for bare-die blocks). \cmd{dir::}
+    resolves paths relative to the YAML file -- portable across machines.\par
+    \cmd{CLOCK\_PORT} is the external pad (\cmd{clk\_PAD}); \cmd{CLOCK\_NET}
+    is the internal net after the pad cell's buffer (\cmd{clk\_pad/Y}). If
+    you only define \cmd{CLOCK\_PORT}, CTS skews everything from the pad
+    input and you get sad timing at the core.\par
+    Clock period drives synthesis effort and routing congestion. The
+    reference run uses 40\,ns (25\,MHz) -- comfortable slack for a
+    180\,nm process. Tighten cautiously.}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{config.yaml} -- the power grid}
+  \begin{lstlisting}[style=yamlstyle]
+PDN_VWIDTH: 5
+PDN_HWIDTH: 5
+PDN_VSPACING: 1
+PDN_HSPACING: 1
+PDN_VPITCH: 75
+PDN_HPITCH: 75
+
+PDN_CORE_RING: true
+PDN_CORE_RING_VWIDTH: 25
+PDN_CORE_RING_HWIDTH: 25
+PDN_CORE_RING_CONNECT_TO_PADS: true
+
+PDN_CORE_VERTICAL_LAYER:   Metal2
+PDN_CORE_HORIZONTAL_LAYER: Metal3
+
+PDN_CFG: dir::pdn_cfg.tcl
+  \end{lstlisting}
+  \note{%
+    Power is where designs die silently. Definitions:\par
+    \textbullet\ \term{Strap}: a wide VDD/VSS wire crossing the core.\par
+    \textbullet\ \term{Pitch}: the distance between neighbouring straps;
+    larger = less metal, higher IR drop.\par
+    \textbullet\ \term{Core ring}: the loop of wide power wires around the
+    standard-cell area; it delivers current from the pads to the straps.\par
+    The defaults here pass IR-drop for the reference design. If you scale
+    up the core area, either shrink pitch or widen straps. LibreLane's
+    PDNSim will flag violations in signoff.\par
+    \cmd{pdn\_cfg.tcl} is OpenROAD-specific Tcl (voltage domains, per-macro
+    PDN grids). Trust the template's version for now; revisit only when
+    you change macro count or placement.}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{config.yaml} -- declaring macros}
+  \begin{lstlisting}[style=yamlstyle]
+MACROS:
+  gf180mcu_fd_ip_sram__sram512x8m8wm1:
+    gds:  [pdk_dir::libs.ref/gf180mcu_fd_ip_sram/gds/..gds]
+    lef:  [pdk_dir::libs.ref/gf180mcu_fd_ip_sram/lef/..lef]
+    vh:   [pdk_dir::libs.ref/.../sram__blackbox.v]
+    lib:
+      "*_tt_025C_5v00": [pdk_dir::.../sram__tt_025C_5v00.lib]
+      "*_ss_125C_4v50": [pdk_dir::.../sram__ss_125C_4v50.lib]
+      "*_ff_n40C_5v50": [pdk_dir::.../sram__ff_n40C_5v50.lib]
+    instances:
+      i_chip_core.sram_0: {location: [490, 500], orientation: N}
+      i_chip_core.sram_1: {location: [970, 500], orientation: E}
+  \end{lstlisting}
+  \note{%
+    A \term{macro} is a pre-characterised hard block (SRAM, analog IP,
+    PLL). LibreLane needs four views: GDS (layout), LEF (abstract
+    placement/routing shape), Verilog blackbox (for synthesis to stub it
+    out), and one Liberty timing file per PVT corner.\par
+    \cmd{instances:} pins each macro instance at an absolute coordinate
+    (microns) with an orientation (\cmd{N}, \cmd{S}, \cmd{E}, \cmd{W},
+    flipped variants \cmd{FN}, \cmd{FE} etc.). Manual placement is deliberate
+    -- automatic macro placement often collides with the padring.\par
+    The \cmd{pdk\_dir::} prefix resolves against \cmd{PDK\_ROOT}, so these
+    paths stay portable.}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{slot\_1x1.yaml} -- the floorplan}
+  \begin{lstlisting}[style=yamlstyle]
+FP_SIZING:  absolute
+DIE_AREA:   [0, 0, 3932, 5122]       # um
+CORE_AREA:  [442, 442, 3490, 4680]   # um
+
+PAD_SOUTH: [clk_pad, rst_n_pad,
+            "bidir\\[0\\].pad", ..., "dvss_pads\\[0\\].pad", ...]
+PAD_EAST:  [...]
+PAD_NORTH: [...]
+PAD_WEST:  [...]
+  \end{lstlisting}
+  \begin{itemize}\small
+    \item \cmd{DIE\_AREA} = full die outline (includes the sealring).
+    \item \cmd{CORE\_AREA} = rectangle for standard cells, inside the padring.
+    \item Pad lists read \emph{clockwise} starting from the south-west
+          corner; backslashes escape the Verilog brackets (regex).
+  \end{itemize}
+  \note{%
+    The padring is the single hardest thing to get right on a chip flow.
+    The pad lists describe the physical order on each side; LibreLane's
+    \cmd{OpenROAD.Padring} step walks them in sequence. Miss one pad and
+    the padring won't close.\par
+    Coordinates are in microns, origin at the die's bottom-left corner.
+    The gap between \cmd{DIE\_AREA} and \cmd{CORE\_AREA} is where the
+    padring sits -- roughly 440\,um here, typical for 180\,nm.\par
+    Change the slot, change the die -- everything else stays the same. That
+    separation is why LibreLane enforces two YAML files.}
+\end{frame}

@@ -1,0 +1,41 @@
+% Speaker build: compiles main.tex with notes on a second screen.
+% Use "make notes" to produce main-with-notes.pdf.
+\PassOptionsToClass{aspectratio=169,11pt}{beamer}
+\documentclass[aspectratio=169,11pt]{beamer}
+\input{preamble.tex}
+\setbeameroption{show notes on second screen=right}
+
+\title{RTL-to-GDS on GF180MCU}
+\subtitle{LibreLane + Docker in practice}
+\author{EDA-Agents Project}
+\institute{Open-Source IC Design}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}[plain]
+  \titlepage
+\end{frame}
+
+\begin{frame}{What you will learn}
+  \begin{itemize}
+    \item What RTL-to-GDS means end-to-end, and where LibreLane sits.
+    \item How to get the full toolchain in \textbf{one Docker command}.
+    \item How to configure LibreLane for a GF180MCU full-chip design.
+    \item How to run the flow and read DRC / LVS / timing signoff.
+  \end{itemize}
+  \note{Speaker build: notes on right-hand screen.}
+\end{frame}
+
+\begin{frame}{Agenda}
+  \tableofcontents
+\end{frame}
+
+\input{sections/01-pipeline.tex}
+\input{sections/02-stack-pdk-container.tex}
+\input{sections/03-librelane-config.tex}
+\input{sections/04-run-the-flow.tex}
+\input{sections/05-flow-stages.tex}
+\input{sections/06-results-pitfalls-next.tex}
+
+\end{document}

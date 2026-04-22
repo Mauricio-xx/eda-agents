@@ -1,0 +1,44 @@
+\section{The autoresearch loop}
+
+\begin{frame}{The shared greedy loop}
+  \begin{center}
+  \begin{tikzpicture}[node distance=0.5cm and 0.7cm]
+    \node[agent]  (prop) {Propose\\\scriptsize LLM};
+    \node[agent, right=of prop] (map) {Map params\\$\rightarrow$ netlist / config};
+    \node[agent, right=of map] (eval) {Evaluate\\\scriptsize SPICE | LibreLane};
+    \node[agent, below=of eval] (fom) {Score FoM\\\scriptsize weighted sum};
+    \node[agent, left=of fom] (log) {Log to\\\cmd{results.tsv}};
+    \node[agent, left=of log] (prog) {Append to\\\cmd{program.md}};
+    \draw[arrow] (prop) -- (map);
+    \draw[arrow] (map) -- (eval);
+    \draw[arrow] (eval) -- (fom);
+    \draw[arrow] (fom) -- (log);
+    \draw[arrow] (log) -- (prog);
+    \draw[arrow] (prog) |- (prop);
+  \end{tikzpicture}
+  \end{center}
+  \vspace{0.3em}
+  \footnotesize
+  \begin{itemize}
+    \item Same loop for both domains; different \term{evaluator} and
+          \term{design-space} plug-ins.
+    \item \cmd{program.md} -- narrative log the LLM reads back on the
+          next turn. Keeps context small.
+    \item \cmd{results.tsv} -- numeric history; enables plot/resume.
+    \item \cmd{budget} -- hard cap on iterations. Analog: tens.
+          Digital: a handful.
+  \end{itemize}
+  \note{%
+    This is the Karpathy-autoresearch pattern applied twice. Each loop
+    iteration is a proposal, a mapping step (params $\rightarrow$ a
+    deck or a config), an external evaluation, a score, and a log.\par
+    Why persist to markdown + TSV? Two reasons: (1) it is human-readable
+    so the user can inspect the run mid-flight, (2) the LLM can re-hydrate
+    context by reading only \cmd{program.md} + the last few rows of
+    \cmd{results.tsv}, instead of replaying the entire prompt history
+    (context windows are expensive).\par
+    Design-space shape is the big difference between the two loops:
+    analog is continuous in W/L and bias (we snap to grid), digital is
+    discrete over knob sets (density \cmd{\{60,65,70\}}, clock \cmd{\{50,40,30\}}).
+    The runner handles both via a uniform \cmd{Parameter} interface.}
+\end{frame}

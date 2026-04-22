@@ -1,0 +1,112 @@
+\section{Running the flow}
+
+\begin{frame}[fragile]{The golden path -- copy, paste, done}
+  \begin{lstlisting}[style=shellstyle]
+docker exec gf180 bash -lc '
+  cd /foss/designs/template
+
+  # One-time: clone the wafer-space PDK fork
+  make clone-pdk
+
+  # Every shell: activate GF180MCU
+  source sak-pdk-script.sh gf180mcuD gf180mcu_fd_sc_mcu7t5v0
+
+  # Run the full RTL-to-GDS flow on slot 1x1
+  make librelane \
+       SLOT=1x1 \
+       PDK=gf180mcuD \
+       PDK_ROOT=/foss/designs/template/gf180mcu
+'
+  \end{lstlisting}
+  \textbf{Expected runtime:} $\sim$35--45\,min on a modern laptop.
+  \note{%
+    This is the entire flow. Three conceptual actions:
+    (1) fetch the PDK fork, (2) activate the env, (3) invoke LibreLane
+    through the template's Makefile. The \cmd{PDK\_ROOT} on the command
+    line overrides whatever the Makefile default is -- deliberately
+    redundant with \cmd{sak-pdk-script} to catch the trap we discuss in
+    Section 6.\par
+    Wall time breakdown on the audit run: Yosys 6\,s, floorplan 15\,s,
+    PDN + placement + CTS + routing $\sim$3\,min, Magic DRC 32\,min,
+    KLayout antenna 7\,min, LVS + STA + IR 1\,min. If anyone asks
+    ``why so slow'': Magic DRC on 84k standard cells with padring. The
+    \cmd{make librelane-nodrc} target drops DRC for iteration.}
+\end{frame}
+
+\begin{frame}{What scrolls by while it runs}
+  \begin{itemize}\small
+    \item LibreLane prints a banner and numbered steps
+          (\cmd{Step 1: Yosys.Synthesis}, \ldots).
+    \item Yosys: inferred cell counts + area.
+    \item OpenROAD: floorplan, PDN, placement, CTS, routing, STA.
+    \item Magic + KLayout: DRC (the slow parts).
+    \item Netgen: LVS.
+    \item Final banner: run directory + pointer to \cmd{metrics.csv}.
+  \end{itemize}
+  \vspace{0.4em}
+  \screenshotplaceholder{slides/figures/librelane_run_output.png}{%
+    Tail of a successful \cmd{make librelane} run.}
+  \note{%
+    The log is dense but readable. Every step prints a header like
+    \cmd{== Step 42: OpenROAD.Floorplan} so you can grep. Warnings during
+    routing repair iterations are expected; failures manifest as the flow
+    stopping abruptly on a step boundary.\par
+    The final banner tells you two things: the timestamped run directory
+    (where the full logs and intermediate DEFs live) and the path to
+    \cmd{metrics.csv}. Bookmark both when presenting live.}
+\end{frame}
+
+\begin{frame}[fragile]{Where artifacts land}
+  \begin{lstlisting}[basicstyle=\ttfamily\footnotesize,frame=single,
+                     backgroundcolor=\color{softbg}]
+template/
+  librelane/runs/RUN_<timestamp>/   # per-run: logs, DEFs, reports
+  final/                            # merged: GDS, LEF, SDC, SDF, SPEF,
+                                    # metrics.csv, render/chip_top.png
+  \end{lstlisting}
+  Useful after a successful run:
+  \begin{itemize}\small
+    \item \cmd{final/gds/chip\_top.gds} -- the deliverable.
+    \item \cmd{final/metrics.csv} -- one row per metric.
+    \item \cmd{final/render/chip\_top.png} -- auto-render for posters.
+  \end{itemize}
+  \note{%
+    The split matters: \cmd{runs/} is every flow artifact organised per
+    run (useful for bisecting), \cmd{final/} is the curated deliverable
+    set that LibreLane copies via its \cmd{--save-views-to} flag. You almost
+    never dig into \cmd{runs/} unless something failed.\par
+    Practical tip: \cmd{runs/} balloons fast. Add it to \cmd{.gitignore}.
+    Commit only a trimmed \cmd{final/metrics.csv} as a regression baseline.
+    Add a CI job that greps the next run's \cmd{metrics.csv} for the key
+    fields and compares -- that is how you catch silent regressions.}
+\end{frame}
+
+\begin{frame}{79 steps grouped into six phases}
+  \begin{center}
+  \begin{tikzpicture}[node distance=0.35cm and 0.3cm]
+    \node[pipelinebox,  minimum width=2.3cm] (s1) {1. Synthesis\\\scriptsize Yosys};
+    \node[pipelinebox,  right=of s1, minimum width=2.3cm] (s2) {2. Floorplan\\\scriptsize OpenROAD};
+    \node[pipelinebox,  right=of s2, minimum width=2.3cm] (s3) {3. PDN\\\scriptsize OpenROAD};
+    \node[pipelinebox,  below=of s3, minimum width=2.3cm] (s4) {4. Place \& CTS\\\scriptsize OpenROAD};
+    \node[pipelinebox,  left=of s4, minimum width=2.3cm] (s5) {5. Routing\\\scriptsize OpenROAD};
+    \node[pipelinebox3, left=of s5, minimum width=2.3cm] (s6) {6. Signoff\\\scriptsize Magic / KLayout / Netgen};
+    \draw[arrow] (s1) -- (s2);
+    \draw[arrow] (s2) -- (s3);
+    \draw[arrow] (s3) -- (s4);
+    \draw[arrow] (s4) -- (s5);
+    \draw[arrow] (s5) -- (s6);
+  \end{tikzpicture}
+  \end{center}
+  \vspace{0.3em}
+  Each phase writes a milestone file. Any failure halts the flow.
+  \note{%
+    This is the recap diagram before the deep-dive section. Audience
+    already saw it on slide 2 -- the difference now is that they know
+    LibreLane is the driver and they have seen the command that starts it.
+    Point at each box and promise: ``the next five slides tell you what
+    actually happens inside these.''\par
+    If pressed: why 79 steps and not 6? LibreLane breaks the phases into
+    many auxiliary passes (netlist cleanup, antenna repair, resizing,
+    multiple DRC runs). The 6-phase model is the mental pipeline; the 79
+    steps are the implementation.}
+\end{frame}

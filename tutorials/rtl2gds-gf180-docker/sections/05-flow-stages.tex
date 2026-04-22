@@ -1,0 +1,152 @@
+\section{Flow stages up close}
+
+\begin{frame}[fragile]{Phase 1 -- Synthesis (Yosys)}
+  \begin{itemize}\small
+    \item RTL $\rightarrow$ gate-level netlist using the GF180 standard-cell
+          library (\cmd{gf180mcu\_fd\_sc\_mcu7t5v0}).
+    \item Emits instance counts, estimated area, inferred FF / LUT shapes.
+    \item Produces the first mapped \cmd{chip\_top.v} that feeds every
+          downstream step.
+  \end{itemize}
+  \vspace{0.4em}
+  Reference run numbers:
+  \begin{lstlisting}[style=shellstyle]
+design__instance__count,251615
+design__instance__count__stdcell,84417
+  \end{lstlisting}
+  \note{%
+    Yosys is fast (seconds) and deterministic. The 251\,k instance count
+    looks huge -- it is dominated by $\sim$1100 padring cells and 81k tap
+    cells inserted for well-tap density. The meaningful number is
+    \cmd{instance\_count\_\_stdcell} (84k).\par
+    If synthesis fails, it is almost always a Verilog issue
+    (unresolved module, missing port, wrong bit width). LibreLane surfaces
+    Yosys errors verbatim; grep the log for \cmd{ERROR:} to find the
+    offending line.}
+\end{frame}
+
+\begin{frame}{Phase 2 -- Floorplan \& padring}
+  \begin{itemize}\small
+    \item \cmd{OpenROAD.Floorplan} reads \cmd{DIE\_AREA} / \cmd{CORE\_AREA}
+          and creates an empty chip frame.
+    \item \cmd{OpenROAD.Padring} places I/O pads per \cmd{PAD\_SOUTH/...} order.
+    \item \cmd{ODB.ManualMacroPlacement} drops the SRAMs at the coordinates
+          from \cmd{config.yaml}.
+    \item \cmd{CutRows} + \cmd{TapcellInsertion} prepare standard-cell rows.
+  \end{itemize}
+  \vspace{0.3em}
+  \screenshotplaceholder{slides/figures/floorplan.png}{%
+    OpenROAD: post-floorplan view (padring + SRAM placeholders).}
+  \note{%
+    This is the phase that turns YAML into geometry. If the pad list is
+    wrong, the padring does not close and floorplan fails loudly.
+    If \cmd{CORE\_AREA} is too tight, \cmd{CutRows} creates too few rows and
+    placement fails later. If an SRAM instance coordinate overlaps the
+    padring, \cmd{ManualMacroPlacement} fails here.\par
+    Tap cells (well ties) are required by the PDK at a fixed pitch. Forget
+    them and downstream LVS complains. LibreLane inserts them automatically.}
+\end{frame}
+
+\begin{frame}{Phase 3 -- Power Distribution Network}
+  \begin{itemize}\small
+    \item OpenROAD runs \cmd{pdn\_cfg.tcl} to draw the grid.
+    \item \term{Followpin} wires: thin VDD/VSS along every std-cell row.
+    \item \term{Straps}: Metal2 vertical + Metal3 horizontal across the core.
+    \item \term{Core ring}: loop around the core that connects to pads.
+    \item Per-macro grids stitch SRAM power pins to the main grid.
+    \item Checker target: \cmd{design\_\_power\_grid\_violation\_\_count = 0}.
+  \end{itemize}
+  \screenshotplaceholder{slides/figures/pdn.png}{%
+    Core PDN with straps and ring visible.}
+  \note{%
+    Power is the one pass where you \emph{want} to touch Tcl. \cmd{pdn\_cfg.tcl}
+    declares voltage domains and per-macro power grids; OpenROAD's PDN
+    generator consumes it verbatim. Voltage domain naming must match
+    \cmd{VDD\_NETS}/\cmd{GND\_NETS} in \cmd{config.yaml} or the tool refuses
+    to start the phase.\par
+    Signoff will re-check the grid (PDNSim + IR drop). A grid with zero
+    \emph{construction} violations can still fail IR; if that happens,
+    either widen straps or tighten pitch.}
+\end{frame}
+
+\begin{frame}[fragile]{Phase 4 -- Placement \& CTS}
+  \begin{itemize}\small
+    \item \term{Global placement}: approximate positions (RePlAce).
+    \item \term{Detailed placement}: legalise onto std-cell rows.
+    \item \term{Clock Tree Synthesis}: buffer tree from \cmd{clk\_pad/Y}
+          to every flop, minimising skew.
+    \item \term{Post-CTS resizing}: fixes hold violations introduced by CTS.
+  \end{itemize}
+  \vspace{0.3em}
+  Reference run:
+  \begin{lstlisting}[style=shellstyle]
+design__instance__count__class:clock_buffer,30
+clock__skew__worst_setup,0.319   # ns
+clock__skew__worst_hold, -0.328  # ns
+  \end{lstlisting}
+  \note{%
+    Placement is iterative. Global placement runs on a quadratic wirelength
+    model; detailed placement snaps to legal rows. CTS is where a
+    well-behaved flow earns its keep: 30 clock buffers, skew below half a
+    nanosecond, no PLL needed for 25\,MHz.\par
+    Common failure: ``too many flops, not enough rows'' -- placement
+    congestion exceeds a threshold. Fix by enlarging \cmd{CORE\_AREA} or
+    adjusting \cmd{PL\_TARGET\_DENSITY\_PCT} (lower = more spread, less
+    congestion, bigger die).}
+\end{frame}
+
+\begin{frame}[fragile]{Phase 5 -- Routing}
+  \begin{itemize}\small
+    \item \term{Global routing}: assigns nets to routing regions.
+    \item \term{Detailed routing}: puts wires on physical tracks.
+    \item \term{Antenna repair}: inserts diodes on long metals that would
+          damage gates during plasma etching.
+    \item Iterates until zero DRC.
+  \end{itemize}
+  \vspace{0.3em}
+  \begin{lstlisting}[style=shellstyle]
+route__drc_errors__iter:0, 75
+route__drc_errors__iter:5,  0      # clean after 6 iterations
+route__wirelength__estimated, 153555  # um
+antenna__violating__nets, 0
+  \end{lstlisting}
+  \note{%
+    Routing is where designs blow up their wall-time budgets. OpenROAD's
+    TritonRoute iterates: global route, detailed route, DRC, repair,
+    repeat. Our run converges in 6 iterations; busy designs can take
+    20+ on a congested die.\par
+    \term{Antennas} are a fabrication concern, not a timing one: long
+    metal wires accumulate plasma charge during etching, which can punch
+    through a gate oxide. Diodes bleed the charge. LibreLane's repair pass
+    inserts them automatically.\par
+    If routing fails to converge, the fix is almost always the floorplan
+    (more core area, lower density) or the congestion-vs-density knob.}
+\end{frame}
+
+\begin{frame}{Phase 6 -- Signoff (geometry + electrical)}
+  \textbf{Geometry (the slow part):}
+  \begin{itemize}\footnotesize
+    \item \term{Magic DRC} + \term{KLayout DRC} cross-check.
+    \item \term{KLayout XOR} -- Magic GDS vs KLayout GDS (\emph{0 diff}).
+    \item \term{Antenna / Density / Sealring} checks.
+  \end{itemize}
+  \textbf{Electrical:}
+  \begin{itemize}\footnotesize
+    \item \term{OpenRCX} extracts parasitics (3 corners).
+    \item \term{OpenSTA} runs timing across 9 PVT + extraction corners.
+    \item \term{PDNSim} does IR drop.
+    \item \term{Netgen LVS} -- extracted netlist vs synthesized Verilog.
+    \item Zero DRC / LVS / setup / hold / antenna violations = green chip.
+  \end{itemize}
+  \note{%
+    Signoff is the "is this really manufacturable?" gate. Two independent
+    DRC engines (Magic and KLayout) cross-check each other; an XOR confirms
+    their geometries match. Any mismatch is a show-stopper.\par
+    Electrical: RCX extracts RC parasitics from the final GDS. STA then
+    re-checks timing with those real parasitics at every corner. IR drop
+    checks the power grid under dynamic load. LVS is non-negotiable -- it
+    is the single check that proves the layout implements the circuit you
+    synthesized.\par
+    Every check here writes one metric into \cmd{metrics.csv}. The next
+    section is about reading that file.}
+\end{frame}

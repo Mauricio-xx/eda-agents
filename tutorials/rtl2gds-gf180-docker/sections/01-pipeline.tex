@@ -1,0 +1,91 @@
+\section{The RTL-to-GDS pipeline}
+
+\begin{frame}{RTL and GDS -- two ends of the same pipeline}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.48\textwidth}
+      \textbf{RTL}\\[0.3em]
+      A text description of a circuit in Verilog / SystemVerilog.\\
+      Says \emph{what} the circuit does.
+    \column{0.48\textwidth}
+      \textbf{GDS / GDSII}\\[0.3em]
+      A binary layout file -- every polygon on every layer.\\
+      What the foundry turns into masks.
+  \end{columns}
+  \vspace{0.8em}
+  \begin{center}
+    RTL-to-GDS = automating the path from one to the other.
+  \end{center}
+  \note{%
+    Audience calibration. Most first-timers understand code (RTL) and know
+    chips are ``physical'' (GDS) but have never seen the in-between steps.
+    Emphasise the distinction: \emph{behaviour} vs \emph{geometry}. One wrong
+    polygon and the mask is unusable; one wrong environment variable and the
+    tool cannot even start. The whole deck earns its keep by showing this
+    translation is now reproducible in one command.\par
+    Software analogy (spoken, not on the slide): RTL is like C source,
+    GDS is like an ELF binary, and LibreLane is a compiler chain of $\sim$80
+    passes. Unlike software, each pass can veto manufacturability.}
+\end{frame}
+
+\begin{frame}{The pipeline, at a glance}
+  \begin{center}
+  \begin{tikzpicture}[node distance=0.7cm and 0.35cm]
+    \node[pipelinebox]  (rtl)      {RTL\\\scriptsize Verilog};
+    \node[pipelinebox, right=of rtl]  (syn)   {Synthesis};
+    \node[pipelinebox, right=of syn]  (fp)    {Floorplan};
+    \node[pipelinebox, right=of fp]   (pdn)   {Power\\grid (PDN)};
+    \node[pipelinebox, below=of pdn]  (pl)    {Placement};
+    \node[pipelinebox, left=of pl]    (cts)   {Clock tree\\(CTS)};
+    \node[pipelinebox, left=of cts]   (rt)    {Routing};
+    \node[pipelinebox3, left=of rt]   (so)    {Signoff\\\scriptsize DRC/LVS/STA};
+    \node[pipelinebox2, below=of so]  (gds)   {GDSII};
+    \draw[arrow] (rtl) -- (syn);
+    \draw[arrow] (syn) -- (fp);
+    \draw[arrow] (fp)  -- (pdn);
+    \draw[arrow] (pdn) -- (pl);
+    \draw[arrow] (pl)  -- (cts);
+    \draw[arrow] (cts) -- (rt);
+    \draw[arrow] (rt)  -- (so);
+    \draw[arrow] (so)  -- (gds);
+  \end{tikzpicture}
+  \end{center}
+  \note{%
+    Reading guide for the diagram.\par
+    Synthesis (Yosys) turns RTL into a gate-level netlist of standard-cell
+    instances. Floorplan decides die size and where macros / I/O sit. PDN
+    draws VDD/VSS straps and rings. Placement legalises every cell to a
+    standard-cell row. CTS balances the clock tree. Routing draws every
+    signal wire. Signoff verifies manufacturability (DRC), schematic fidelity
+    (LVS), and timing (STA).\par
+    Emphasise: each stage writes a milestone artifact, and any stage can
+    halt the flow. LibreLane is the thing that stitches all 80-ish steps
+    together -- the rest of this deck is about driving \emph{it}, not the
+    individual tools.}
+\end{frame}
+
+\begin{frame}{What you get at the end}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.55\textwidth}
+      A successful flow run hands you:
+      \begin{itemize}\small
+        \item \cmd{final/gds/chip\_top.gds} -- the layout.
+        \item \cmd{final/def/} -- routed netlist + placement.
+        \item \cmd{final/lib/} -- timing libraries (extracted).
+        \item \cmd{final/spef/} -- parasitics for post-layout STA.
+        \item \cmd{final/sdf/} -- back-annotation for gate-level sim.
+        \item \cmd{metrics.csv} -- one row per metric, for CI diffs.
+      \end{itemize}
+    \column{0.45\textwidth}
+      \screenshotplaceholder{slides/figures/final_layout_render.png}{%
+        Final GDS rendered by KLayout.}
+  \end{columns}
+  \note{%
+    This frame sets the "you will have something tangible" expectation.
+    The final layout render is what people put on posters. Everything else
+    (DEF, SPEF, SDF) matters only to the people doing follow-up work:
+    gate-level sim, analog post-layout, shuttle submission.\par
+    Name-drop \cmd{metrics.csv} -- that is the single file you grep to know
+    whether the chip is green. Mention: commit a trimmed \cmd{metrics.csv}
+    to git as a regression baseline; you will thank yourself when the image
+    is rebuilt weeks later.}
+\end{frame}
