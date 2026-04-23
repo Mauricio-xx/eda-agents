@@ -1433,8 +1433,11 @@ PDN_CORE_HORIZONTAL_LAYER: <span class="c-str">Metal3</span>
     <div class="row-2" style="margin-top: 16px; gap: 56px; flex:0;">
       <div>
         <div class="label" style="color: var(--accent); margin-bottom: 8px;">Where the four views come from</div>
-        <p style="font: 400 19px/1.4 var(--font-serif); color: var(--paper-ink); margin: 0;">
+        <p style="font: 400 19px/1.4 var(--font-serif); color: var(--paper-ink); margin: 0 0 6px 0;">
           <strong>PDK SRAMs</strong> come pre-packaged under <span class="mono">pdk_dir::</span>. <strong>Your stage-01 blocks</strong> ship their own four-view set from <span class="mono">runs/&lt;tag&gt;/final/</span>.
+        </p>
+        <p style="font: italic 400 15px/1.35 var(--font-serif); color: var(--paper-muted); margin: 0;">
+          Worked example: <span class="mono" style="font-style:normal; color: var(--paper-ink);">demo/rtl2gds_chip_top_custom.ipynb</span>.
         </p>
       </div>
       <div>
@@ -1444,10 +1447,6 @@ PDN_CORE_HORIZONTAL_LAYER: <span class="c-str">Metal3</span>
         </p>
       </div>
     </div>
-
-    <p style="font: italic 400 19px/1.4 var(--font-serif); color: var(--paper-muted); margin: 14px 0 0 0;">
-      Worked example: <span class="mono" style="font-style:normal; color: var(--paper-ink);">demo/rtl2gds_chip_top_custom.ipynb</span> replaces one SRAM with a pre-hardened counter as a custom macro, keeping the other SRAM in place.
-    </p>
 
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
   </section>
@@ -1591,22 +1590,16 @@ PDN_CORE_HORIZONTAL_LAYER: <span class="c-str">Metal3</span>
 <span class="c-key">PAD_NORTH</span>: [ … ]    <span class="c-com"># E → W, 22 pads</span>
 <span class="c-key">PAD_WEST</span>:  [ … ]    <span class="c-com"># N → S, 22 pads</span></div>
 
-        <div class="card thick" style="padding: 14px 20px 14px 20px; border-left: 4px solid var(--accent); margin-bottom: 10px;">
-          <div class="label" style="color: var(--accent); margin: 0 0 6px 0;">CHIPATON 2026 · slot_workshop</div>
-          <p style="font: 400 17px/1.4 var(--font-serif); color: var(--paper-ink); margin: 0 0 8px 0;">
-            Pre-made in the chipathon template: <strong>2935×2935&thinsp;µm</strong>, mirror of <span class="mono">github.com/JuanMoya/padring_gf180</span>. 60 analog + 20 bidir + 4 dvdd + 4 dvss + clk + rst + 1 spare input. <strong>DRC-clean validated</strong>.
-          </p>
-          <p style="font: 400 15px/1.4 var(--font-serif); color: var(--paper-muted); margin: 0;">
-            Anatomy → <span class="mono" style="color: var(--paper-ink);">demo/rtl2gds_chipathon_padring.ipynb</span><br>
-            Use with your RTL → <span class="mono" style="color: var(--paper-ink);">demo/rtl2gds_chipathon_use.ipynb</span>
-          </p>
-        </div>
-        <div class="card" style="padding: 8px 10px; display:flex; gap: 14px; align-items: center;">
-          <img src="assets/workshop_padring.png" alt="workshop padring render" style="width: 140px; height: 140px; object-fit: contain; flex-shrink: 0;">
-          <div>
-            <div class="label" style="color: var(--paper-muted); margin-bottom: 4px;">Reference run · 2026-04-23</div>
-            <p style="font: 400 15px/1.35 var(--font-serif); color: var(--paper-ink); margin: 0;">
-              KLayout render of <span class="mono">chip_top.gds</span>: padring + fillers + trivial core. 0 DRC / 0 LVS / 0 timing vios across 3 corners.
+        <div class="card thick" style="padding: 12px 14px; border-left: 4px solid var(--accent); display:flex; gap: 14px; align-items: stretch;">
+          <img src="assets/workshop_padring.png" alt="workshop padring render" style="width: 120px; height: 120px; object-fit: contain; flex-shrink: 0; align-self: center;">
+          <div style="flex:1;">
+            <div class="label" style="color: var(--accent); margin: 0 0 4px 0;">CHIPATON 2026 · slot_workshop</div>
+            <p style="font: 400 15px/1.35 var(--font-serif); color: var(--paper-ink); margin: 0 0 5px 0;">
+              Pre-made: <strong>2935×2935&thinsp;µm</strong>, mirror of <span class="mono">JuanMoya/padring_gf180</span>. 60 analog + 20 bidir + 4/4 power + clk/rst + 1 spare input. <strong style="color: var(--pdk-diff-n);">DRC-clean validated (2026-04-23)</strong>.
+            </p>
+            <p style="font: 400 13px/1.35 var(--font-serif); color: var(--paper-muted); margin: 0;">
+              Anatomy → <span class="mono" style="color: var(--paper-ink);">demo/rtl2gds_chipathon_padring.ipynb</span><br>
+              Use with your RTL → <span class="mono" style="color: var(--paper-ink);">demo/rtl2gds_chipathon_use.ipynb</span>
             </p>
           </div>
         </div>
