@@ -63,6 +63,64 @@
     individual tools.}
 \end{frame}
 
+\begin{frame}{LibreLane is the conductor, not the orchestra}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.56\textwidth}
+      LibreLane is a \emph{Python program} that does \textbf{no EDA work
+      itself}. It reads one configuration file and, for each stage, calls
+      the open-source tool that does the real work:
+      \vspace{0.3em}
+      \begin{itemize}\scriptsize
+        \item \term{Yosys} -- RTL $\rightarrow$ gate-level netlist.
+        \item \term{OpenROAD} -- floorplan, PDN, placement, CTS,
+              routing, STA, IR drop.
+        \item \term{Magic} -- GDS streamout and DRC.
+        \item \term{KLayout} -- DRC cross-check, antenna, XOR, renders.
+        \item \term{Netgen} -- LVS (layout vs schematic).
+      \end{itemize}
+    \column{0.40\textwidth}
+      \begin{tikzpicture}[node distance=0.4cm, every node/.style={font=\scriptsize}]
+        \node[pipelinebox, minimum width=3.2cm, minimum height=0.8cm]
+          (cond) {LibreLane\\\tiny Python orchestrator};
+        \node[pipelinebox2, below=0.9cm of cond, minimum width=1.3cm] (b)
+          {Yosys};
+        \node[pipelinebox2, left=0.1cm of b,  minimum width=1.5cm] (a)
+          {OpenROAD};
+        \node[pipelinebox2, right=0.1cm of b, minimum width=1.5cm] (c)
+          {KLayout};
+        \node[pipelinebox2, below=0.1cm of a, minimum width=1.5cm] (d)
+          {Magic};
+        \node[pipelinebox2, below=0.1cm of c, minimum width=1.5cm] (e)
+          {Netgen};
+        \draw[arrow] (cond) -- (a);
+        \draw[arrow] (cond) -- (b);
+        \draw[arrow] (cond) -- (c);
+        \draw[arrow] (cond) -- (d);
+        \draw[arrow] (cond) -- (e);
+      \end{tikzpicture}
+  \end{columns}
+  \vspace{0.4em}
+  \begin{center}\small\itshape
+    A conductor does not play instruments. LibreLane does not place cells.
+  \end{center}
+  \note{%
+    This slide is the thesis of the tutorial: \emph{LibreLane is an
+    orchestrator}, not an EDA tool. Students routinely conflate the two
+    because ``\cmd{librelane config.yaml}'' is the only command they
+    type. Make the distinction loud and early.\par
+    Say it out loud: ``Yosys synthesises, OpenROAD places and routes,
+    Magic writes GDS, KLayout cross-checks, Netgen does LVS. LibreLane
+    decides \emph{which one runs when} and \emph{with what arguments}.''\par
+    Two consequences: (1) errors almost always come from the underlying
+    tool; the fix is in that tool's log, not in LibreLane's
+    configuration. (2) If you already know any of those tools, you can
+    override a step and keep the rest of the flow. LibreLane stays out
+    of your way.\par
+    Pitch: this also explains why the open-source flow is bigger than it
+    looks -- five independent EDA projects, each with its own history,
+    working together through one YAML file.}
+\end{frame}
+
 \begin{frame}{What you get at the end}
   \begin{columns}[T,onlytextwidth]
     \column{0.55\textwidth}

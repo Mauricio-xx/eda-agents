@@ -1,126 +1,101 @@
-# RTL-to-GDS walk-through: 4-bit counter
+# RTL-to-GDS on GF180MCU — hands-on notebooks
 
-Hands-on companion material to the main deck, intended to be shared as
-a stand-alone plus alongside the slides. Drives a 4-bit counter from
-Verilog source to a manufacturable GDSII using LibreLane inside the
-`hpretl/iic-osic-tools` Docker image.
+Five Jupyter notebooks that take you from a tiny bare-block flow to
+a Chipathon 2026 tape-out on the workshop padring. They are designed
+to be read in order; each one builds on the mental model the previous
+set up. The companion slide deck (`../main.pdf`) is optional
+reference material.
 
-**Stand-alone by design.** The RTL and LibreLane `config.yaml` are
-embedded inline -- no dependency on the `eda-agents` Python package,
-no clone of this repo required. Hand a user just the `.ipynb` (or the
-`.py`) and they can run it from any folder on their machine. The only
-prerequisites on the receiving side are Docker and Python 3.9+. All
-state is written to a fixed host path (`~/eda/designs/`) in the user's
-HOME, so the notebook's own location doesn't matter.
+All heavy steps are gated by `RUN_*` flags that default to `False`,
+so the first pass through any notebook is a dry run that only prints
+what it would execute. Flip the flag to commit.
 
-Two equivalent entry points:
+## Reading order
 
-- `rtl2gds_counter.ipynb` -- Jupyter notebook, 8 steps, flags to rehearse
-  vs execute each step.
-- `rtl2gds_counter.py` -- plain script with `input()` pauses, same 8
-  steps. Use when you don't have Jupyter, or for headless demos.
+| # | Notebook | Time | What you learn |
+|---|----------|------|----------------|
+| 00 | `00_slots_explained.ipynb` | 10 min, read-only | What a slot is, what it is *not* (LibreLane convention vs template convention), and the three files that make one. **Start here.** |
+| 01 | `rtl2gds_counter.ipynb` | 1-2 min flow + 10 min reading | A 4-bit counter through the Classic flow. Bare block, no padring. Warm-up: you learn the Docker + LibreLane mechanics. Self-contained; no repo clone required. |
+| 02 | `rtl2gds_chip_top_custom.ipynb` | 35-45 min flow + 15 min reading | Full-chip flow on the stock `slot_1x1` with the counter from notebook 01 dropped in as a custom macro replacing one SRAM. Teaches the hierarchical macro flow. |
+| 03 | `rtl2gds_chipathon_padring.ipynb` | 35-45 min flow + 20 min reading | Creation of the Chipathon 2026 workshop slot (2935 × 2935 µm, 60 analog + 20 bidir + 4/4 power, mirror of [JuanMoya/padring_gf180](https://github.com/JuanMoya/padring_gf180)) from scratch. Puts notebook 00 into practice. |
+| 04 | `rtl2gds_chipathon_use.ipynb` | 35-45 min flow + 10 min reading | Consume the pre-built workshop slot with your own RTL. **This is the notebook you mostly live in during the chipathon.** |
 
-## Quickstart
+## Quick start — notebook 01
+
+Notebook 01 is the only one that runs fully self-contained (no repo
+clone, no wafer-space PDK fork, RTL embedded inline). Use it as a
+smoke test before committing to the heavier notebooks.
 
 ```bash
 # 1. Place the file anywhere -- a download folder, /tmp, a fresh dir...
-cd ~/Downloads        # or wherever you put rtl2gds_counter.ipynb
+cd ~/Downloads
 
 # 2. Make sure Docker works
 docker ps
 
-# 3a. Open the notebook
+# 3. Open the notebook, flip RUN_* flags in Step 0, run cells top to bottom
 jupyter lab rtl2gds_counter.ipynb
-#   - open the Step 0 cell, flip the RUN_* flags you want to execute,
-#   - run cells top to bottom.
-
-# 3b. Or run the script
-python3 rtl2gds_counter.py            # pauses between steps
-python3 rtl2gds_counter.py --no-pause # straight through
 ```
 
-## Sharing it standalone
+Expected wall time for the counter run itself: 1-2 min on a modern
+laptop.
 
-The notebook + script are designed to travel alone:
+## Reference-run artifacts on the author's machine
 
-- Send the `.ipynb` (or `.py`) file by itself -- email, USB, download
-  link, you name it. No repo clone needed on the receiving end.
-- All the assets it needs -- the counter RTL and the LibreLane
-  `config.yaml` -- are inlined as Python strings inside the file.
-- State (`counter.v`, `config.yaml`, LibreLane runs, GDS) is written
-  under `~/eda/designs/counter_demo/` on the user's HOME, not next to
-  the notebook file. Putting the file in `~/Downloads` works exactly
-  the same as putting it in `/tmp` or anywhere else.
-- The only host-side prerequisites are Docker + Python 3.9+.
+Each notebook writes its state under a fixed host path so re-runs are
+incremental. The full-chip notebooks assume the bind-mount
+`~/eda/designs/ <-> /foss/designs/` already exists in the `gf180`
+container.
 
-Both entry points start with all `RUN_*` flags set to `False`, so the
-first pass just prints the commands. Flip the flags once you're ready
-to commit to the ~15 GB image pull / the flow run.
+| Notebook | Working dir (host) | Working dir (container) |
+|----------|-------------------|--------------------------|
+| 01 counter | `~/eda/designs/counter_demo/` | `/foss/designs/counter_demo/` |
+| 02 chip_top_custom | `~/eda/designs/chip_custom/template/` | `/foss/designs/chip_custom/template/` |
+| 03 chipathon_padring | `~/eda/designs/chipathon_padring/template/` | `/foss/designs/chipathon_padring/template/` |
+| 04 chipathon_use | `~/eda/designs/chipathon_padring/template/` (same as 03) | same |
 
-## The 7 steps
+## Prerequisites
 
-1. **Pull** `hpretl/iic-osic-tools:next` (~15 GB, one time).
-2. **Start** a headless container named `gf180`, bind-mounting
-   `~/eda/designs` at `/foss/designs`.
-3. **Write** the counter RTL inline into
-   `~/eda/designs/counter_demo/counter.v`.
-4. **Write** a minimal GF180 LibreLane `config.yaml` inline next to it.
-5. **Run** `librelane config.yaml` via `docker exec` after activating
-   the GF180 standard-cell library with `sak-pdk-script.sh`.
-6. **Parse** `runs/demo/final/metrics.csv` -- die area, cell count,
-   timing violations, DRC / LVS, total power.
-7. **Display** the final-layout PNG that LibreLane auto-generates in
-   `runs/demo/final/render/counter.png`.
+- Linux host, x86_64 recommended, ~40 GB free disk.
+- Docker daemon running (test with `docker ps`).
+- `hpretl/iic-osic-tools:next` image pulled (~15 GB, one-time).
+- Python 3.9+ for the notebook kernels. No pip packages beyond
+  stdlib + IPython.
 
-Expected wall time for the counter run itself: 1-2 minutes on a modern
-laptop. The full chip-level template in the main deck takes ~35-45 min.
-
-### PDK note
-
-The walk-through uses the GF180MCU PDK that `ciel` already installed
-inside the image at `/foss/pdks/gf180mcuD/` -- no external clone. For
-a bare block (no padring, no SRAM) this built-in PDK is sufficient.
-The wafer-space GF180MCU fork (`wafer-space/gf180mcu`) only matters
-when the design uses the padring I/O cells. The main deck walks that
-through for the full-chip template.
-
-## Paths
-
-| What                            | Host                            | Container                       |
-|---------------------------------|---------------------------------|---------------------------------|
-| Workspace                       | `~/eda/designs`                 | `/foss/designs`                 |
-| Project                         | `~/eda/designs/counter_demo`    | `/foss/designs/counter_demo`    |
-| GF180MCU PDK                    | n/a (built into the image)      | `/foss/pdks/gf180mcuD`          |
-| Final GDS                       | `<project>/runs/demo/final/gds/counter.gds` | same          |
-| Metrics                         | `<project>/runs/demo/final/metrics.csv`     | same          |
+The container is started once (a named container `gf180`, bind-mount
+`~/eda/designs <-> /foss/designs`), then every notebook runs inside
+it via `docker exec`. See the `Setup` cell of any notebook for the
+`docker run -d --name gf180 ...` command.
 
 ## Troubleshooting
 
-- **`docker: command not found`:** install Docker Engine and make sure
+- **`docker: command not found`**: install Docker Engine and make sure
   your user is in the `docker` group.
 - **`Error response from daemon: Conflict. The container name "/gf180"
-  is already in use`:** you already have a container with that name.
-  Either reuse it (everything runs inside via `docker exec`) or remove:
-  `docker stop gf180 && docker rm gf180`.
-- **LibreLane exits non-zero on a PDK glob:** the container's default
-  PDK is IHP-SG13G2. The flow needs the `sak-pdk-script.sh gf180mcuD`
-  activation AND an explicit `--pdk-root` at the wafer-space fork.
-  Step 6 does both; if you tweak the script, preserve them.
-- **`sak-pdk-script.sh: command not found`:** verify the container is
-  the upstream `hpretl/iic-osic-tools:next` image (or a pinned dated
-  tag like `2026.04.13`). The helper is part of the image -- not a
-  custom script from this repo.
-- **Step 8 PNG is blank:** headless KLayout PNG export sometimes fights
-  with Qt. Open the GDS directly on the host instead:
-  `klayout <project>/runs/demo/final/gds/counter.gds`.
+  is already in use`**: reuse it (everything runs inside via
+  `docker exec`) or remove: `docker stop gf180 && docker rm gf180`.
+- **LibreLane exits non-zero on a PDK glob**: the container defaults
+  to IHP-SG13G2. The flow needs `sak-pdk-script.sh gf180mcuD
+  gf180mcu_fd_sc_mcu7t5v0` activation AND an explicit `--pdk-root`
+  at the wafer-space fork.
+- **`sak-pdk-script.sh: command not found`**: verify the container
+  is the upstream `hpretl/iic-osic-tools:next` (or a pinned dated
+  tag). The helper ships with the image.
+- **Render PNG blank**: headless KLayout PNG export sometimes fights
+  Qt. Open the GDS on the host:
+  `klayout <project>/final/gds/chip_top.gds`.
+- **Yosys post-synth check fails on `input_PAD2CORE[-1:0]`**: your
+  slot has `NUM_INPUT_PADS = 0` and hit the zero-width-vector
+  quirk. Set it to `1` in `slot_defines.svh` and list the dummy
+  pad as `"inputs\\[0\\].pad"` in the PAD_SOUTH list.
 
 ## Cleanup
 
 ```bash
 docker stop gf180
 docker rm gf180
-# Optional: reclaim ~15 GB by purging the image
+# Reclaim ~15 GB by purging the image
 docker image rm hpretl/iic-osic-tools:next
-# Optional: wipe artifacts
-rm -rf ~/eda/designs/counter_demo
+# Wipe artifacts (choose which)
+rm -rf ~/eda/designs/{counter_demo,chip_custom,chipathon_padring}
 ```

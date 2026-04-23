@@ -100,6 +100,20 @@
 \newcommand{\cmd}[1]{\texttt{\small#1}}
 \newcommand{\warn}[1]{\textbf{\color{accent3}#1}}
 
+% Small banner that reminds the audience which underlying tool
+% LibreLane is calling for the current stage.
+% Usage: \driving{Yosys}  (put right after \begin{frame}{...})
+\newcommand{\driving}[1]{%
+  \begin{flushright}%
+    \vspace{-0.9em}%
+    \colorbox{accent!10}{%
+      \footnotesize\color{accent}%
+      LibreLane driving: \textbf{#1}%
+    }%
+  \end{flushright}%
+  \vspace{-0.4em}%
+}
+
 % Placeholder box for manual screenshots.
 % Usage: \screenshotplaceholder{slides/figures/foo.png}{Short description}
 \newcommand{\screenshotplaceholder}[2]{%

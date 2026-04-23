@@ -1,6 +1,7 @@
 \section{Flow stages up close}
 
 \begin{frame}[fragile]{Phase 1 -- Synthesis (Yosys)}
+  \driving{Yosys}
   \begin{itemize}\small
     \item RTL $\rightarrow$ gate-level netlist using the GF180 standard-cell
           library (\cmd{gf180mcu\_fd\_sc\_mcu7t5v0}).
@@ -26,6 +27,7 @@ design__instance__count__stdcell,84417
 \end{frame}
 
 \begin{frame}{Phase 2 -- Floorplan \& padring}
+  \driving{OpenROAD}
   \begin{itemize}\small
     \item \cmd{OpenROAD.Floorplan} reads \cmd{DIE\_AREA} / \cmd{CORE\_AREA}
           and creates an empty chip frame.
@@ -48,6 +50,7 @@ design__instance__count__stdcell,84417
 \end{frame}
 
 \begin{frame}{Phase 3 -- Power Distribution Network}
+  \driving{OpenROAD}
   \begin{itemize}\small
     \item OpenROAD runs \cmd{pdn\_cfg.tcl} to draw the grid.
     \item \term{Followpin} wires: thin VDD/VSS along every std-cell row.
@@ -70,6 +73,7 @@ design__instance__count__stdcell,84417
 \end{frame}
 
 \begin{frame}[fragile]{Phase 4 -- Placement \& CTS}
+  \driving{OpenROAD}
   \begin{itemize}\small
     \item \term{Global placement}: approximate positions (RePlAce).
     \item \term{Detailed placement}: legalise onto std-cell rows.
@@ -96,6 +100,7 @@ clock__skew__worst_hold, -0.328  # ns
 \end{frame}
 
 \begin{frame}[fragile]{Phase 5 -- Routing}
+  \driving{OpenROAD}
   \begin{itemize}\small
     \item \term{Global routing}: assigns nets to routing regions.
     \item \term{Detailed routing}: puts wires on physical tracks.
@@ -124,6 +129,7 @@ antenna__violating__nets, 0
 \end{frame}
 
 \begin{frame}{Phase 6 -- Signoff (geometry + electrical)}
+  \driving{Magic + KLayout + Netgen + OpenSTA}
   \textbf{Geometry (the slow part):}
   \begin{itemize}\footnotesize
     \item \term{Magic DRC} + \term{KLayout DRC} cross-check.

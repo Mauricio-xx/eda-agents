@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """RTL-to-GDS walk-through: 4-bit counter on GF180MCU.
 
-Self-contained mirror of rtl2gds_counter.ipynb. Pure stdlib -- does NOT
-depend on the eda-agents Python package. Drop it on any machine with
-Docker + Python 3.9+ and it runs.
+Self-contained mirror of rtl2gds_counter.ipynb. Pure stdlib. Drop it
+on any machine with Docker + Python 3.9+ and it runs.
 
 Takes the counter from Verilog source to a manufacturable GDSII using
 LibreLane inside the hpretl/iic-osic-tools Docker image. Every step

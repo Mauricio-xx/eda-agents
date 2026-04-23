@@ -83,13 +83,22 @@ template/
 
 \begin{frame}{79 steps grouped into six phases}
   \begin{center}
-  \begin{tikzpicture}[node distance=0.35cm and 0.3cm]
-    \node[pipelinebox,  minimum width=2.3cm] (s1) {1. Synthesis\\\scriptsize Yosys};
-    \node[pipelinebox,  right=of s1, minimum width=2.3cm] (s2) {2. Floorplan\\\scriptsize OpenROAD};
-    \node[pipelinebox,  right=of s2, minimum width=2.3cm] (s3) {3. PDN\\\scriptsize OpenROAD};
-    \node[pipelinebox,  below=of s3, minimum width=2.3cm] (s4) {4. Place \& CTS\\\scriptsize OpenROAD};
-    \node[pipelinebox,  left=of s4, minimum width=2.3cm] (s5) {5. Routing\\\scriptsize OpenROAD};
-    \node[pipelinebox3, left=of s5, minimum width=2.3cm] (s6) {6. Signoff\\\scriptsize Magic / KLayout / Netgen};
+  \begin{tikzpicture}[node distance=0.35cm and 0.3cm,
+      yosysBox/.style  ={draw=accent2,thick,rounded corners=2pt,
+                         fill=accent2!12,minimum height=0.9cm,
+                         align=center,font=\small},
+      orBox/.style     ={draw=accent,thick,rounded corners=2pt,
+                         fill=accent!10,minimum height=0.9cm,
+                         align=center,font=\small},
+      signoffBox/.style={draw=accent3,thick,rounded corners=2pt,
+                         fill=accent3!12,minimum height=0.9cm,
+                         align=center,font=\small}]
+    \node[yosysBox,   minimum width=2.3cm]           (s1) {1. Synthesis\\\scriptsize Yosys};
+    \node[orBox,      right=of s1, minimum width=2.3cm] (s2) {2. Floorplan\\\scriptsize OpenROAD};
+    \node[orBox,      right=of s2, minimum width=2.3cm] (s3) {3. PDN\\\scriptsize OpenROAD};
+    \node[orBox,      below=of s3, minimum width=2.3cm] (s4) {4. Place \& CTS\\\scriptsize OpenROAD};
+    \node[orBox,      left=of s4,  minimum width=2.3cm] (s5) {5. Routing\\\scriptsize OpenROAD};
+    \node[signoffBox, left=of s5,  minimum width=2.3cm] (s6) {6. Signoff\\\scriptsize Magic/KLayout/Netgen};
     \draw[arrow] (s1) -- (s2);
     \draw[arrow] (s2) -- (s3);
     \draw[arrow] (s3) -- (s4);
@@ -97,16 +106,28 @@ template/
     \draw[arrow] (s5) -- (s6);
   \end{tikzpicture}
   \end{center}
-  \vspace{0.3em}
-  Each phase writes a milestone file. Any failure halts the flow.
+  \vspace{0.1em}
+  \begin{center}\scriptsize
+    \tikz\node[draw=accent2,thick,fill=accent2!12,minimum width=0.5cm,
+               minimum height=0.3cm,rounded corners=1pt]{};\,Yosys \quad
+    \tikz\node[draw=accent, thick,fill=accent!10, minimum width=0.5cm,
+               minimum height=0.3cm,rounded corners=1pt]{};\,OpenROAD \quad
+    \tikz\node[draw=accent3,thick,fill=accent3!12,minimum width=0.5cm,
+               minimum height=0.3cm,rounded corners=1pt]{};\,Magic + KLayout + Netgen
+  \end{center}
+  \vspace{0.2em}
+  Each phase writes a milestone file; any failure halts the flow.
+  LibreLane is the driver for all six.
   \note{%
-    This is the recap diagram before the deep-dive section. Audience
-    already saw it on slide 2 -- the difference now is that they know
-    LibreLane is the driver and they have seen the command that starts it.
-    Point at each box and promise: ``the next five slides tell you what
-    actually happens inside these.''\par
-    If pressed: why 79 steps and not 6? LibreLane breaks the phases into
-    many auxiliary passes (netlist cleanup, antenna repair, resizing,
-    multiple DRC runs). The 6-phase model is the mental pipeline; the 79
-    steps are the implementation.}
+    Recap diagram before the deep-dive section. Audience already saw
+    the pipeline in section~1 -- the difference now is (a) the colour
+    key makes ``which tool owns which phase'' visible at a glance, and
+    (b) they have seen the command that starts it.\par
+    Point at each box and promise: ``the next six slides tell you what
+    actually happens inside these, and which underlying tool LibreLane
+    is calling.''\par
+    Why 79 steps and not 6? LibreLane breaks the phases into many
+    auxiliary passes (netlist cleanup, antenna repair, resizing, multiple
+    DRC runs). The 6-phase model is the mental pipeline; the 79 steps
+    are the implementation. Each of the 79 maps to exactly one tool.}
 \end{frame}

@@ -1,10 +1,10 @@
 \section{The stack, the container, the PDK}
 
-\begin{frame}{LibreLane runs the whole orchestra}
+\begin{frame}{The full stack in one picture}
   \begin{center}
   \begin{tikzpicture}[node distance=0.4cm]
     \node[pipelinebox, minimum width=3.3cm, minimum height=1.0cm]
-      (ll) {LibreLane\\\scriptsize(Python; one YAML in, artifacts out)};
+      (ll) {LibreLane\\\scriptsize Python orchestrator -- one YAML in};
     \node[pipelinebox2, below=1.2cm of ll, minimum width=1.8cm] (yo) {Yosys};
     \node[pipelinebox2, left=of yo,  minimum width=1.8cm] (or) {OpenROAD};
     \node[pipelinebox2, right=of yo, minimum width=1.8cm] (kl) {KLayout};
@@ -18,16 +18,23 @@
   \end{tikzpicture}
   \end{center}
   \vspace{0.4em}
-  LibreLane reads one config, decides which tool runs when, passes files
-  along, and writes metrics. Its CLI is literally \cmd{librelane config.yaml}.
+  The CLI is literally \cmd{librelane config.yaml}. Everything below
+  the top box is what does the \emph{actual} EDA work; LibreLane reads
+  the config, sequences the tools, passes files between them, and
+  writes one \cmd{metrics.csv}.
   \note{%
-    This is the thesis of the deck: you drive LibreLane, LibreLane drives
-    the rest. Versions in the reference audit (2026-04-13, IIC-OSIC-TOOLS
-    \cmd{:next} image): LibreLane 3.0.2, Yosys v0.64, OpenROAD dcf36133,
-    KLayout v0.30.7, Magic 8.3.635, Netgen 1.5.318, ngspice-46, ciel v2.4.0.\par
+    This restates the thesis from section~1 before we zoom into the
+    container and PDK. The message: there are \emph{six} independent
+    open-source projects on this slide, not one. LibreLane, Yosys,
+    OpenROAD, Magic, KLayout, Netgen are all maintained separately, each
+    with its own release cadence and documentation.\par
     Name LibreLane as the evolution of OpenLane 2 (same lineage, Python
-    rewrite). Reiterate that audiences will almost never type
-    \cmd{yosys ...} or \cmd{openroad ...} directly.}
+    rewrite). Audiences will almost never type \cmd{yosys ...} or
+    \cmd{openroad ...} directly -- but when a step fails, the log you
+    read is the underlying tool's log, not a LibreLane log.\par
+    The upcoming two slides (container + PDK) are about giving these six
+    tools a common place to live and a common set of foundry files to
+    read.}
 \end{frame}
 
 \begin{frame}{Host, container, and your files}

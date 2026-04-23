@@ -1,0 +1,2432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>RTL-to-GDS on GF180MCU — LibreLane + Docker</title>
+<link rel="stylesheet" href="styles/tokens.css">
+<link rel="stylesheet" href="styles/deck.css">
+<script src="deck-stage.js" defer></script>
+<script type="application/json" id="speaker-notes">
+[
+  "Title slide. Greet the audience. 'Today we walk from Verilog to a manufacturable mask set on GF180MCU, using LibreLane inside one Docker image. By the end of the session you'll have every command you need to do this yourself.'",
+  "Audience calibration. Read the four learning outcomes. Set expectations: no prior EDA knowledge assumed; we need a Linux host with Docker and about 40GB free disk.",
+  "Read the agenda. Six sections, roughly 5 minutes each. Promise: by section 4 we'll be running the flow live; by section 6 we'll be reading metrics.",
+  "Section divider — Part 1. 'Let's start by answering the dumb question: what exactly are we automating?'",
+  "Audience calibration. RTL is behaviour, GDS is geometry. One wrong polygon, the mask is unusable; one wrong environment variable, the tool cannot start. Software analogy: RTL is C source, GDS is an ELF binary, LibreLane is a compiler chain of 80-ish passes. Unlike software, each pass can veto manufacturability.",
+  "Reading guide for the pipeline. Synthesis turns RTL into gates. Floorplan sets die size. PDN draws power. Placement legalises cells. CTS balances the clock tree. Routing draws every wire. Signoff verifies manufacturability, schematic fidelity, and timing. Each stage writes a milestone; any stage can halt the flow.",
+  "The thesis of the tutorial. LibreLane is an orchestrator, not an EDA tool. Students routinely conflate the two because 'librelane config.yaml' is the only command they type. Yosys synthesises, OpenROAD places and routes, Magic writes GDS, KLayout cross-checks, Netgen does LVS. LibreLane decides which one runs when and with what arguments. Errors almost always come from the underlying tool; the fix is in that tool's log.",
+  "Sets the 'you will have something tangible' expectation. The final layout render is the poster artifact. Everything else — DEF, SPEF, SDF — matters to people doing follow-up work. Name-drop metrics.csv as the single file you grep to know whether the chip is green.",
+  "Section divider — Part 2. 'Six open-source projects, one container, one PDK. Let's make sure they all see each other.'",
+  "Restates the thesis before we zoom into container and PDK. There are six independent open-source projects here, not one. LibreLane is the evolution of OpenLane 2 — same lineage, Python rewrite. The next two slides are about giving these six tools a common place to live and a common set of foundry files to read.",
+  "Mental model is the point. The container is disposable, your host folder is not. Treat ~/eda/designs as the canonical workspace. Everything inside /foss/designs survives docker rm; everything outside it inside the container is gone. The bind-mount is the only reason we can run a heavy image and still keep our editor, git, and artifacts on the host.",
+  "Four commands is all a first-time user needs. The -v flag binds the workspace. --user keeps artifacts on the host owned by the right UID. --skip sleep infinity is the image's built-in do-nothing-stay-alive entrypoint. The bash -lc pattern is the non-interactive workhorse we use for every subsequent command.",
+  "The single slide that saves every first-timer two hours of debugging. Without the wafer-space fork you get an obscure 'unknown cell' error during synthesis. Without sak-pdk-script activation LibreLane looks for sg13g2_stdcell files inside the GF180 directory and stops on a Tcl glob error. Both issues show up again in Section 6 — mention that now.",
+  "Section divider — Part 3. 'This is where most of the thinking happens. Two YAML files, one command.'",
+  "The template is a working full-chip design — a tiny 42-bit counter with two SRAM512x8 macros inside a padring on a 3.93 by 5.12 mm die. Five files are the surface area of the flow; everything else is nix-only or auxiliary. Anchor the rest of this section around those five paths.",
+  "Why two files? Because one template usually targets many shuttle slots with different die sizes. Die-shape-specific things live in slot_*.yaml; everything else in config.yaml. LibreLane reads left-most first and lets the right-most override — list slots first, design second. --manual-pdk tells LibreLane not to auto-activate ciel; we did it ourselves.",
+  "Read the header. meta.flow Chip selects the full-chip padring flow. dir:: resolves paths relative to the YAML. CLOCK_PORT is the external pad; CLOCK_NET is the internal net after the pad's buffer. If you only define CLOCK_PORT, CTS skews everything from the pad input and you get sad timing at the core. 40 ns = 25 MHz — comfortable slack for 180 nm.",
+  "Power is where designs die silently. A strap is a wide VDD/VSS wire crossing the core. Pitch is the distance between neighbouring straps — larger means less metal and higher IR drop. The core ring is the loop of wide power wires around the standard-cell area. Defaults pass IR-drop for the reference design; scale up, shrink pitch or widen straps.",
+  "A macro is a pre-characterised hard block. LibreLane needs four views per macro — GDS, LEF, Verilog blackbox, and one Liberty file per PVT corner. instances pins each macro at an absolute coordinate with an orientation. Manual placement is deliberate; automatic macro placement often collides with the padring.",
+  "The padring is the single hardest thing to get right. Pad lists describe the physical order on each side; LibreLane's Padring step walks them in sequence. Miss one pad, the ring does not close. Coordinates are microns, origin at the die's bottom-left. Change the slot, change the die — everything else stays the same. That separation is why LibreLane enforces two YAML files.",
+  "Section divider — Part 4. 'Three commands. 45 minutes of wall time. We'll watch what scrolls by.'",
+  "This is the entire flow. Three conceptual actions: fetch the PDK fork, activate the env, invoke LibreLane through the Makefile. PDK_ROOT on the command line is deliberately redundant with sak-pdk-script to catch the trap from Section 6. Wall time breakdown on the audit run: Yosys 6s, floorplan 15s, PDN plus placement plus CTS plus routing about 3 minutes, Magic DRC 32 min, KLayout antenna 7 min, LVS plus STA plus IR 1 min.",
+  "The log is dense but readable. Every step prints a header like '== Step 42: OpenROAD.Floorplan' so you can grep. Warnings during routing repair iterations are expected; failures manifest as the flow stopping abruptly on a step boundary. The final banner tells you two things: the timestamped run directory and the path to metrics.csv.",
+  "runs/ is every flow artifact organised per run — useful for bisecting. final/ is the curated deliverable set LibreLane copies via --save-views-to. You almost never dig into runs/ unless something failed. Practical tip: runs/ balloons fast — add to .gitignore. Commit only a trimmed final/metrics.csv as a regression baseline.",
+  "Recap diagram before the deep-dive section. The colour key makes which tool owns which phase visible at a glance. Why 79 steps and not 6? LibreLane breaks phases into many auxiliary passes. The 6-phase model is the mental pipeline; the 79 steps are the implementation. Each of the 79 maps to exactly one tool.",
+  "Section divider — Part 5. 'Now that you've seen it run, let's look inside each of the six phases.'",
+  "Yosys is fast — seconds — and deterministic. The 251k instance count is dominated by about 1100 padring cells and 81k tap cells inserted for well-tap density. The meaningful number is instance_count__stdcell. If synthesis fails, it is almost always a Verilog issue — unresolved module, missing port, wrong bit width. Grep the log for ERROR:.",
+  "This is the phase that turns YAML into geometry. If the pad list is wrong, the padring does not close. If CORE_AREA is too tight, CutRows creates too few rows and placement fails later. If an SRAM coordinate overlaps the padring, ManualMacroPlacement fails here. Tap cells are required at a fixed pitch; forget them and LVS complains.",
+  "Power is the one pass where you want to touch Tcl. pdn_cfg.tcl declares voltage domains and per-macro grids; OpenROAD consumes it verbatim. Voltage domain naming must match VDD_NETS and GND_NETS or the tool refuses to start. Signoff re-checks the grid; zero construction violations can still fail IR — widen straps or tighten pitch.",
+  "Placement is iterative. Global placement runs on a quadratic wirelength model; detailed snaps to legal rows. CTS is where a well-behaved flow earns its keep — 30 clock buffers, skew below half a nanosecond, no PLL needed for 25 MHz. Common failure is 'too many flops, not enough rows' — enlarge CORE_AREA or lower PL_TARGET_DENSITY_PCT.",
+  "Routing is where designs blow their wall-time budget. TritonRoute iterates: global route, detailed, DRC, repair, repeat. Our run converges in 6 iterations. Antennas are a fabrication concern — long metals accumulate plasma charge during etching, which can punch through a gate oxide. Diodes bleed the charge. LibreLane inserts them automatically.",
+  "Signoff is the is-this-really-manufacturable gate. Two independent DRC engines cross-check; an XOR confirms their geometries match. Any mismatch is a show-stopper. Electrical: RCX extracts parasitics, STA re-checks timing with real parasitics at every corner, IR drop checks the grid under dynamic load, LVS proves the layout implements the circuit you synthesised.",
+  "Section divider — Part 6. 'We have a GDS. Now: is it a chip? That's a metrics.csv question.'",
+  "These numbers anchor every conversation. Low core utilisation is normal for a full-chip padring design — the die is sized for the shuttle slot, not the logic. 34 mW at 25 MHz 5V is typical for 180 nm with this much logic. Scale linearly with frequency for first-order estimates.",
+  "Signoff is a binary gate. Everything above the line must be zero. Warnings below are acceptable for a first silicon spin but worth investigating before re-tapeout. If you see non-zero LVS, stop. LVS failure means the GDS does not match the netlist — the chip will not behave like your simulation.",
+  "The presenter's cheat-sheet slide. Keep it on screen during Q&A. The recipe grabs DRC from both engines, LVS status, setup/hold violations, die area, instance count, total power. Enough to know a flow is green without opening a GUI. CI pattern: grep these fields on every push, compare to baseline.",
+  "These four cover 80 percent of first-timer failure modes. Pitfalls 1 and 2 look like 'PDK is wrong' but have different fixes — 1 is shell env, 2 is Make variable. Teach people to check both. Pitfall 3 is the reason the wafer-space fork exists. Pitfall 4: use nodrc for design iteration, then full flow before tapeout. Unit tests vs integration tests.",
+  "Call to action. Cheapest way to learn: take the template, replace chip_core.sv with your own logic, re-run. 45 minutes later you have a real GDS. For an even faster iteration target, the companion Jupyter notebook walks a 4-bit counter in 7 steps — fully self-contained."
+]
+</script>
+</head>
+<body>
+
+<deck-stage width="1920" height="1080">
+
+  <!-- ========== Slide 1 — Title ========== -->
+  <section data-label="01 Title" class="slide-paper slide-title-page" style="justify-content: center; padding: 0 var(--sp-x);">
+    <div class="label" style="letter-spacing:0.22em; font-size:20px; margin-bottom: 32px; color: var(--accent); font-weight: 700;">
+      RTL-to-GDS tutorial
+    </div>
+    <h1 style="font: 600 112px/1.02 var(--font-serif); letter-spacing:-0.025em; margin:0; color: var(--paper-ink); max-width: 1600px;">
+      RTL-to-GDS<br>on <span style="font-family: var(--font-mono); font-weight:500; font-size: 0.88em;">GF180MCU</span>
+    </h1>
+    <p style="font: 400 44px/1.3 var(--font-serif); color: var(--paper-muted); margin: 36px 0 0 0; max-width: 1300px;">
+      LibreLane + Docker in practice — from Verilog source to a manufacturable mask set in one command.
+    </p>
+    <div style="width: 240px; height: 3px; background: var(--accent); margin: 56px 0;"></div>
+    <div style="display:flex; align-items:baseline; gap: 56px;">
+      <div>
+        <div class="label" style="margin-bottom:8px;">Presenter</div>
+        <div style="font: 500 28px/1.2 var(--font-sans); color: var(--paper-ink);">Mauricio Montanares</div>
+        <div style="font: 400 22px/1.3 var(--font-serif); color: var(--paper-muted); margin-top:4px;">Scientist, IHP</div>
+      </div>
+      <div>
+        <div class="label" style="margin-bottom:8px;">Date</div>
+        <div style="font: 400 22px/1.3 var(--font-mono); color: var(--paper-ink);">2026&middot;04&middot;22</div>
+      </div>
+      <div>
+        <div class="label" style="margin-bottom:8px;">Deck</div>
+        <div style="font: 400 22px/1.3 var(--font-mono); color: var(--paper-ink);">40 slides · 6 parts</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== Slide 2 — What you will learn ========== -->
+  <section data-label="02 Objectives" class="slide-paper">
+    <div class="slide-eyebrow"><span>Objectives</span><span class="rule"></span><span>2 / 38</span></div>
+    <h2 class="slide-title">What you will learn</h2>
+    <div class="title-rule"></div>
+
+    <div class="row-2" style="margin-top: 72px;">
+      <div class="stack-md">
+        <ul class="bullets">
+          <li>What <strong>RTL-to-GDS</strong> means end-to-end, and where <strong>LibreLane</strong> sits in the flow.</li>
+          <li>How to get the full toolchain running in <strong>one Docker command</strong>.</li>
+          <li>How to configure LibreLane for a <strong>GF180MCU full-chip</strong> design — the <span class="mono">config.yaml</span> anatomy.</li>
+          <li>How to run the flow and read <strong>DRC / LVS / timing</strong> signoff.</li>
+        </ul>
+      </div>
+      <div class="card" style="align-self:start; margin-top: 12px;">
+        <div class="label">Prerequisites</div>
+        <ul style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:18px; font: 400 28px/1.35 var(--font-serif);">
+          <li><span class="mono" style="color: var(--pdk-m3);">linux-host</span> &nbsp;·&nbsp; any modern distribution</li>
+          <li><span class="mono" style="color: var(--pdk-m3);">docker</span> &nbsp;·&nbsp; engine + user in <span class="mono">docker</span> group</li>
+          <li><span class="mono" style="color: var(--pdk-m3);">disk ≥ 40&thinsp;GB</span> &nbsp;·&nbsp; image + run artifacts</li>
+        </ul>
+        <div style="margin-top: 28px; font: italic 400 24px/1.4 var(--font-serif); color: var(--paper-muted); border-top: 1px solid var(--paper-border); padding-top: 20px;">
+          No prior EDA knowledge assumed.
+        </div>
+      </div>
+    </div>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- ========== Slide 3 — Agenda ========== -->
+  <section data-label="03 Agenda" class="slide-paper">
+    <div class="slide-eyebrow"><span>Agenda</span><span class="rule"></span><span>3 / 38</span></div>
+    <h2 class="slide-title">Six parts, roughly five minutes each</h2>
+    <div class="title-rule"></div>
+
+    <ol style="list-style:none; padding:0; margin: 80px 0 0 0; display:grid; grid-template-columns: 1fr 1fr; gap: 40px 96px; font: 400 32px/1.3 var(--font-serif);">
+      <li style="display:flex; gap:28px; align-items: baseline;">
+        <span style="font: 500 22px/1 var(--font-mono); color: var(--accent); letter-spacing:0.1em;">01</span>
+        <span>The <strong>RTL-to-GDS pipeline</strong></span>
+      </li>
+      <li style="display:flex; gap:28px; align-items: baseline;">
+        <span style="font: 500 22px/1 var(--font-mono); color: var(--accent); letter-spacing:0.1em;">02</span>
+        <span>The <strong>stack, the container, the PDK</strong></span>
+      </li>
+      <li style="display:flex; gap:28px; align-items: baseline;">
+        <span style="font: 500 22px/1 var(--font-mono); color: var(--accent); letter-spacing:0.1em;">03</span>
+        <span>LibreLane config — the <strong>heart of the flow</strong></span>
+      </li>
+      <li style="display:flex; gap:28px; align-items: baseline;">
+        <span style="font: 500 22px/1 var(--font-mono); color: var(--accent); letter-spacing:0.1em;">04</span>
+        <span><strong>Running the flow</strong></span>
+      </li>
+      <li style="display:flex; gap:28px; align-items: baseline;">
+        <span style="font: 500 22px/1 var(--font-mono); color: var(--accent); letter-spacing:0.1em;">05</span>
+        <span><strong>Flow stages up close</strong></span>
+      </li>
+      <li style="display:flex; gap:28px; align-items: baseline;">
+        <span style="font: 500 22px/1 var(--font-mono); color: var(--accent); letter-spacing:0.1em;">06</span>
+        <span>Results, <strong>pitfalls, and next steps</strong></span>
+      </li>
+    </ol>
+
+    <div style="flex:1;"></div>
+    <div style="display:flex; gap: 16px; margin-top: 40px;">
+      <span class="pill hud">40 slides</span>
+      <span class="pill hud">~30 min</span>
+      <span class="pill hud">1 live demo</span>
+    </div>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Additional slides injected before deck-stage upgrades -->
+  <!-- PART 1 marker -->
+  <!-- ==================================================================== -->
+  <!-- PART 1 — The RTL-to-GDS pipeline                                     -->
+  <!-- ==================================================================== -->
+
+  <!-- Section divider 1 -->
+  <section data-label="04 Part 1 · Divider" class="section-divider">
+    <div class="sec-num">Part 01 / 06</div>
+    <h1 class="sec-title">The RTL-to-GDS pipeline</h1>
+    <div class="sec-rule"></div>
+    <p class="sec-sub">What are we automating, and where does LibreLane sit in the stack?</p>
+    <div class="slide-footer"><span class="brand" style="color: var(--accent);">Mauricio Montanares · IHP</span><span>4 / 38</span></div>
+  </section>
+
+  <!-- Slide 5 — RTL and GDS: two ends of the same pipeline -->
+  <section data-label="05 RTL vs GDS" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 1 · The pipeline</span><span class="rule"></span><span>5 / 38</span></div>
+    <h2 class="slide-title">RTL and GDS — two ends of the same pipeline</h2>
+    <div class="title-rule"></div>
+
+    <div class="row-2" style="margin-top: 72px; gap: 96px;">
+      <div class="card" style="border-top: 4px solid var(--pdk-poly); padding: 44px 48px;">
+        <div class="label" style="color: var(--pdk-poly); margin-bottom: 20px;">Behaviour</div>
+        <h3 style="font: 600 52px/1 var(--font-mono); margin: 0 0 24px 0; color: var(--paper-ink);">RTL</h3>
+        <p style="font: 400 28px/1.5 var(--font-serif); color: var(--paper-ink); margin: 0 0 20px 0;">
+          A text description of a circuit in <strong>Verilog</strong> / <strong>SystemVerilog</strong>.
+        </p>
+        <p style="font: italic 400 28px/1.5 var(--font-serif); color: var(--paper-muted); margin: 0;">
+          Says <em>what</em> the circuit does.
+        </p>
+      </div>
+      <div class="card" style="border-top: 4px solid var(--pdk-m3); padding: 44px 48px;">
+        <div class="label" style="color: var(--pdk-m3); margin-bottom: 20px;">Geometry</div>
+        <h3 style="font: 600 52px/1 var(--font-mono); margin: 0 0 24px 0; color: var(--paper-ink);">GDS · GDSII</h3>
+        <p style="font: 400 28px/1.5 var(--font-serif); color: var(--paper-ink); margin: 0 0 20px 0;">
+          A <strong>binary layout file</strong> — every polygon on every layer.
+        </p>
+        <p style="font: italic 400 28px/1.5 var(--font-serif); color: var(--paper-muted); margin: 0;">
+          What the foundry turns into masks.
+        </p>
+      </div>
+    </div>
+
+    <div style="flex:1;"></div>
+    <div style="text-align:center; font: italic 500 34px/1.4 var(--font-serif); color: var(--paper-ink); padding: 40px 0;">
+      RTL&nbsp;&nbsp;<span style="color: var(--accent); font-family: var(--font-mono); font-weight: 700;">→</span>&nbsp;&nbsp;GDS <span style="color: var(--paper-muted); font-weight: 400;">&nbsp;=&nbsp;</span> automating the path from one to the other.
+    </div>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 6 — The pipeline at a glance (diagram) -->
+  <section data-label="06 Pipeline overview" class="slide-paper-grid">
+    <div class="slide-eyebrow"><span>Part 1 · The pipeline</span><span class="rule"></span><span>6 / 38</span></div>
+    <h2 class="slide-title">The pipeline, at a glance</h2>
+    <div class="title-rule"></div>
+
+    <div style="flex:1; display:flex; align-items:center; justify-content:center; padding: 16px 0; min-height:0;">
+      <svg viewBox="0 0 1600 560" preserveAspectRatio="xMidYMid meet" style="width:100%; height:100%; max-width: 1600px; max-height: 100%; font-family: var(--font-sans);" aria-label="RTL to GDS pipeline diagram">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#1A1A1A"/>
+          </marker>
+        </defs>
+        <!-- Row 1: RTL -> Synthesis -> Floorplan -> PDN -->
+        <g>
+          <!-- RTL (poly) -->
+          <rect x="20" y="40" width="220" height="130" rx="6" fill="#FFFFFF" stroke="#FC6255" stroke-width="2.5"/>
+          <text x="130" y="92" text-anchor="middle" font-size="30" font-weight="600" fill="#CF5044">RTL</text>
+          <text x="130" y="130" text-anchor="middle" font-size="20" font-family="Ubuntu Mono" fill="#6B6358">Verilog / SV</text>
+
+          <!-- Synthesis -->
+          <rect x="320" y="40" width="220" height="130" rx="6" fill="#FFFFFF" stroke="#4FB04B" stroke-width="2.5"/>
+          <text x="430" y="92" text-anchor="middle" font-size="28" font-weight="600" fill="#2d7a2a">Synthesis</text>
+          <text x="430" y="130" text-anchor="middle" font-size="18" font-family="Ubuntu Mono" fill="#6B6358">Yosys</text>
+
+          <!-- Floorplan -->
+          <rect x="620" y="40" width="220" height="130" rx="6" fill="#FFFFFF" stroke="#29ABCA" stroke-width="2.5"/>
+          <text x="730" y="92" text-anchor="middle" font-size="28" font-weight="600" fill="#29ABCA">Floorplan</text>
+          <text x="730" y="130" text-anchor="middle" font-size="18" font-family="Ubuntu Mono" fill="#6B6358">OpenROAD</text>
+
+          <!-- PDN -->
+          <rect x="920" y="40" width="220" height="130" rx="6" fill="#FFFFFF" stroke="#4A7BD9" stroke-width="2.5"/>
+          <text x="1030" y="85" text-anchor="middle" font-size="28" font-weight="600" fill="#4A7BD9">Power grid</text>
+          <text x="1030" y="115" text-anchor="middle" font-size="22" fill="#4A7BD9">(PDN)</text>
+          <text x="1030" y="150" text-anchor="middle" font-size="18" font-family="Ubuntu Mono" fill="#6B6358">OpenROAD</text>
+
+          <!-- Placement -->
+          <rect x="1220" y="40" width="220" height="130" rx="6" fill="#FFFFFF" stroke="#6B5BD9" stroke-width="2.5"/>
+          <text x="1330" y="92" text-anchor="middle" font-size="28" font-weight="600" fill="#6B5BD9">Placement</text>
+          <text x="1330" y="130" text-anchor="middle" font-size="18" font-family="Ubuntu Mono" fill="#6B6358">OpenROAD</text>
+
+          <!-- arrows -->
+          <line x1="240" y1="105" x2="320" y2="105" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arr)"/>
+          <line x1="540" y1="105" x2="620" y2="105" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arr)"/>
+          <line x1="840" y1="105" x2="920" y2="105" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arr)"/>
+          <line x1="1140" y1="105" x2="1220" y2="105" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arr)"/>
+        </g>
+
+        <!-- Vertical connector (placement -> CTS on row 2) -->
+        <line x1="1330" y1="170" x2="1330" y2="275" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arr)"/>
+
+        <!-- Row 2: CTS -> Routing -> Signoff -->
+        <g transform="translate(0, 240)">
+          <!-- CTS -->
+          <rect x="1220" y="40" width="220" height="130" rx="6" fill="#FFFFFF" stroke="#9A72AC" stroke-width="2.5"/>
+          <text x="1330" y="85" text-anchor="middle" font-size="28" font-weight="600" fill="#9A72AC">Clock tree</text>
+          <text x="1330" y="115" text-anchor="middle" font-size="22" fill="#9A72AC">(CTS)</text>
+          <text x="1330" y="150" text-anchor="middle" font-size="18" font-family="Ubuntu Mono" fill="#6B6358">OpenROAD</text>
+
+          <!-- Routing -->
+          <rect x="920" y="40" width="220" height="130" rx="6" fill="#FFFFFF" stroke="#B189C6" stroke-width="2.5"/>
+          <text x="1030" y="92" text-anchor="middle" font-size="28" font-weight="600" fill="#B189C6">Routing</text>
+          <text x="1030" y="130" text-anchor="middle" font-size="18" font-family="Ubuntu Mono" fill="#6B6358">OpenROAD</text>
+
+          <!-- Signoff -->
+          <rect x="620" y="40" width="220" height="130" rx="6" fill="#FFFFFF" stroke="#FF862F" stroke-width="2.5"/>
+          <text x="730" y="85" text-anchor="middle" font-size="28" font-weight="600" fill="#FF862F">Signoff</text>
+          <text x="730" y="120" text-anchor="middle" font-size="18" font-family="Ubuntu Mono" fill="#6B6358">DRC · LVS · STA</text>
+          <text x="730" y="150" text-anchor="middle" font-size="16" font-family="Ubuntu Mono" fill="#6B6358">Magic · KLayout · Netgen</text>
+
+          <!-- arrows, reversed direction on row 2 -->
+          <line x1="1220" y1="105" x2="1140" y2="105" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arr)"/>
+          <line x1="920" y1="105" x2="840" y2="105" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arr)"/>
+        </g>
+
+        <!-- Bottom: GDSII -->
+        <g transform="translate(0, 420)">
+          <line x1="730" y1="0" x2="730" y2="60" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arr)"/>
+          <rect x="620" y="60" width="220" height="110" rx="6" fill="#FFFFFF" stroke="#4FB04B" stroke-width="3"/>
+          <text x="730" y="107" text-anchor="middle" font-size="32" font-weight="700" fill="#2d7a2a" font-family="Ubuntu Mono">GDSII</text>
+          <text x="730" y="140" text-anchor="middle" font-size="18" font-family="Ubuntu" font-style="italic" fill="#6B6358">mask-ready layout</text>
+        </g>
+      </svg>
+    </div>
+
+    <p class="lead" style="text-align:center; font-size: 24px; color: var(--paper-muted); margin: 0; flex: 0 0 auto;">
+      Each stage writes a milestone artifact; any stage can halt the flow.
+    </p>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 7 — LibreLane is the conductor, not the orchestra -->
+  <section data-label="07 LibreLane is the conductor" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 1 · The pipeline</span><span class="rule"></span><span>7 / 38</span></div>
+    <h2 class="slide-title">LibreLane is the conductor, not the orchestra</h2>
+    <div class="title-rule"></div>
+
+    <div class="row-2 row-2-wide-left" style="margin-top: 64px; gap: 72px;">
+      <div class="stack-md">
+        <p class="lead">
+          LibreLane is an <strong>EDA tool whose job is to orchestrate other EDA tools</strong>. It reads one configuration file and, for each stage, calls the open-source tool that does the specialised work:
+        </p>
+        <ul class="bullets tight" style="margin-top: 8px;">
+          <li><strong style="color: var(--pdk-diff-n);">Yosys</strong> — RTL → gate-level netlist.</li>
+          <li><strong style="color: var(--pdk-m3);">OpenROAD</strong> — floorplan, PDN, placement, CTS, routing, STA, IR drop.</li>
+          <li><strong style="color: var(--pdk-m5);">Magic</strong> — GDS streamout and DRC.</li>
+          <li><strong style="color: var(--pdk-m2);">KLayout</strong> — DRC cross-check, antenna, XOR, renders.</li>
+          <li><strong style="color: var(--pdk-poly-deep);">Netgen</strong> — LVS (layout vs schematic).</li>
+        </ul>
+        <div style="border-left: 4px solid var(--accent); padding: 12px 24px; margin-top: 20px; font: italic 500 28px/1.4 var(--font-serif); color: var(--paper-ink);">
+          An EDA conductor — it decides <em>which</em> tool runs, <em>when</em>, and <em>with what inputs</em>.
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction: column; align-items:center; justify-content:center; gap: 24px;">
+        <svg viewBox="0 0 640 520" width="100%" style="max-width: 640px;" aria-label="LibreLane calls five tools">
+          <!-- LibreLane at top -->
+          <rect x="180" y="40" width="280" height="90" rx="6" fill="#FFFFFF" stroke="#FF862F" stroke-width="3"/>
+          <text x="320" y="78" text-anchor="middle" font-size="26" font-weight="700" fill="#1A1A1A" font-family="Ubuntu">LibreLane</text>
+          <text x="320" y="108" text-anchor="middle" font-size="16" font-family="Ubuntu Mono" fill="#6B6358">orchestrator</text>
+
+          <!-- Simple connector lines, no arrowheads -->
+          <g fill="none" stroke="#FF862F" stroke-width="1.5" opacity="0.75">
+            <line x1="260" y1="130" x2="100" y2="278"/>
+            <line x1="310" y1="130" x2="280" y2="278"/>
+            <line x1="380" y1="130" x2="460" y2="278"/>
+            <line x1="280" y1="130" x2="180" y2="408"/>
+            <line x1="360" y1="130" x2="380" y2="408"/>
+          </g>
+
+          <!-- 5 tools -->
+          <g font-family="Ubuntu" font-size="22" font-weight="600">
+            <rect x="20"  y="280" width="160" height="80" rx="4" fill="#FFFFFF" stroke="#4A7BD9" stroke-width="2"/>
+            <text x="100" y="318" text-anchor="middle" fill="#4A7BD9">OpenROAD</text>
+            <text x="100" y="345" text-anchor="middle" font-size="14" font-family="Ubuntu Mono" fill="#6B6358">place · route</text>
+
+            <rect x="200" y="280" width="160" height="80" rx="4" fill="#FFFFFF" stroke="#4FB04B" stroke-width="2"/>
+            <text x="280" y="318" text-anchor="middle" fill="#2d7a2a">Yosys</text>
+            <text x="280" y="345" text-anchor="middle" font-size="14" font-family="Ubuntu Mono" fill="#6B6358">synthesis</text>
+
+            <rect x="380" y="280" width="160" height="80" rx="4" fill="#FFFFFF" stroke="#29ABCA" stroke-width="2"/>
+            <text x="460" y="318" text-anchor="middle" fill="#29ABCA">KLayout</text>
+            <text x="460" y="345" text-anchor="middle" font-size="14" font-family="Ubuntu Mono" fill="#6B6358">xor · drc</text>
+
+            <rect x="100" y="410" width="160" height="80" rx="4" fill="#FFFFFF" stroke="#9A72AC" stroke-width="2"/>
+            <text x="180" y="448" text-anchor="middle" fill="#9A72AC">Magic</text>
+            <text x="180" y="475" text-anchor="middle" font-size="14" font-family="Ubuntu Mono" fill="#6B6358">gds · drc</text>
+
+            <rect x="300" y="410" width="160" height="80" rx="4" fill="#FFFFFF" stroke="#FC6255" stroke-width="2"/>
+            <text x="380" y="448" text-anchor="middle" fill="#CF5044">Netgen</text>
+            <text x="380" y="475" text-anchor="middle" font-size="14" font-family="Ubuntu Mono" fill="#6B6358">lvs</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 8 — What you get at the end -->
+  <section data-label="08 Deliverables" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 1 · The pipeline</span><span class="rule"></span><span>8 / 38</span></div>
+    <h2 class="slide-title">What you get at the end</h2>
+    <div class="title-rule"></div>
+
+    <div class="row-2" style="margin-top: 64px; gap: 80px;">
+      <div>
+        <p class="lead" style="margin-bottom: 32px;">A successful flow run hands you:</p>
+        <table class="data" style="font-size:26px;">
+          <tr>
+            <td class="mono" style="color: var(--pdk-m3); padding-left: 0;">final/gds/chip_top.gds</td>
+            <td>the layout</td>
+          </tr>
+          <tr>
+            <td class="mono" style="color: var(--pdk-m3); padding-left: 0;">final/def/</td>
+            <td>routed netlist + placement</td>
+          </tr>
+          <tr>
+            <td class="mono" style="color: var(--pdk-m3); padding-left: 0;">final/lib/</td>
+            <td>extracted timing libraries</td>
+          </tr>
+          <tr>
+            <td class="mono" style="color: var(--pdk-m3); padding-left: 0;">final/spef/</td>
+            <td>parasitics for post-layout STA</td>
+          </tr>
+          <tr>
+            <td class="mono" style="color: var(--pdk-m3); padding-left: 0;">final/sdf/</td>
+            <td>back-annotation for gate-level sim</td>
+          </tr>
+          <tr style="border-top: 2px solid var(--accent);">
+            <td class="mono" style="color: var(--accent); font-weight: 600; padding-left: 0; padding-top: 24px;">metrics.csv</td>
+            <td style="padding-top: 24px;"><strong>one row per metric.</strong></td>
+          </tr>
+        </table>
+      </div>
+
+      <figure style="align-self: center; margin: 0; display: flex; flex-direction: column; align-items: center; gap: 14px;">
+        <div style="padding: 18px; background: var(--paper-bg); border: 1px solid var(--paper-border); box-shadow: 0 2px 14px rgba(0,0,0,0.05);">
+          <img src="assets/chip_top_render.png" alt="Full-chip KLayout render of chip_top.gds (3.93 × 5.12 mm)"
+               style="display: block; max-width: 360px; width: 100%; height: auto; background: #F7FAB8;"/>
+        </div>
+        <figcaption style="font: italic 400 20px/1.35 var(--font-serif); color: var(--paper-muted); max-width: 380px; text-align: center;">
+          Final GDS rendered by KLayout — <span class="mono" style="font-style:normal;">chip_top.gds</span>, 3.93 × 5.12 mm, padring + 2 SRAMs + core.
+        </figcaption>
+      </figure>
+    </div>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <!-- PART 2 — The stack, the container, the PDK                           -->
+  <!-- ==================================================================== -->
+
+  <!-- Section divider 2 -->
+  <section data-label="09 Part 2 · Divider" class="section-divider">
+    <div class="sec-num">Part 02 / 06</div>
+    <h1 class="sec-title">The stack, the container, the PDK</h1>
+    <div class="sec-rule"></div>
+    <p class="sec-sub">Five open-source tools + LibreLane as orchestrator, one container, one set of foundry files.</p>
+    <div class="slide-footer"><span class="brand" style="color: var(--accent);">Mauricio Montanares · IHP</span><span>9 / 38</span></div>
+  </section>
+
+  <!-- Slide 10 — The full stack in one picture -->
+  <section data-label="10 Full stack" class="slide-paper-grid">
+    <div class="slide-eyebrow"><span>Part 2 · Stack</span><span class="rule"></span><span>10 / 38</span></div>
+    <h2 class="slide-title">The full stack in one picture</h2>
+    <div class="title-rule"></div>
+
+    <div style="flex:1; display:flex; align-items:center; justify-content:center; padding: 20px 0;">
+      <svg viewBox="0 0 1600 520" width="100%" style="max-width: 1500px;" aria-label="LibreLane stack diagram">
+        <defs>
+          <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#FF862F"/>
+          </marker>
+        </defs>
+        <!-- top box -->
+        <rect x="540" y="20" width="520" height="120" rx="6" fill="#FFFFFF" stroke="#FF862F" stroke-width="3"/>
+        <text x="800" y="68" text-anchor="middle" font-size="34" font-weight="700" fill="#1A1A1A" font-family="Ubuntu">LibreLane</text>
+        <text x="800" y="108" text-anchor="middle" font-size="20" font-family="Ubuntu Mono" fill="#6B6358">Python orchestrator — one YAML in</text>
+
+        <!-- 5 tools below -->
+        <g font-family="Ubuntu" font-size="24" font-weight="600">
+          <rect x="40"   y="320" width="260" height="110" rx="6" fill="#FFFFFF" stroke="#4A7BD9" stroke-width="2.5"/>
+          <text x="170"  y="370" text-anchor="middle" fill="#4A7BD9">OpenROAD</text>
+          <text x="170"  y="400" text-anchor="middle" font-size="16" font-family="Ubuntu Mono" fill="#6B6358">FP · PDN · PNR · STA</text>
+
+          <rect x="340"  y="320" width="260" height="110" rx="6" fill="#FFFFFF" stroke="#4FB04B" stroke-width="2.5"/>
+          <text x="470"  y="370" text-anchor="middle" fill="#2d7a2a">Yosys</text>
+          <text x="470"  y="400" text-anchor="middle" font-size="16" font-family="Ubuntu Mono" fill="#6B6358">RTL → netlist</text>
+
+          <rect x="640"  y="320" width="260" height="110" rx="6" fill="#FFFFFF" stroke="#29ABCA" stroke-width="2.5"/>
+          <text x="770"  y="370" text-anchor="middle" fill="#29ABCA">KLayout</text>
+          <text x="770"  y="400" text-anchor="middle" font-size="16" font-family="Ubuntu Mono" fill="#6B6358">DRC · XOR · antenna</text>
+
+          <rect x="940"  y="320" width="260" height="110" rx="6" fill="#FFFFFF" stroke="#9A72AC" stroke-width="2.5"/>
+          <text x="1070" y="370" text-anchor="middle" fill="#9A72AC">Magic</text>
+          <text x="1070" y="400" text-anchor="middle" font-size="16" font-family="Ubuntu Mono" fill="#6B6358">DRC · streamout</text>
+
+          <rect x="1240" y="320" width="260" height="110" rx="6" fill="#FFFFFF" stroke="#FC6255" stroke-width="2.5"/>
+          <text x="1370" y="370" text-anchor="middle" fill="#CF5044">Netgen</text>
+          <text x="1370" y="400" text-anchor="middle" font-size="16" font-family="Ubuntu Mono" fill="#6B6358">LVS</text>
+        </g>
+
+        <!-- arrows -->
+        <line x1="700" y1="140" x2="200" y2="315" stroke="#FF862F" stroke-width="1.5" marker-end="url(#arr3)" opacity="0.85"/>
+        <line x1="760" y1="140" x2="480" y2="315" stroke="#FF862F" stroke-width="1.5" marker-end="url(#arr3)" opacity="0.85"/>
+        <line x1="800" y1="140" x2="780" y2="315" stroke="#FF862F" stroke-width="1.5" marker-end="url(#arr3)" opacity="0.85"/>
+        <line x1="840" y1="140" x2="1080" y2="315" stroke="#FF862F" stroke-width="1.5" marker-end="url(#arr3)" opacity="0.85"/>
+        <line x1="900" y1="140" x2="1370" y2="315" stroke="#FF862F" stroke-width="1.5" marker-end="url(#arr3)" opacity="0.85"/>
+      </svg>
+    </div>
+
+    <p style="font: 400 28px/1.55 var(--font-serif); color: var(--paper-ink); max-width: 1500px; margin: 24px auto 0 auto; text-align:center;">
+      The CLI is literally <span class="mono" style="color: var(--pdk-m3);">librelane config.yaml</span>.
+      Everything below the top box does the <em>actual</em> EDA work; LibreLane reads the config,
+      sequences the tools, passes files between them, and writes one <span class="mono" style="color: var(--accent);">metrics.csv</span>.
+    </p>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 11 — Host, container, and your files -->
+  <section data-label="11 Host container files" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 2 · Container</span><span class="rule"></span><span>11 / 38</span></div>
+    <h2 class="slide-title">Host, container, and your files</h2>
+    <div class="title-rule"></div>
+
+    <div style="flex:1; display:flex; align-items:center; justify-content:center; padding: 40px 0;">
+      <svg viewBox="0 0 1600 560" width="100%" style="max-width: 1500px;" aria-label="Host container bind-mount diagram">
+        <!-- Host container (outer) -->
+        <rect x="20" y="20" width="1080" height="520" rx="10" fill="#FAFAF7" stroke="#1A1A1A" stroke-width="2.5"/>
+        <text x="560" y="60" text-anchor="middle" font-size="24" font-weight="700" fill="#1A1A1A" font-family="Ubuntu">Your Linux host</text>
+
+        <!-- Docker container -->
+        <rect x="60" y="90" width="1000" height="430" rx="8" fill="#FFFFFF" stroke="#4A7BD9" stroke-width="2.5"/>
+        <text x="85" y="125" font-size="20" font-weight="700" fill="#4A7BD9" font-family="Ubuntu">
+          Docker container
+        </text>
+        <text x="303" y="125" font-size="20" font-family="Ubuntu Mono" fill="#6B6358">
+          hpretl/iic-osic-tools:next
+        </text>
+
+        <!-- Toolchain box -->
+        <rect x="85" y="150" width="950" height="80" rx="4" fill="#FFFFFF" stroke="#4FB04B" stroke-width="2"/>
+        <text x="560" y="198" text-anchor="middle" font-size="22" font-family="Ubuntu" fill="#2d7a2a">
+          LibreLane + Yosys + OpenROAD + KLayout + Magic + Netgen
+        </text>
+
+        <!-- PDK -->
+        <rect x="120" y="270" width="360" height="180" rx="4" fill="#FFFFFF" stroke="#FC6255" stroke-width="2"/>
+        <text x="300" y="340" text-anchor="middle" font-size="30" font-weight="700" fill="#CF5044" font-family="Ubuntu">PDK</text>
+        <text x="300" y="380" text-anchor="middle" font-size="22" font-family="Ubuntu Mono" fill="#6B6358">gf180mcuD</text>
+        <text x="300" y="410" text-anchor="middle" font-size="18" font-family="Ubuntu Mono" fill="#6B6358">/foss/pdks/</text>
+
+        <!-- Your design (mounted) -->
+        <rect x="560" y="270" width="440" height="180" rx="4" fill="#FFFFFF" stroke="#29ABCA" stroke-width="2"/>
+        <text x="780" y="340" text-anchor="middle" font-size="30" font-weight="700" fill="#29ABCA" font-family="Ubuntu">Your design</text>
+        <text x="780" y="380" text-anchor="middle" font-size="22" font-family="Ubuntu Mono" fill="#6B6358">/foss/designs/</text>
+        <text x="780" y="410" text-anchor="middle" font-size="20" font-family="Ubuntu" font-style="italic" fill="#6B6358">(mounted)</text>
+
+        <!-- Host files box, to the right -->
+        <rect x="1160" y="270" width="420" height="180" rx="8" fill="#FFFFFF" stroke="#4FB04B" stroke-width="2.5"/>
+        <text x="1370" y="340" text-anchor="middle" font-size="28" font-weight="700" fill="#2d7a2a" font-family="Ubuntu Mono">~/eda/designs</text>
+        <text x="1370" y="385" text-anchor="middle" font-size="20" font-family="Ubuntu" font-style="italic" fill="#6B6358">(your files — editor, git, backups)</text>
+
+        <!-- Bind mount connector -->
+        <g>
+          <line x1="1000" y1="360" x2="1160" y2="360" stroke="#FF862F" stroke-width="3" stroke-dasharray="6 4"/>
+          <text x="1080" y="345" text-anchor="middle" font-size="18" font-weight="600" fill="#FF862F" font-family="Ubuntu Mono">bind-mount</text>
+          <text x="1080" y="388" text-anchor="middle" font-size="16" fill="#FF862F" font-family="Ubuntu">(bridge)</text>
+        </g>
+      </svg>
+    </div>
+
+    <p class="lead" style="max-width: 1500px; text-align:center; margin: 24px auto 0 auto;">
+      The container is the <strong style="color: var(--pdk-m3);">environment</strong>; the bind-mount is the <strong style="color: var(--pdk-m3);">bridge</strong> — edits on the host appear instantly inside.
+    </p>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 12 — Container bootstrap -->
+  <section data-label="12 Container bootstrap" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 2 · Container</span><span class="rule"></span><span>12 / 38</span></div>
+    <h2 class="slide-title">Container bootstrap — three commands (plus cleanup)</h2>
+    <div class="title-rule"></div>
+
+    <div class="code-block" style="margin-top: 56px; font-size: 26px; line-height:1.5;"><span class="c-com"># 1. One-time image pull (~15 GB)</span>
+docker pull <span class="c-num">hpretl/iic-osic-tools:next</span>
+
+<span class="c-com"># 2. Start a long-running, headless container</span>
+docker run -d --name gf180 \
+    -v ~/eda/designs:/foss/designs:rw \
+    --user <span class="c-fn">$(id -u)</span>:<span class="c-fn">$(id -g)</span> \
+    hpretl/iic-osic-tools:next --skip sleep infinity
+
+<span class="c-com"># 3. (Optional) interactive shell for debugging</span>
+docker <span class="c-key">exec</span> -it gf180 bash
+
+<span class="c-com"># 4. Non-interactive use (what the rest of the deck does)</span>
+docker <span class="c-key">exec</span> gf180 bash -lc <span class="c-str">'&lt;command&gt;'</span></div>
+
+    <div class="row-2" style="margin-top: 40px; gap: 48px; flex:0;">
+      <div class="card" style="padding: 24px 32px;">
+        <div class="label" style="margin-bottom: 8px; color: var(--accent);">Why these flags</div>
+        <ul style="list-style:none; padding:0; margin:0; font: 400 22px/1.5 var(--font-serif); color: var(--paper-ink);">
+          <li><span class="mono" style="color: var(--pdk-m3);">-v</span> &nbsp;binds your host workspace</li>
+          <li><span class="mono" style="color: var(--pdk-m3);">--user</span> &nbsp;artifacts owned by the right UID</li>
+          <li><span class="mono" style="color: var(--pdk-m3);">--skip sleep infinity</span> &nbsp;do-nothing entrypoint</li>
+        </ul>
+      </div>
+      <div class="card" style="padding: 24px 32px;">
+        <div class="label" style="margin-bottom: 8px; color: var(--accent);">Cleanup</div>
+        <div class="mono" style="font-size: 22px; line-height: 1.5; color: var(--paper-ink);">
+          docker stop gf180<br>
+          docker rm gf180
+        </div>
+        <div class="muted" style="font-size: 20px; margin-top: 10px; font-style:italic;">Host files untouched.</div>
+      </div>
+    </div>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 13 — GF180 PDK gotchas -->
+  <section data-label="13 PDK gotchas" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 2 · PDK</span><span class="rule"></span><span>13 / 38</span></div>
+    <h2 class="slide-title">GF180MCU — two gotchas to know upfront</h2>
+    <div class="title-rule"></div>
+
+    <div class="stack-lg" style="margin-top: 64px;">
+
+      <div class="card" style="border-left: 4px solid var(--pdk-m3); padding: 32px 44px;">
+        <div style="display:flex; align-items:baseline; gap: 24px; margin-bottom: 20px;">
+          <span class="pill" style="border-color: var(--pdk-m3); color: var(--pdk-m3);">Gotcha 01</span>
+          <h3 style="font: 600 36px/1.2 var(--font-serif); color: var(--paper-ink); margin: 0;">
+            The full-chip template needs the <strong style="color: var(--pdk-m3);">wafer-space PDK fork</strong>
+          </h3>
+        </div>
+        <p style="font: 400 26px/1.5 var(--font-serif); color: var(--paper-muted); margin: 0 0 20px 0;">
+          Upstream <span class="mono">open_pdks</span> <span class="mono">gf180mcuD</span> is missing two I/O cells the padring depends on — <span class="mono">gf180mcu_ws_io__dvdd</span>, <span class="mono">…__dvss</span>. Clone the fork.
+        </p>
+        <div class="code-block sm">git clone --depth <span class="c-num">1</span> --branch <span class="c-num">1.8.0</span> \
+    https://github.com/wafer-space/gf180mcu.git gf180mcu</div>
+      </div>
+
+      <div class="card" style="border-left: 4px solid var(--accent); padding: 32px 44px;">
+        <div style="display:flex; align-items:baseline; gap: 24px; margin-bottom: 20px;">
+          <span class="pill" style="border-color: var(--accent); color: var(--accent);">Gotcha 02</span>
+          <h3 style="font: 600 36px/1.2 var(--font-serif); color: var(--paper-ink); margin: 0;">
+            Every new shell must <strong style="color: var(--accent);">re-activate</strong> GF180
+          </h3>
+        </div>
+        <p style="font: 400 26px/1.5 var(--font-serif); color: var(--paper-muted); margin: 0 0 20px 0;">
+          The image defaults to <span class="mono">IHP SG13G2</span>. Without this line, LibreLane looks for <span class="mono">sg13g2_stdcell</span> files inside the GF180 directory and stops on a Tcl glob error.
+        </p>
+        <div class="code-block sm"><span class="c-key">source</span> sak-pdk-script.sh gf180mcuD gf180mcu_fd_sc_mcu7t5v0</div>
+      </div>
+
+    </div>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <!-- PART 3 — LibreLane config: the heart of the flow                     -->
+  <!-- ==================================================================== -->
+
+  <!-- Section divider 3 -->
+  <section data-label="14 Part 3 · Divider" class="section-divider">
+    <div class="sec-num">Part 03 / 06</div>
+    <h1 class="sec-title">LibreLane config —<br>the heart of the flow</h1>
+    <div class="sec-rule"></div>
+    <p class="sec-sub">Two YAML files for the wafer-space template, one for Classic. This is where most of the thinking happens.</p>
+    <div class="slide-footer"><span class="brand" style="color: var(--accent);">Mauricio Montanares · IHP</span><span>14 / 38</span></div>
+  </section>
+
+  <!-- Slide 15 — Three hardening stages (CHIPATON framing) -->
+  <section data-label="15 Three hardening stages" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 3 · Config</span><span class="rule"></span><span>15 / 38</span></div>
+    <h2 class="slide-title">Three hardening stages — what belongs where</h2>
+    <div class="title-rule"></div>
+
+    <p class="lead" style="margin-top: 14px; max-width: 1680px; font-size: 22px;">
+      For CHIPATON 2026 the organisers hand you <strong>one die area</strong> and a fixed padring. Your job is to put a working chip inside it — three distinct hardening stages, and confusing them is the #1 source of lost days.
+    </p>
+
+    <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-top: 18px;">
+
+      <!-- Stage 1 -->
+      <div class="card thick" style="padding: 20px 24px; border-top: 4px solid var(--pdk-m2);">
+        <div style="display:flex; align-items:baseline; gap:12px;">
+          <span style="font: 700 28px/1 var(--font-mono); color: var(--pdk-m2);">01</span>
+          <div class="label" style="color: var(--pdk-m2); margin:0;">Macro hardening</div>
+        </div>
+        <h3 style="font: 600 24px/1.25 var(--font-sans); color: var(--paper-ink); margin: 10px 0 12px 0;">Your block → reusable IP</h3>
+
+        <!-- Illustration: RTL → hardened macro with 4 views -->
+        <svg viewBox="0 0 420 150" style="width:100%; height:auto; display:block; margin: 0 0 12px 0;" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="s1-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--pdk-m2)"/>
+            </marker>
+          </defs>
+          <!-- Source RTL -->
+          <g transform="translate(8,28)">
+            <rect x="0" y="0" width="110" height="92" fill="none" stroke="var(--paper-muted)" stroke-width="1.4" stroke-dasharray="4 3" rx="3"/>
+            <text x="55" y="-6" text-anchor="middle" style="font: 600 11px var(--font-mono); fill: var(--paper-muted);">RTL</text>
+            <g style="font: 500 9px var(--font-mono); fill: var(--paper-ink);">
+              <text x="8" y="16">module block(</text>
+              <text x="14" y="30">input clk,</text>
+              <text x="14" y="44">input [7:0] a,</text>
+              <text x="14" y="58">input [7:0] b,</text>
+              <text x="14" y="72">output [15:0] y</text>
+              <text x="8" y="86">);</text>
+            </g>
+          </g>
+          <!-- Arrow -->
+          <path d="M 128 74 L 178 74" fill="none" stroke="var(--pdk-m2)" stroke-width="2" marker-end="url(#s1-arrow)"/>
+          <text x="153" y="66" text-anchor="middle" style="font: italic 500 10px var(--font-serif); fill: var(--pdk-m2);">LibreLane</text>
+          <text x="153" y="92" text-anchor="middle" style="font: italic 400 9px var(--font-serif); fill: var(--paper-muted);">Classic flow</text>
+
+          <!-- Hardened block icon -->
+          <g transform="translate(192,28)">
+            <rect x="0" y="0" width="92" height="92" fill="var(--paper-bg)" stroke="var(--pdk-m2)" stroke-width="2"/>
+            <!-- pins on all sides -->
+            <g fill="var(--pdk-m2)">
+              <rect x="-4" y="16" width="4" height="4"/>
+              <rect x="-4" y="36" width="4" height="4"/>
+              <rect x="-4" y="56" width="4" height="4"/>
+              <rect x="-4" y="76" width="4" height="4"/>
+              <rect x="92" y="16" width="4" height="4"/>
+              <rect x="92" y="36" width="4" height="4"/>
+              <rect x="92" y="56" width="4" height="4"/>
+              <rect x="92" y="76" width="4" height="4"/>
+              <rect x="16" y="-4" width="4" height="4"/>
+              <rect x="36" y="-4" width="4" height="4"/>
+              <rect x="56" y="-4" width="4" height="4"/>
+              <rect x="76" y="-4" width="4" height="4"/>
+              <rect x="16" y="92" width="4" height="4"/>
+              <rect x="36" y="92" width="4" height="4"/>
+              <rect x="56" y="92" width="4" height="4"/>
+              <rect x="76" y="92" width="4" height="4"/>
+            </g>
+            <!-- internal grid hint -->
+            <g stroke="var(--pdk-m2)" stroke-width="0.5" opacity="0.35">
+              <line x1="20" y1="20" x2="72" y2="20"/>
+              <line x1="20" y1="30" x2="72" y2="30"/>
+              <line x1="20" y1="40" x2="72" y2="40"/>
+              <line x1="20" y1="50" x2="72" y2="50"/>
+              <line x1="20" y1="60" x2="72" y2="60"/>
+              <line x1="20" y1="70" x2="72" y2="70"/>
+            </g>
+            <text x="46" y="48" text-anchor="middle" style="font: 700 10px var(--font-mono); fill: var(--pdk-m2);">block</text>
+            <text x="46" y="108" text-anchor="middle" style="font: italic 500 10px var(--font-serif); fill: var(--paper-muted);">hardened IP</text>
+          </g>
+
+          <!-- 4 views -->
+          <g transform="translate(304,18)" style="font: 700 9px var(--font-mono);">
+            <rect x="0"  y="0"  width="52" height="22" fill="none" stroke="var(--pdk-m2)" stroke-width="1.2"/>
+            <text x="26" y="14" text-anchor="middle" fill="var(--pdk-m2)">.gds</text>
+            <rect x="60" y="0"  width="52" height="22" fill="none" stroke="var(--pdk-m2)" stroke-width="1.2"/>
+            <text x="86" y="14" text-anchor="middle" fill="var(--pdk-m2)">.lef</text>
+            <rect x="0"  y="30" width="52" height="22" fill="none" stroke="var(--pdk-m2)" stroke-width="1.2"/>
+            <text x="26" y="44" text-anchor="middle" fill="var(--pdk-m2)">.lib</text>
+            <rect x="60" y="30" width="52" height="22" fill="none" stroke="var(--pdk-m2)" stroke-width="1.2"/>
+            <text x="86" y="44" text-anchor="middle" fill="var(--pdk-m2)">.v</text>
+            <text x="56" y="74" text-anchor="middle" style="font: italic 500 9px var(--font-serif); fill: var(--paper-muted);">four views</text>
+          </g>
+        </svg>
+
+        <p style="font: 400 18px/1.4 var(--font-serif); color: var(--paper-ink); margin:0 0 10px 0;">
+          Each custom block (CPU, accelerator, analog wrapper) is hardened on its own.
+        </p>
+        <div class="label" style="color: var(--paper-muted); margin: 6px 0 4px 0;">Flow</div>
+        <p class="mono" style="font-size:17px; color: var(--paper-ink); margin:0 0 8px 0;">meta.flow: Classic</p>
+        <div class="label" style="color: var(--paper-muted); margin: 6px 0 4px 0;">Produces</div>
+        <p class="mono" style="font-size:16px; color: var(--paper-ink); margin:0;">block.gds · .lef · .lib · blackbox.v</p>
+        <div style="margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--paper-line);">
+          <div class="label" style="color: var(--pdk-m2); margin-bottom: 4px;">Hands-on</div>
+          <p class="mono" style="font-size:15px; color: var(--paper-ink); margin:0;">demo/rtl2gds_counter.ipynb</p>
+        </div>
+      </div>
+
+      <!-- Stage 2 -->
+      <div class="card thick" style="padding: 20px 24px; border-top: 4px solid var(--pdk-m3);">
+        <div style="display:flex; align-items:baseline; gap:12px;">
+          <span style="font: 700 28px/1 var(--font-mono); color: var(--pdk-m3);">02</span>
+          <div class="label" style="color: var(--pdk-m3); margin:0;">Macro integration</div>
+        </div>
+        <h3 style="font: 600 24px/1.25 var(--font-sans); color: var(--paper-ink); margin: 10px 0 12px 0;">Wire the IP into <span class="mono" style="font-size:22px;">config.yaml</span></h3>
+
+        <!-- Illustration: YAML declaration → macro pinned on floorplan -->
+        <svg viewBox="0 0 420 150" style="width:100%; height:auto; display:block; margin: 0 0 12px 0;" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="s2-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--pdk-m3)"/>
+            </marker>
+          </defs>
+          <!-- YAML snippet -->
+          <g transform="translate(8,18)">
+            <text x="0" y="-4" style="font: 600 11px var(--font-mono); fill: var(--paper-muted);">config.yaml</text>
+            <rect x="0" y="0" width="170" height="114" fill="none" stroke="var(--pdk-m3)" stroke-width="1.2"/>
+            <g style="font: 500 10px var(--font-mono); fill: var(--paper-ink);">
+              <text x="8"  y="18" style="fill: var(--pdk-m3); font-weight:700;">MACROS:</text>
+              <text x="18" y="34">block_a:</text>
+              <text x="28" y="48" style="fill: var(--paper-muted);">gds: [...]</text>
+              <text x="28" y="62" style="fill: var(--paper-muted);">lef: [...]</text>
+              <text x="28" y="76" style="fill: var(--paper-muted);">instances:</text>
+              <text x="38" y="90" style="fill: var(--accent); font-weight:700;">u_a:</text>
+              <text x="48" y="104" style="fill: var(--accent);">[80, 120, N]</text>
+            </g>
+          </g>
+          <!-- Arrow -->
+          <path d="M 184 74 L 222 74" fill="none" stroke="var(--pdk-m3)" stroke-width="2" marker-end="url(#s2-arrow)"/>
+          <text x="203" y="66" text-anchor="middle" style="font: italic 500 10px var(--font-serif); fill: var(--pdk-m3);">declare</text>
+
+          <!-- Floorplan with pinned macros -->
+          <g transform="translate(234,18)">
+            <text x="0" y="-4" style="font: 600 11px var(--font-mono); fill: var(--paper-muted);">floorplan</text>
+            <rect x="0" y="0" width="178" height="114" fill="var(--paper-bg)" stroke="var(--paper-ink)" stroke-width="1.6"/>
+            <!-- core area dashed -->
+            <rect x="14" y="14" width="150" height="86" fill="none" stroke="var(--pdk-m3)" stroke-width="1.2" stroke-dasharray="4 3"/>
+            <!-- macro A pinned -->
+            <rect x="24" y="26" width="58" height="40" fill="color-mix(in srgb, var(--accent) 15%, transparent)" stroke="var(--accent)" stroke-width="1.6"/>
+            <text x="53" y="50" text-anchor="middle" style="font: 700 10px var(--font-mono); fill: var(--accent);">u_a</text>
+            <!-- pin marker -->
+            <g stroke="var(--accent)" stroke-width="1.2">
+              <line x1="24" y1="26" x2="18" y2="20"/>
+              <circle cx="18" cy="20" r="2.5" fill="var(--accent)"/>
+            </g>
+            <text x="6" y="16" style="font: 600 9px var(--font-mono); fill: var(--accent);">(80,120,N)</text>
+
+            <!-- macro B pinned -->
+            <rect x="100" y="56" width="52" height="34" fill="color-mix(in srgb, var(--pdk-m3) 18%, transparent)" stroke="var(--pdk-m3)" stroke-width="1.6"/>
+            <text x="126" y="76" text-anchor="middle" style="font: 700 10px var(--font-mono); fill: var(--pdk-m3);">u_b</text>
+            <text x="156" y="124" text-anchor="end" style="font: italic 500 10px var(--font-serif); fill: var(--paper-muted);">pinned (x, y, orient)</text>
+          </g>
+        </svg>
+
+        <p style="font: 400 18px/1.4 var(--font-serif); color: var(--paper-ink); margin:0 0 8px 0;">
+          Every stage-01 block becomes a black-box macro with four views plus an absolute <span class="mono">(x, y, orient)</span>.
+        </p>
+        <div class="label" style="color: var(--paper-muted); margin: 6px 0 4px 0;">Not a step —</div>
+        <p style="font: italic 400 18px/1.4 var(--font-serif); color: var(--paper-muted); margin:0;">a declaration LibreLane reads.</p>
+        <div style="margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--paper-line);">
+          <div class="label" style="color: var(--pdk-m3); margin-bottom: 4px;">Hands-on</div>
+          <p class="mono" style="font-size:15px; color: var(--paper-ink); margin:0;">demo/rtl2gds_chip_top_custom.ipynb</p>
+        </div>
+      </div>
+
+      <!-- Stage 3 -->
+      <div class="card thick" style="padding: 20px 24px; border-top: 4px solid var(--accent);">
+        <div style="display:flex; align-items:baseline; gap:12px;">
+          <span style="font: 700 28px/1 var(--font-mono); color: var(--accent);">03</span>
+          <div class="label" style="color: var(--accent); margin:0;">Full-chip hardening</div>
+        </div>
+        <h3 style="font: 600 24px/1.25 var(--font-sans); color: var(--paper-ink); margin: 10px 0 12px 0;">Template → <span class="mono" style="font-size:22px;">chip_top.gds</span></h3>
+
+        <!-- Illustration: die with padring, macros placed, glue routed -->
+        <svg viewBox="0 0 420 150" style="width:100%; height:auto; display:block; margin: 0 0 12px 0;" xmlns="http://www.w3.org/2000/svg">
+          <!-- Die outline -->
+          <g transform="translate(110,10)">
+            <!-- outer die -->
+            <rect x="0" y="0" width="200" height="130" fill="color-mix(in srgb, var(--accent) 8%, transparent)" stroke="var(--paper-ink)" stroke-width="2"/>
+            <!-- padring (accent bands) -->
+            <!-- south -->
+            <g fill="var(--accent)">
+              <rect x="18" y="116" width="14" height="14"/><rect x="38" y="116" width="14" height="14"/><rect x="58" y="116" width="14" height="14"/><rect x="78" y="116" width="14" height="14"/><rect x="98" y="116" width="14" height="14"/><rect x="118" y="116" width="14" height="14"/><rect x="138" y="116" width="14" height="14"/><rect x="158" y="116" width="14" height="14"/>
+            </g>
+            <!-- north -->
+            <g fill="var(--accent)">
+              <rect x="18" y="0" width="14" height="14"/><rect x="38" y="0" width="14" height="14"/><rect x="58" y="0" width="14" height="14"/><rect x="78" y="0" width="14" height="14"/><rect x="98" y="0" width="14" height="14"/><rect x="118" y="0" width="14" height="14"/><rect x="138" y="0" width="14" height="14"/><rect x="158" y="0" width="14" height="14"/>
+            </g>
+            <!-- west -->
+            <g fill="var(--accent)">
+              <rect x="0" y="18" width="14" height="14"/><rect x="0" y="38" width="14" height="14"/><rect x="0" y="58" width="14" height="14"/><rect x="0" y="78" width="14" height="14"/><rect x="0" y="98" width="14" height="14"/>
+            </g>
+            <!-- east -->
+            <g fill="var(--accent)">
+              <rect x="186" y="18" width="14" height="14"/><rect x="186" y="38" width="14" height="14"/><rect x="186" y="58" width="14" height="14"/><rect x="186" y="78" width="14" height="14"/><rect x="186" y="98" width="14" height="14"/>
+            </g>
+            <!-- core area -->
+            <rect x="22" y="22" width="156" height="86" fill="var(--paper-bg)" stroke="var(--pdk-m3)" stroke-width="1.2" stroke-dasharray="4 3"/>
+            <!-- placed macros -->
+            <rect x="32" y="34" width="58" height="40" fill="color-mix(in srgb, var(--accent) 18%, transparent)" stroke="var(--accent)" stroke-width="1.4"/>
+            <text x="61" y="58" text-anchor="middle" style="font: 700 10px var(--font-mono); fill: var(--accent);">u_a</text>
+            <rect x="108" y="58" width="52" height="36" fill="color-mix(in srgb, var(--pdk-m3) 22%, transparent)" stroke="var(--pdk-m3)" stroke-width="1.4"/>
+            <text x="134" y="79" text-anchor="middle" style="font: 700 10px var(--font-mono); fill: var(--pdk-m3);">u_b</text>
+            <!-- glue logic: small standard cells scattered around -->
+            <g fill="var(--pdk-m2)" opacity="0.45">
+              <rect x="34" y="80" width="5" height="6"/><rect x="42" y="80" width="5" height="6"/><rect x="50" y="80" width="5" height="6"/><rect x="58" y="80" width="5" height="6"/><rect x="66" y="80" width="5" height="6"/><rect x="74" y="80" width="5" height="6"/>
+              <rect x="34" y="90" width="5" height="6"/><rect x="42" y="90" width="5" height="6"/><rect x="50" y="90" width="5" height="6"/><rect x="58" y="90" width="5" height="6"/><rect x="66" y="90" width="5" height="6"/>
+              <rect x="108" y="34" width="5" height="6"/><rect x="116" y="34" width="5" height="6"/><rect x="124" y="34" width="5" height="6"/><rect x="132" y="34" width="5" height="6"/><rect x="140" y="34" width="5" height="6"/><rect x="148" y="34" width="5" height="6"/>
+              <rect x="108" y="44" width="5" height="6"/><rect x="116" y="44" width="5" height="6"/><rect x="124" y="44" width="5" height="6"/><rect x="132" y="44" width="5" height="6"/>
+            </g>
+            <!-- routing lines (glue) -->
+            <g stroke="var(--pdk-m3)" stroke-width="0.8" fill="none" opacity="0.8">
+              <path d="M 90 54 L 108 74"/>
+              <path d="M 90 64 L 108 82"/>
+              <path d="M 61 74 L 61 98 L 108 98"/>
+            </g>
+          </g>
+          <!-- label -->
+          <text x="210" y="148" text-anchor="middle" style="font: italic 500 10px var(--font-serif); fill: var(--paper-muted);">padring · macros · glue — one GDS</text>
+        </svg>
+
+        <p style="font: 400 18px/1.4 var(--font-serif); color: var(--paper-ink); margin:0 0 10px 0;">
+          LibreLane drops each macro at its declared location, routes glue logic, and signs off the chip.
+        </p>
+        <div class="label" style="color: var(--paper-muted); margin: 6px 0 4px 0;">Flow</div>
+        <p class="mono" style="font-size:17px; color: var(--paper-ink); margin:0 0 8px 0;">meta.flow: Chip</p>
+        <div class="label" style="color: var(--paper-muted); margin: 6px 0 4px 0;">Produces</div>
+        <p class="mono" style="font-size:16px; color: var(--paper-ink); margin:0;">chip_top.gds (the submission)</p>
+        <div style="margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--paper-line);">
+          <div class="label" style="color: var(--accent); margin-bottom: 4px;">Hands-on</div>
+          <p class="mono" style="font-size:15px; color: var(--paper-ink); margin:0;">demo/rtl2gds_chipathon_use.ipynb</p>
+        </div>
+      </div>
+    </div>
+
+    <p style="font: italic 400 19px/1.45 var(--font-serif); color: var(--paper-muted); margin: 16px auto 0 auto; max-width: 1680px;">
+      Rest of Part 3 walks stage <strong>02</strong> (the YAML wiring) and stage <strong>03</strong> (what the full-chip flow needs).
+    </p>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 16 — Project template -->
+  <section data-label="16 Project template" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 3 · Config</span><span class="rule"></span><span>16 / 38</span></div>
+    <h2 class="slide-title">The project template — files you actually touch</h2>
+    <div class="title-rule"></div>
+
+    <p style="font: italic 400 28px/1.45 var(--font-serif); color: var(--paper-muted); margin: 40px 0 48px 0; max-width: 1500px;">
+      The YAML below is LibreLane's input. LibreLane parses it and hands the relevant pieces to Yosys, OpenROAD, Magic, KLayout, and Netgen.
+    </p>
+
+    <div style="display:flex; gap: 16px; margin-bottom: 32px; align-items:baseline;">
+      <span class="label" style="margin:0;">Base</span>
+      <span class="mono" style="font-size: 22px; color: var(--pdk-m3);">github.com/wafer-space/gf180mcu-project-template</span>
+    </div>
+
+    <table class="data" style="max-width: 1500px;">
+      <thead>
+        <tr><th style="width: 520px;">File</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="mono" style="color: var(--paper-ink);">src/chip_top.sv</td>
+          <td>Top module: padring + core</td>
+        </tr>
+        <tr>
+          <td class="mono" style="color: var(--paper-ink);">src/chip_core.sv</td>
+          <td>Your logic. <em>Replace this for a custom chip.</em></td>
+        </tr>
+        <tr>
+          <td class="mono" style="color: var(--accent);">librelane/config.yaml</td>
+          <td>Design-wide settings (RTL, clock, PDN, macros)</td>
+        </tr>
+        <tr>
+          <td class="mono" style="color: var(--accent);">librelane/slots/slot_1x1.yaml</td>
+          <td>Floorplan (die size, pad order)</td>
+        </tr>
+        <tr>
+          <td class="mono" style="color: var(--paper-ink);">librelane/pdn_cfg.tcl</td>
+          <td>PDN script (trust it for now)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p style="font: 400 24px/1.5 var(--font-serif); color: var(--paper-muted); margin-top: 40px;">
+      Plus a <span class="mono">Makefile</span> that wraps <span class="mono">librelane</span> in <span class="mono">make librelane</span>.
+    </p>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 16 — LibreLane v3 YAML: two levels -->
+  <section data-label="17 Two-level YAML" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 3 · Config</span><span class="rule"></span><span>17 / 38</span></div>
+    <h2 class="slide-title">LibreLane v3 YAML — two levels, one command</h2>
+    <div class="title-rule"></div>
+
+    <p class="lead" style="margin-top: 18px; max-width: 1680px;">
+      The full-chip flow reads <strong>two</strong> YAML files: a stable design-level config and a swappable floorplan-level slot. If a key appears in both, the <strong>rightmost file's value overrides</strong> the leftmost — that's how one slot file can retarget the same design to a different die.
+    </p>
+
+    <!-- Central diagram: two files → merge → LibreLane -->
+    <div style="margin-top: 30px;">
+      <svg viewBox="0 0 1680 540" style="width: 100%; height: auto; max-height: 560px; display:block;" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <marker id="yaml-arr-m3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--pdk-m3)"/>
+          </marker>
+          <marker id="yaml-arr-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"/>
+          </marker>
+          <marker id="yaml-arr-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--paper-ink)"/>
+          </marker>
+        </defs>
+
+        <!-- ============================================================= -->
+        <!-- LEFT COLUMN: two stacked YAML files with "OWNS" tags         -->
+        <!-- ============================================================= -->
+
+        <!-- config.yaml (top) -->
+        <g transform="translate(30,10)">
+          <rect x="0" y="0" width="440" height="170" fill="var(--paper-bg)" stroke="var(--pdk-m3)" stroke-width="2.4"/>
+          <rect x="0" y="0" width="440" height="7" fill="var(--pdk-m3)"/>
+
+          <!-- filename tab -->
+          <g>
+            <text x="20" y="30" style="font: 700 14px var(--font-sans); fill: var(--pdk-m3); letter-spacing: 0.12em;">DESIGN-LEVEL</text>
+            <text x="20" y="58" style="font: 700 26px var(--font-mono); fill: var(--paper-ink);">config.yaml</text>
+          </g>
+
+          <line x1="20" y1="72" x2="420" y2="72" stroke="var(--paper-border)" stroke-width="1"/>
+
+          <!-- YAML body (stylised, tight) -->
+          <g style="font: 500 15px var(--font-mono);">
+            <text x="20" y="94"><tspan fill="var(--pdk-m3)" font-weight="700">DESIGN_NAME:</tspan><tspan fill="var(--paper-ink)" dx="10">chip_top</tspan></text>
+            <text x="20" y="114"><tspan fill="var(--pdk-m3)" font-weight="700">VERILOG_FILES:</tspan><tspan fill="var(--paper-muted)" dx="10">[src/*.sv]</tspan></text>
+            <text x="20" y="134"><tspan fill="var(--pdk-m3)" font-weight="700">CLOCK_PERIOD:</tspan><tspan fill="var(--paper-ink)" dx="10">40.0</tspan></text>
+            <text x="20" y="154"><tspan fill="var(--pdk-m3)" font-weight="700">MACROS:</tspan><tspan fill="var(--paper-muted)" dx="10">block_a, block_b …</tspan></text>
+          </g>
+
+          <!-- owns tag (top-right corner) -->
+          <g transform="translate(300,12)">
+            <rect x="0" y="0" width="128" height="22" fill="color-mix(in srgb, var(--pdk-m3) 14%, transparent)" rx="3"/>
+            <text x="64" y="15" text-anchor="middle" style="font: 700 11px var(--font-sans); fill: var(--pdk-m3); letter-spacing: 0.1em;">DESIGN FACTS</text>
+          </g>
+        </g>
+
+        <!-- slot_*.yaml (bottom) -->
+        <g transform="translate(30,200)">
+          <rect x="0" y="0" width="440" height="170" fill="var(--paper-bg)" stroke="var(--accent)" stroke-width="2.4"/>
+          <rect x="0" y="0" width="440" height="7" fill="var(--accent)"/>
+
+          <g>
+            <text x="20" y="30" style="font: 700 14px var(--font-sans); fill: var(--accent); letter-spacing: 0.12em;">FLOORPLAN-LEVEL</text>
+            <text x="20" y="58" style="font: 700 26px var(--font-mono); fill: var(--paper-ink);">slots/slot_*.yaml</text>
+          </g>
+
+          <line x1="20" y1="72" x2="420" y2="72" stroke="var(--paper-border)" stroke-width="1"/>
+
+          <g style="font: 500 15px var(--font-mono);">
+            <text x="20" y="94"><tspan fill="var(--accent)" font-weight="700">FP_SIZING:</tspan><tspan fill="var(--paper-ink)" dx="10">absolute</tspan></text>
+            <text x="20" y="114"><tspan fill="var(--accent)" font-weight="700">DIE_AREA:</tspan><tspan fill="var(--paper-ink)" dx="10">[0, 0, 1500, 1500]</tspan></text>
+            <text x="20" y="134"><tspan fill="var(--accent)" font-weight="700">CORE_AREA:</tspan><tspan fill="var(--paper-ink)" dx="10">[120, 120, 1380, 1380]</tspan></text>
+            <text x="20" y="154"><tspan fill="var(--accent)" font-weight="700">PADRING:</tspan><tspan fill="var(--paper-ink)" dx="10">true</tspan></text>
+          </g>
+
+          <g transform="translate(260,12)">
+            <rect x="0" y="0" width="168" height="22" fill="color-mix(in srgb, var(--accent) 14%, transparent)" rx="3"/>
+            <text x="84" y="15" text-anchor="middle" style="font: 700 11px var(--font-sans); fill: var(--accent); letter-spacing: 0.1em;">DIE GEOMETRY</text>
+          </g>
+        </g>
+
+        <!-- ============================================================= -->
+        <!-- ARROWS converging into MERGE                                 -->
+        <!-- ============================================================= -->
+
+        <!-- config.yaml → merge -->
+        <path d="M 470 95 C 560 95 600 185 700 185" fill="none" stroke="var(--pdk-m3)" stroke-width="3" marker-end="url(#yaml-arr-m3)"/>
+        <!-- slot.yaml → merge -->
+        <path d="M 470 285 C 560 285 600 205 700 205" fill="none" stroke="var(--accent)" stroke-width="3" marker-end="url(#yaml-arr-acc)"/>
+
+        <!-- ============================================================= -->
+        <!-- MERGE node                                                   -->
+        <!-- ============================================================= -->
+        <g transform="translate(700,105)">
+          <circle cx="90" cy="90" r="88" fill="var(--paper-bg)" stroke="var(--paper-ink)" stroke-width="3"/>
+          <text x="90" y="68" text-anchor="middle" style="font: 700 18px var(--font-sans); fill: var(--paper-ink); letter-spacing: 0.14em;">MERGE</text>
+          <text x="90" y="100" text-anchor="middle" style="font: 700 22px var(--font-mono); fill: var(--paper-ink);">left → right</text>
+          <text x="90" y="124" text-anchor="middle" style="font: italic 500 14px var(--font-serif); fill: var(--paper-muted);">same key in both?</text>
+          <text x="90" y="142" text-anchor="middle" style="font: italic 500 14px var(--font-serif); fill: var(--paper-muted);">rightmost wins</text>
+        </g>
+
+        <!-- merge → runner -->
+        <path d="M 884 195 L 960 195" fill="none" stroke="var(--paper-ink)" stroke-width="3" marker-end="url(#yaml-arr-ink)"/>
+
+        <!-- ============================================================= -->
+        <!-- LIBRELANE runner                                             -->
+        <!-- ============================================================= -->
+        <g transform="translate(968,85)">
+          <rect x="0" y="0" width="380" height="220" rx="10" fill="var(--paper-ink)"/>
+          <text x="190" y="42" text-anchor="middle" style="font: 700 17px var(--font-sans); fill: var(--paper-bg); letter-spacing: 0.18em;">LIBRELANE</text>
+          <text x="190" y="68" text-anchor="middle" style="font: italic 400 16px var(--font-serif); fill: rgb(216, 211, 211);">meta.flow: Chip</text>
+
+          <!-- command line -->
+          <rect x="20" y="90" width="340" height="110" fill="color-mix(in srgb, var(--paper-bg) 10%, transparent)" stroke="color-mix(in srgb, var(--paper-bg) 35%, transparent)" stroke-width="1"/>
+          <g style="font: 500 15px var(--font-mono);">
+            <text x="32" y="114" fill="var(--accent)">$ librelane \</text>
+            <text x="32" y="136" fill="var(--paper-bg)">    slot_1x1.yaml \</text>
+            <text x="32" y="158" fill="var(--paper-bg)">    config.yaml \</text>
+            <text x="32" y="180" fill="color-mix(in srgb, var(--paper-bg) 70%, transparent);">    --pdk gf180mcuD</text>
+          </g>
+        </g>
+
+        <!-- runner → output -->
+        <path d="M 1352 195 L 1428 195" fill="none" stroke="var(--paper-ink)" stroke-width="3" marker-end="url(#yaml-arr-ink)"/>
+
+        <!-- ============================================================= -->
+        <!-- OUTPUT chip                                                  -->
+        <!-- ============================================================= -->
+        <g transform="translate(1440,105)">
+          <rect x="0" y="0" width="200" height="180" fill="color-mix(in srgb, var(--accent) 10%, transparent)" stroke="var(--paper-ink)" stroke-width="2.4"/>
+          <!-- padring -->
+          <g fill="var(--accent)">
+            <rect x="10" y="6" width="14" height="12"/><rect x="30" y="6" width="14" height="12"/><rect x="50" y="6" width="14" height="12"/><rect x="70" y="6" width="14" height="12"/><rect x="116" y="6" width="14" height="12"/><rect x="136" y="6" width="14" height="12"/><rect x="156" y="6" width="14" height="12"/><rect x="176" y="6" width="14" height="12"/>
+            <rect x="10" y="162" width="14" height="12"/><rect x="30" y="162" width="14" height="12"/><rect x="50" y="162" width="14" height="12"/><rect x="70" y="162" width="14" height="12"/><rect x="116" y="162" width="14" height="12"/><rect x="136" y="162" width="14" height="12"/><rect x="156" y="162" width="14" height="12"/><rect x="176" y="162" width="14" height="12"/>
+            <rect x="6" y="30" width="12" height="14"/><rect x="6" y="50" width="12" height="14"/><rect x="6" y="70" width="12" height="14"/><rect x="6" y="110" width="12" height="14"/><rect x="6" y="130" width="12" height="14"/>
+            <rect x="182" y="30" width="12" height="14"/><rect x="182" y="50" width="12" height="14"/><rect x="182" y="70" width="12" height="14"/><rect x="182" y="110" width="12" height="14"/><rect x="182" y="130" width="12" height="14"/>
+          </g>
+          <!-- core -->
+          <rect x="26" y="26" width="148" height="128" fill="var(--paper-bg)" stroke="var(--pdk-m3)" stroke-width="1.2" stroke-dasharray="4 3"/>
+          <!-- macros -->
+          <rect x="34" y="40" width="54" height="38" fill="color-mix(in srgb, var(--accent) 25%, transparent)" stroke="var(--accent)" stroke-width="1.4"/>
+          <rect x="104" y="78" width="60" height="44" fill="color-mix(in srgb, var(--pdk-m3) 25%, transparent)" stroke="var(--pdk-m3)" stroke-width="1.4"/>
+          <text x="100" y="204" text-anchor="middle" style="font: 700 16px var(--font-mono); fill: var(--paper-ink);">chip_top.gds</text>
+        </g>
+
+        <!-- ============================================================= -->
+        <!-- BOTTOM: Example row — clean band below the diagram            -->
+        <!-- ============================================================= -->
+
+        <!-- horizontal rule separating diagram from example -->
+        <line x1="30" y1="400" x2="1650" y2="400" stroke="var(--paper-border)" stroke-width="1" stroke-dasharray="3 4"/>
+
+        <g transform="translate(380,420)">
+          <text x="0" y="0" style="font: 700 18px var(--font-sans); fill: var(--paper-muted); letter-spacing: 0.14em;">EXAMPLE — SAME KEY IN BOTH FILES</text>
+
+          <!-- leftmost file says X -->
+          <g transform="translate(0,20)">
+            <rect x="0" y="0" width="240" height="92" fill="color-mix(in srgb, var(--pdk-m3) 10%, transparent)" stroke="var(--pdk-m3)" stroke-width="2" rx="6"/>
+            <text x="14" y="26" style="font: 600 15px var(--font-mono); fill: var(--pdk-m3);">config.yaml (leftmost)</text>
+            <text x="14" y="58" style="font: 500 20px var(--font-mono); fill: var(--paper-ink);">FP_CORE_UTIL: 45</text>
+            <text x="14" y="80" style="font: italic 400 14px var(--font-serif); fill: var(--paper-muted);">read first — the base</text>
+          </g>
+
+          <!-- + sign -->
+          <text x="272" y="84" style="font: 700 36px var(--font-mono); fill: var(--paper-muted);">+</text>
+
+          <!-- rightmost file says Y -->
+          <g transform="translate(308,20)">
+            <rect x="0" y="0" width="256" height="92" fill="color-mix(in srgb, var(--accent) 12%, transparent)" stroke="var(--accent)" stroke-width="2" rx="6"/>
+            <text x="14" y="26" style="font: 600 15px var(--font-mono); fill: var(--accent);">slot_*.yaml (rightmost)</text>
+            <text x="14" y="58" style="font: 500 20px var(--font-mono); fill: var(--paper-ink);">FP_CORE_UTIL: 38</text>
+            <text x="14" y="80" style="font: italic 400 14px var(--font-serif); fill: var(--paper-muted);">overrides the base</text>
+          </g>
+
+          <!-- = -->
+          <text x="596" y="84" style="font: 700 36px var(--font-mono); fill: var(--paper-muted);">=</text>
+
+          <!-- result -->
+          <g transform="translate(634,20)">
+            <rect x="0" y="0" width="272" height="92" fill="var(--paper-ink)" rx="6"/>
+            <text x="14" y="26" style="font: 700 14px var(--font-sans); fill: var(--paper-bg); letter-spacing: 0.14em;">WHAT LIBRELANE USES</text>
+            <text x="14" y="62" style="font: 700 24px var(--font-mono); fill: var(--accent);">FP_CORE_UTIL: 38</text>
+            <text x="14" y="84" style="font: italic 400 14px var(--font-serif); fill: rgb(251, 248, 248);">rightmost value wins</text>
+          </g>
+        </g>
+      </svg>
+    </div>
+
+    <p style="font: italic 400 19px/1.4 var(--font-serif); color: var(--paper-muted); margin: 10px 0 0 0;">
+      Companion: <span class="mono" style="font-style:normal; color: var(--paper-ink);">demo/00_slots_explained.ipynb</span> walks the concept;
+      <span class="mono" style="font-style:normal; color: var(--paper-ink);">demo/rtl2gds_chipathon_padring.ipynb</span> builds a new slot from scratch.
+    </p>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 17 — config.yaml header -->
+  <section data-label="18 config header" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 3 · Config</span><span class="rule"></span><span>18 / 38</span></div>
+    <h2 class="slide-title"><span class="code">config.yaml</span> — the header</h2>
+    <div class="title-rule"></div>
+
+    <div class="row-2 row-2-wide-left" style="margin-top: 56px; gap: 72px;">
+      <div class="code-block"><span class="c-key">meta</span>:
+  <span class="c-key">version</span>: <span class="c-num">3</span>
+  <span class="c-key">flow</span>: <span class="c-str">Chip</span>
+
+<span class="c-key">DESIGN_NAME</span>: <span class="c-str">chip_top</span>
+<span class="c-key">VERILOG_FILES</span>:
+  - <span class="c-fn">dir::</span>../src/chip_top.sv
+  - <span class="c-fn">dir::</span>../src/chip_core.sv
+
+<span class="c-key">VDD_NETS</span>: [VDD]
+<span class="c-key">GND_NETS</span>: [VSS]
+
+<span class="c-key">CLOCK_PORT</span>:   <span class="c-str">clk_PAD</span>
+<span class="c-key">CLOCK_NET</span>:    <span class="c-str">clk_pad/Y</span>
+<span class="c-key">CLOCK_PERIOD</span>: <span class="c-num">40</span>   <span class="c-com"># ns → 25 MHz</span></div>
+
+      <div class="stack-md">
+        <div>
+          <div class="label" style="color: var(--accent);">meta.flow · Chip</div>
+          <p style="font: 400 24px/1.5 var(--font-serif); color: var(--paper-ink); margin: 8px 0 0 0;">
+            Selects the <strong>full-chip padring flow</strong> (vs the smaller <span class="mono">Classic</span> used for bare-die blocks).
+          </p>
+        </div>
+        <div>
+          <div class="label" style="color: var(--accent);">CLOCK_PORT vs CLOCK_NET</div>
+          <p style="font: 400 24px/1.5 var(--font-serif); color: var(--paper-ink); margin: 8px 0 0 0;">
+            <span class="mono">CLOCK_PORT</span> is the external <strong>pad</strong>.
+            <span class="mono">CLOCK_NET</span> is the <strong>internal net</strong> after the pad's buffer.
+            Define both — or CTS skews from the pad input and you get sad timing at the core.
+          </p>
+        </div>
+        <div>
+          <div class="label" style="color: var(--accent);">CLOCK_PERIOD</div>
+          <p style="font: 400 24px/1.5 var(--font-serif); color: var(--paper-ink); margin: 8px 0 0 0;">
+            40 ns = <strong>25 MHz</strong>. Comfortable slack at 180 nm. Tighten cautiously.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 18 — config.yaml power grid -->
+  <section data-label="19 config power grid" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 3 · Config</span><span class="rule"></span><span>19 / 38</span></div>
+    <h2 class="slide-title"><span class="code">config.yaml</span> — the power grid</h2>
+    <div class="title-rule"></div>
+
+    <div class="row-2" style="margin-top: 56px; gap: 72px;">
+      <div class="code-block sm"><span class="c-key">PDN_VWIDTH</span>:     <span class="c-num">5</span>
+<span class="c-key">PDN_HWIDTH</span>:     <span class="c-num">5</span>
+PDN_VSPACING:   <span class="c-num">1</span>
+PDN_HSPACING:   <span class="c-num">1</span>
+PDN_VPITCH:     <span class="c-num">75</span>
+PDN_HPITCH:     <span class="c-num">75</span>
+
+<span class="c-key">PDN_CORE_RING</span>:               <span class="c-num">true</span>
+PDN_CORE_RING_VWIDTH:        <span class="c-num">25</span>
+PDN_CORE_RING_HWIDTH:        <span class="c-num">25</span>
+PDN_CORE_RING_CONNECT_TO_PADS: <span class="c-num">true</span>
+
+PDN_CORE_VERTICAL_LAYER:   <span class="c-str">Metal2</span>
+PDN_CORE_HORIZONTAL_LAYER: <span class="c-str">Metal3</span>
+
+<span class="c-key">PDN_CFG</span>: <span class="c-fn">dir::</span>pdn_cfg.tcl</div>
+
+      <div class="stack-md">
+        <div class="card" style="padding: 24px 32px;">
+          <div class="label" style="color: var(--pdk-m2); margin-bottom: 8px;">Strap</div>
+          <p style="font: 400 24px/1.45 var(--font-serif); color: var(--paper-ink); margin:0;">
+            Wide VDD / VSS wire crossing the core.
+          </p>
+        </div>
+        <div class="card" style="padding: 24px 32px;">
+          <div class="label" style="color: var(--pdk-m3); margin-bottom: 8px;">Pitch</div>
+          <p style="font: 400 24px/1.45 var(--font-serif); color: var(--paper-ink); margin:0;">
+            Distance between neighbouring straps. <strong>Larger = less metal, higher IR drop.</strong>
+          </p>
+        </div>
+        <div class="card" style="padding: 24px 32px;">
+          <div class="label" style="color: var(--accent); margin-bottom: 8px;">Core ring</div>
+          <p style="font: 400 24px/1.45 var(--font-serif); color: var(--paper-ink); margin:0;">
+            The loop of wide power wires around the standard-cell area that delivers current from the pads to the straps.
+          </p>
+        </div>
+        <p style="font: italic 400 22px/1.45 var(--font-serif); color: var(--paper-muted); margin-top: 8px;">
+          Defaults pass IR-drop for the reference design. Scale up? Shrink pitch or widen straps; PDNSim will flag violations at signoff.
+        </p>
+      </div>
+    </div>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 19 — declaring macros -->
+  <section data-label="20 config macros" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 3 · Config</span><span class="rule"></span><span>20 / 38</span></div>
+    <h2 class="slide-title"><span class="code">config.yaml</span> — declaring macros (stage 02)</h2>
+    <div class="title-rule"></div>
+
+    <p class="lead" style="margin-top: 14px; max-width: 1720px; font-size: 22px;">
+      This is <strong>macro integration</strong>: the full-chip flow needs a <em>declaration</em> of every hard block sitting on the die — SRAMs shipped with the PDK <em>and</em> any custom block you hardened yourself in stage 01. No placement algorithm runs on these; you pin them.
+    </p>
+
+    <div style="display: grid; grid-template-columns: 1.15fr 1fr; gap: 40px; margin-top: 18px; align-items: start;">
+
+      <!-- LEFT: the YAML -->
+      <div>
+        <div class="label" style="color: var(--accent); margin-bottom: 10px;">What you write in <span class="mono" style="font-size:16px;">config.yaml</span></div>
+        <div class="code-block sm" style="margin-top: 0; font-size: 18px; line-height: 1.45;"><span class="c-key">MACROS</span>:
+  gf180mcu_fd_ip_sram__sram512x8m8wm1:
+    <span class="c-key">gds</span>: [<span class="c-fn">pdk_dir::</span>libs.ref/.../sram512x8m8wm1.gds]
+    <span class="c-key">lef</span>: [<span class="c-fn">pdk_dir::</span>libs.ref/.../sram512x8m8wm1.lef]
+    <span class="c-key">vh</span>:  [<span class="c-fn">pdk_dir::</span>libs.ref/.../sram__blackbox.v]
+    <span class="c-key">lib</span>:
+      <span class="c-str">"*_tt_025C_5v00"</span>: [<span class="c-fn">pdk_dir::</span>.../sram__tt_025C_5v00.lib]
+      <span class="c-str">"*_ss_125C_4v50"</span>: [<span class="c-fn">pdk_dir::</span>.../sram__ss_125C_4v50.lib]
+      <span class="c-str">"*_ff_n40C_5v50"</span>: [<span class="c-fn">pdk_dir::</span>.../sram__ff_n40C_5v50.lib]
+    <span class="c-key">instances</span>:
+      i_chip_core.sram_0: {<span class="c-key">location</span>: [<span class="c-num">490</span>, <span class="c-num">500</span>], <span class="c-key">orientation</span>: <span class="c-str">N</span>}
+      i_chip_core.sram_1: {<span class="c-key">location</span>: [<span class="c-num">970</span>, <span class="c-num">500</span>], <span class="c-key">orientation</span>: <span class="c-str">E</span>}</div>
+      </div>
+
+      <!-- RIGHT: redesigned — four-view cards + pinned floorplan -->
+      <div>
+        <div class="label" style="color: var(--accent); margin-bottom: 10px;">What LibreLane sees</div>
+
+        <!-- Panel A: the four views as labeled cards -->
+        <div class="card thick" style="padding: 18px 20px;">
+          <div style="display:flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px;">
+            <span style="font: 700 13px var(--font-sans); letter-spacing: 0.14em; color: var(--paper-muted);">FOUR VIEWS — one per macro</span>
+            <span style="font: italic 400 13px var(--font-serif); color: var(--paper-muted);">wired together by macro name</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;">
+
+            <div style="padding: 10px 12px; border: 1.5px solid var(--pdk-m3); background: color-mix(in srgb, var(--pdk-m3) 6%, var(--paper-bg));">
+              <div style="font: 700 14px var(--font-mono); color: var(--pdk-m3);">.gds</div>
+              <div style="font: 500 11px/1.3 var(--font-sans); color: var(--paper-ink); margin: 2px 0 6px;">layout — polygons</div>
+              <svg viewBox="0 0 120 26" style="width: 100%; height: 22px;">
+                <rect x="0" y="4" width="120" height="18" fill="color-mix(in srgb, var(--pdk-m3) 16%, transparent)"/>
+                <g fill="var(--pdk-m3)">
+                  <rect x="3" y="7" width="3" height="12"/><rect x="11" y="7" width="3" height="12"/><rect x="19" y="7" width="3" height="12"/><rect x="27" y="7" width="3" height="12"/><rect x="35" y="7" width="3" height="12"/><rect x="43" y="7" width="3" height="12"/><rect x="51" y="7" width="3" height="12"/><rect x="59" y="7" width="3" height="12"/><rect x="67" y="7" width="3" height="12"/><rect x="75" y="7" width="3" height="12"/><rect x="83" y="7" width="3" height="12"/><rect x="91" y="7" width="3" height="12"/><rect x="99" y="7" width="3" height="12"/><rect x="107" y="7" width="3" height="12"/><rect x="115" y="7" width="3" height="12"/>
+                </g>
+              </svg>
+              <div style="font: italic 400 10.5px/1.3 var(--font-serif); color: var(--paper-muted); margin-top: 4px;">at <span class="mono" style="font-size: 10px;">signoff</span></div>
+            </div>
+
+            <div style="padding: 10px 12px; border: 1.5px solid var(--pdk-m2); background: color-mix(in srgb, var(--pdk-m2) 6%, var(--paper-bg));">
+              <div style="font: 700 14px var(--font-mono); color: var(--pdk-m2);">.lef</div>
+              <div style="font: 500 11px/1.3 var(--font-sans); color: var(--paper-ink); margin: 2px 0 6px;">abstract + pins</div>
+              <svg viewBox="0 0 120 26" style="width: 100%; height: 22px;">
+                <rect x="6" y="4" width="108" height="18" fill="none" stroke="var(--pdk-m2)" stroke-width="1.4"/>
+                <g fill="var(--pdk-m2)">
+                  <rect x="2" y="7" width="4" height="4"/><rect x="2" y="15" width="4" height="4"/>
+                  <rect x="114" y="7" width="4" height="4"/><rect x="114" y="15" width="4" height="4"/>
+                </g>
+              </svg>
+              <div style="font: italic 400 10.5px/1.3 var(--font-serif); color: var(--paper-muted); margin-top: 4px;">at <span class="mono" style="font-size: 10px;">floorplan · P&amp;R</span></div>
+            </div>
+
+            <div style="padding: 10px 12px; border: 1.5px solid var(--paper-ink); background: var(--paper-bg);">
+              <div style="font: 700 14px var(--font-mono); color: var(--paper-ink);">.vh</div>
+              <div style="font: 500 11px/1.3 var(--font-sans); color: var(--paper-ink); margin: 2px 0 6px;">Verilog blackbox</div>
+              <div style="font: 500 10px/1.2 var(--font-mono); color: var(--paper-ink); padding: 4px 6px; background: color-mix(in srgb, var(--paper-ink) 5%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">module sram(CLK, Q, ...);</div>
+              <div style="font: italic 400 10.5px/1.3 var(--font-serif); color: var(--paper-muted); margin-top: 4px;">at <span class="mono" style="font-size: 10px;">synthesis</span></div>
+            </div>
+
+            <div style="padding: 10px 12px; border: 1.5px solid var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--paper-bg));">
+              <div style="font: 700 14px var(--font-mono); color: var(--accent);">.lib</div>
+              <div style="font: 500 11px/1.3 var(--font-sans); color: var(--paper-ink); margin: 2px 0 6px;">timing, per corner</div>
+              <div style="display:flex; flex-direction: column; gap: 1px; font: 600 10px/1.15 var(--font-mono);">
+                <span style="color: var(--pdk-m3);">tt · 025°C · 5.00 V</span>
+                <span style="color: var(--accent);">ss · 125°C · 4.50 V</span>
+                <span style="color: var(--pdk-m2);">ff · −40°C · 5.50 V</span>
+              </div>
+              <div style="font: italic 400 10.5px/1.3 var(--font-serif); color: var(--paper-muted); margin-top: 4px;">at <span class="mono" style="font-size: 10px;">STA · signoff</span></div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Panel B: pinned floorplan -->
+        <div class="card thick" style="padding: 18px 20px; margin-top: 14px;">
+          <div style="display:flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px;">
+            <span style="font: 700 13px var(--font-sans); letter-spacing: 0.14em; color: var(--paper-muted);">PINNED ON THE FLOORPLAN</span>
+            <span style="font: italic 400 13px var(--font-serif); color: var(--paper-muted);">manual coords — no algorithm runs</span>
+          </div>
+
+          <svg viewBox="0 0 620 260" style="width: 100%; height: auto; max-height: 250px; display:block;" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <marker id="cm2-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--paper-ink)"/>
+              </marker>
+            </defs>
+
+            <g transform="translate(14,16)">
+              <rect x="0" y="0" width="360" height="220" fill="color-mix(in srgb, var(--accent) 6%, transparent)" stroke="var(--paper-ink)" stroke-width="2"/>
+              <g fill="var(--accent)">
+                <rect x="18" y="0" width="16" height="10"/><rect x="42" y="0" width="16" height="10"/><rect x="66" y="0" width="16" height="10"/><rect x="90" y="0" width="16" height="10"/><rect x="114" y="0" width="16" height="10"/><rect x="138" y="0" width="16" height="10"/><rect x="162" y="0" width="16" height="10"/><rect x="186" y="0" width="16" height="10"/><rect x="210" y="0" width="16" height="10"/><rect x="234" y="0" width="16" height="10"/><rect x="258" y="0" width="16" height="10"/><rect x="282" y="0" width="16" height="10"/><rect x="306" y="0" width="16" height="10"/><rect x="330" y="0" width="16" height="10"/>
+                <rect x="18" y="210" width="16" height="10"/><rect x="42" y="210" width="16" height="10"/><rect x="66" y="210" width="16" height="10"/><rect x="90" y="210" width="16" height="10"/><rect x="114" y="210" width="16" height="10"/><rect x="138" y="210" width="16" height="10"/><rect x="162" y="210" width="16" height="10"/><rect x="186" y="210" width="16" height="10"/><rect x="210" y="210" width="16" height="10"/><rect x="234" y="210" width="16" height="10"/><rect x="258" y="210" width="16" height="10"/><rect x="282" y="210" width="16" height="10"/><rect x="306" y="210" width="16" height="10"/><rect x="330" y="210" width="16" height="10"/>
+                <rect x="0" y="18" width="10" height="16"/><rect x="0" y="42" width="10" height="16"/><rect x="0" y="66" width="10" height="16"/><rect x="0" y="90" width="10" height="16"/><rect x="0" y="114" width="10" height="16"/><rect x="0" y="138" width="10" height="16"/><rect x="0" y="162" width="10" height="16"/><rect x="0" y="186" width="10" height="16"/>
+                <rect x="350" y="18" width="10" height="16"/><rect x="350" y="42" width="10" height="16"/><rect x="350" y="66" width="10" height="16"/><rect x="350" y="90" width="10" height="16"/><rect x="350" y="114" width="10" height="16"/><rect x="350" y="138" width="10" height="16"/><rect x="350" y="162" width="10" height="16"/><rect x="350" y="186" width="10" height="16"/>
+              </g>
+              <rect x="18" y="16" width="324" height="188" fill="var(--paper-bg)" stroke="var(--pdk-m3)" stroke-width="1.2" stroke-dasharray="4 3"/>
+
+              <!-- sram_0: orient N, anchor at SW -->
+              <g transform="translate(76,108)">
+                <rect x="0" y="-48" width="72" height="48" fill="color-mix(in srgb, var(--pdk-m3) 22%, transparent)" stroke="var(--pdk-m3)" stroke-width="1.6"/>
+                <text x="36" y="-22" text-anchor="middle" style="font: 700 12px var(--font-mono); fill: var(--pdk-m3);">sram_0</text>
+                <circle cx="4" cy="-4" r="3" fill="var(--pdk-m3)"/>
+                <text x="10" y="-10" style="font: 700 10px var(--font-mono); fill: var(--pdk-m3);">N</text>
+                <circle cx="0" cy="0" r="4.5" fill="var(--accent)"/>
+              </g>
+
+              <!-- sram_1: orient E -->
+              <g transform="translate(220,148)">
+                <rect x="0" y="-72" width="48" height="72" fill="color-mix(in srgb, var(--pdk-m2) 22%, transparent)" stroke="var(--pdk-m2)" stroke-width="1.6"/>
+                <text x="24" y="-34" text-anchor="middle" style="font: 700 12px var(--font-mono); fill: var(--pdk-m2);">sram_1</text>
+                <circle cx="4" cy="-68" r="3" fill="var(--pdk-m2)"/>
+                <text x="10" y="-62" style="font: 700 10px var(--font-mono); fill: var(--pdk-m2);">E</text>
+                <circle cx="0" cy="0" r="4.5" fill="var(--accent)"/>
+              </g>
+
+              <g stroke="var(--paper-ink)" stroke-width="1.4" fill="none">
+                <line x1="18" y1="204" x2="62" y2="204" marker-end="url(#cm2-arrow)"/>
+                <line x1="18" y1="204" x2="18" y2="160" marker-end="url(#cm2-arrow)"/>
+              </g>
+              <text x="66" y="208" style="font: italic 600 11px var(--font-serif); fill: var(--paper-ink);">x (µm)</text>
+              <text x="20" y="156" style="font: italic 600 11px var(--font-serif); fill: var(--paper-ink);">y</text>
+              <circle cx="18" cy="204" r="3" fill="var(--paper-ink)"/>
+              <text x="22" y="218" style="font: 600 10px var(--font-mono); fill: var(--paper-muted);">(0, 0)</text>
+            </g>
+
+            <!-- right-side table + legend -->
+            <g transform="translate(404,18)">
+              <text x="0" y="12" style="font: 700 13px var(--font-sans); letter-spacing: 0.12em; fill: var(--paper-muted);">instances:</text>
+
+              <g transform="translate(0,30)" style="font: 600 13px var(--font-mono);">
+                <text x="0" y="12" fill="var(--paper-muted)" style="font-weight: 500; letter-spacing: 0.05em;">instance</text>
+                <text x="118" y="12" fill="var(--paper-muted)" style="font-weight: 500; letter-spacing: 0.05em;">(x, y) · rot</text>
+                <line x1="0" y1="20" x2="196" y2="20" stroke="var(--paper-border)" stroke-width="1"/>
+
+                <g transform="translate(0,40)">
+                  <circle cx="4" cy="-4" r="4" fill="var(--accent)"/>
+                  <rect x="14" y="-12" width="14" height="10" fill="color-mix(in srgb, var(--pdk-m3) 22%, transparent)" stroke="var(--pdk-m3)" stroke-width="1"/>
+                  <text x="34" y="-2" fill="var(--pdk-m3)">sram_0</text>
+                  <text x="118" y="-2" fill="var(--paper-ink)">490, 500 · N</text>
+                </g>
+                <g transform="translate(0,64)">
+                  <circle cx="4" cy="-4" r="4" fill="var(--accent)"/>
+                  <rect x="14" y="-12" width="10" height="14" fill="color-mix(in srgb, var(--pdk-m2) 22%, transparent)" stroke="var(--pdk-m2)" stroke-width="1"/>
+                  <text x="34" y="-2" fill="var(--pdk-m2)">sram_1</text>
+                  <text x="118" y="-2" fill="var(--paper-ink)">970, 500 · E</text>
+                </g>
+              </g>
+
+              <g transform="translate(0,136)" style="font: 500 12px var(--font-sans);">
+                <g>
+                  <circle cx="5" cy="5" r="4" fill="var(--accent)"/>
+                  <text x="18" y="9" fill="var(--paper-ink)">anchor = SW corner</text>
+                </g>
+                <g transform="translate(0,22)">
+                  <text x="0" y="9" fill="var(--paper-muted)" style="font: 600 12px var(--font-mono);">N · S · E · W</text>
+                  <text x="96" y="9" fill="var(--paper-ink)">orientation</text>
+                </g>
+                <g transform="translate(0,44)">
+                  <text x="0" y="9" fill="var(--paper-muted)" style="font: 600 12px var(--font-mono);">FN · FE · FS · FW</text>
+                  <text x="128" y="9" fill="var(--paper-ink)">flipped</text>
+                </g>
+              </g>
+            </g>
+          </svg>
+        </div>
+      </div>
+      </div>
+    </div>
+
+    <div class="row-2" style="margin-top: 16px; gap: 56px; flex:0;">
+      <div>
+        <div class="label" style="color: var(--accent); margin-bottom: 8px;">Where the four views come from</div>
+        <p style="font: 400 19px/1.4 var(--font-serif); color: var(--paper-ink); margin: 0;">
+          <strong>PDK SRAMs</strong> come pre-packaged under <span class="mono">pdk_dir::</span>. <strong>Your stage-01 blocks</strong> ship their own four-view set from <span class="mono">runs/&lt;tag&gt;/final/</span>.
+        </p>
+      </div>
+      <div>
+        <div class="label" style="color: var(--accent); margin-bottom: 8px;"><span class="mono" style="font-size:15px;">instances:</span> pin absolutely</div>
+        <p style="font: 400 19px/1.4 var(--font-serif); color: var(--paper-ink); margin: 0;">
+          Each instance gets an <strong>absolute micron coordinate</strong> + orientation (<span class="mono">N · S · E · W</span> + flipped <span class="mono">FN · FE</span>) — manual, so nothing collides with the padring.
+        </p>
+      </div>
+    </div>
+
+    <p style="font: italic 400 19px/1.4 var(--font-serif); color: var(--paper-muted); margin: 14px 0 0 0;">
+      Worked example: <span class="mono" style="font-style:normal; color: var(--paper-ink);">demo/rtl2gds_chip_top_custom.ipynb</span> replaces one SRAM with a pre-hardened counter as a custom macro, keeping the other SRAM in place.
+    </p>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 20 — Slots: a wafer-space convention, not a LibreLane one (NEW) -->
+  <section data-label="21 Slot = CHIPATON die contract" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 3 · Config</span><span class="rule"></span><span>21 / 38</span></div>
+    <h2 class="slide-title">The <span class="code">slot_*.yaml</span> — CHIPATON's die contract</h2>
+    <div class="title-rule"></div>
+
+    <p class="lead" style="margin-top: 22px; max-width: 1720px;">
+      A <strong>slot</strong> is just a named floorplan: die rectangle, core rectangle, pad order. The template ships three sizes from wafer-space's shuttle — but the mechanism is generic. <strong>For CHIPATON 2026, the organisers tell you the die area and the padring; that becomes your slot.</strong>
+    </p>
+
+    <div style="display:grid; grid-template-columns: 1.15fr 1fr; gap: 40px; margin-top: 26px; align-items: start;">
+
+      <!-- Left: anatomy of a slot file — diagram -->
+      <div>
+        <div class="label" style="color: var(--accent); margin-bottom: 10px;">What a slot file actually contains</div>
+        <div class="card thick" style="padding: 16px 18px 14px 18px;">
+          <svg viewBox="0 0 620 440" style="width: 100%; height: auto; max-height: 440px; display:block; overflow: visible;" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <marker id="slot-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--paper-ink)"/>
+              </marker>
+              <marker id="slot-arrow-muted" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--paper-muted)"/>
+              </marker>
+            </defs>
+
+            <!-- FP_SIZING note (top) -->
+            <text x="610" y="22" text-anchor="end" style="font: 500 14px var(--font-mono); fill: var(--paper-muted);">FP_SIZING: absolute · units = µm</text>
+
+            <!-- Outer: DIE_AREA fill -->
+            <rect x="90" y="60" width="440" height="320" fill="color-mix(in srgb, var(--accent) 10%, transparent)" stroke="none"/>
+            <!-- DIE_AREA stroke -->
+            <rect x="90" y="60" width="440" height="320" fill="none" stroke="var(--paper-ink)" stroke-width="2.4"/>
+
+            <!-- Inner: CORE_AREA -->
+            <rect x="160" y="120" width="300" height="200" fill="var(--paper-bg)" stroke="var(--pdk-m3)" stroke-width="2.2" stroke-dasharray="7 5"/>
+
+            <!-- Pads: evenly spaced, numbered 1..N clockwise from SW -->
+            <!-- SOUTH (bottom) — left to right: 1..7 -->
+            <g>
+              <rect x="180" y="346" width="30" height="28" fill="var(--accent)"/>
+              <rect x="220" y="346" width="30" height="28" fill="var(--accent)"/>
+              <rect x="260" y="346" width="30" height="28" fill="var(--accent)"/>
+              <rect x="300" y="346" width="30" height="28" fill="var(--accent)"/>
+              <rect x="340" y="346" width="30" height="28" fill="var(--accent)"/>
+              <rect x="380" y="346" width="30" height="28" fill="var(--accent)"/>
+              <rect x="420" y="346" width="30" height="28" fill="var(--accent)"/>
+            </g>
+            <!-- EAST (right) — bottom to top -->
+            <g>
+              <rect x="490" y="260" width="28" height="30" fill="var(--accent)"/>
+              <rect x="490" y="220" width="28" height="30" fill="var(--accent)"/>
+              <rect x="490" y="180" width="28" height="30" fill="var(--accent)"/>
+              <rect x="490" y="140" width="28" height="30" fill="var(--accent)"/>
+              <rect x="490" y="100" width="28" height="30" fill="var(--accent)"/>
+            </g>
+            <!-- NORTH (top) — right to left -->
+            <g>
+              <rect x="420" y="66" width="30" height="28" fill="var(--accent)"/>
+              <rect x="380" y="66" width="30" height="28" fill="var(--accent)"/>
+              <rect x="340" y="66" width="30" height="28" fill="var(--accent)"/>
+              <rect x="300" y="66" width="30" height="28" fill="var(--accent)"/>
+              <rect x="260" y="66" width="30" height="28" fill="var(--accent)"/>
+              <rect x="220" y="66" width="30" height="28" fill="var(--accent)"/>
+              <rect x="180" y="66" width="30" height="28" fill="var(--accent)"/>
+            </g>
+            <!-- WEST (left) — top to bottom -->
+            <g>
+              <rect x="102" y="100" width="28" height="30" fill="var(--accent)"/>
+              <rect x="102" y="140" width="28" height="30" fill="var(--accent)"/>
+              <rect x="102" y="180" width="28" height="30" fill="var(--accent)"/>
+              <rect x="102" y="220" width="28" height="30" fill="var(--accent)"/>
+              <rect x="102" y="260" width="28" height="30" fill="var(--accent)"/>
+            </g>
+
+            <!-- Side labels (outside) -->
+            <text x="310" y="400" text-anchor="middle" style="font: 700 15px var(--font-mono); fill: var(--accent); letter-spacing: 0.08em;">PAD_SOUTH</text>
+            <text x="310" y="50" text-anchor="middle" style="font: 700 15px var(--font-mono); fill: var(--accent); letter-spacing: 0.08em;">PAD_NORTH</text>
+            <text x="556" y="224" text-anchor="middle" transform="rotate(90 556 224)" style="font: 700 15px var(--font-mono); fill: var(--accent); letter-spacing: 0.08em;">PAD_EAST</text>
+            <text x="68" y="224" text-anchor="middle" transform="rotate(-90 68 224)" style="font: 700 15px var(--font-mono); fill: var(--accent); letter-spacing: 0.08em;">PAD_WEST</text>
+
+            <!-- DIE_AREA label with leader -->
+            <line x1="60" y1="60" x2="88" y2="60" stroke="var(--paper-ink)" stroke-width="1.2"/>
+            <text x="16" y="64" style="font: 700 16px var(--font-mono); fill: var(--paper-ink);">DIE_AREA</text>
+
+            <!-- CORE_AREA labels -->
+            <text x="310" y="216" text-anchor="middle" style="font: 700 18px var(--font-mono); fill: var(--pdk-m3);">CORE_AREA</text>
+            <text x="310" y="240" text-anchor="middle" style="font: italic 400 14px var(--font-serif); fill: var(--paper-muted);">standard cells only</text>
+
+            <!-- Origin marker (SW corner of DIE_AREA) -->
+            <circle cx="90" cy="380" r="5" fill="var(--paper-ink)"/>
+            <text x="38" y="400" style="font: 700 14px var(--font-mono); fill: var(--paper-ink);">(0, 0)</text>
+
+            <!-- Clockwise indicator arrow starting at SW -->
+            <path d="M 150 392 Q 170 404 200 392" fill="none" stroke="var(--paper-muted)" stroke-width="1.6" marker-end="url(#slot-arrow-muted)"/>
+            <text x="175" y="418" text-anchor="middle" style="font: italic 500 13px var(--font-serif); fill: var(--paper-muted);">pads numbered clockwise from SW</text>
+
+            <!-- Padring callout -->
+            <line x1="528" y1="78" x2="560" y2="60" stroke="var(--paper-ink)" stroke-width="1.2"/>
+            <text x="565" y="58" style="font: 700 14px var(--font-mono); fill: var(--paper-ink);">padring</text>
+            <text x="565" y="75" style="font: italic 400 12px var(--font-serif); fill: var(--paper-muted);">I/O zone</text>
+          </svg>
+          <div style="display:flex; gap: 18px; margin-top: 10px; flex-wrap: wrap; font: 400 16px/1.35 var(--font-sans);">
+            <div style="display:flex; align-items:center; gap: 8px;">
+              <span style="display:inline-block; width: 14px; height: 14px; border: 2px solid var(--paper-ink);"></span>
+              <span class="mono" style="color: var(--paper-ink);">DIE_AREA</span>
+              <span style="color: var(--paper-muted);">— outer, incl. sealring</span>
+            </div>
+            <div style="display:flex; align-items:center; gap: 8px;">
+              <span style="display:inline-block; width: 14px; height: 14px; border: 2px dashed var(--pdk-m3);"></span>
+              <span class="mono" style="color: var(--pdk-m3);">CORE_AREA</span>
+              <span style="color: var(--paper-muted);">— stdcells only</span>
+            </div>
+            <div style="display:flex; align-items:center; gap: 8px;">
+              <span style="display:inline-block; width: 14px; height: 14px; background: var(--accent);"></span>
+              <span class="mono" style="color: var(--accent);">PAD_*</span>
+              <span style="color: var(--paper-muted);">— I/O cells, clockwise</span>
+            </div>
+          </div>
+        </div>
+        <p style="font: italic 400 21px/1.4 var(--font-serif); color: var(--paper-muted); margin: 14px 0 0 0;">
+          Change the slot → change the die. Everything in <span class="mono" style="font-style:normal;">config.yaml</span> stays the same.
+        </p>
+      </div>
+
+      <!-- Right: YAML code + CHIPATON guidance -->
+      <div>
+        <div class="label" style="color: var(--accent); margin-bottom: 10px;"><span class="mono" style="font-size:15px;">slot_workshop.yaml</span> — the chipathon slot</div>
+        <div class="code-block sm" style="font-size: 18px; line-height: 1.5; margin: 0 0 14px 0;"><span class="c-key">FP_SIZING</span>:  <span class="c-str">absolute</span>
+<span class="c-key">DIE_AREA</span>:   [<span class="c-num">0</span>, <span class="c-num">0</span>, <span class="c-num">2935</span>, <span class="c-num">2935</span>]       <span class="c-com"># µm</span>
+<span class="c-key">CORE_AREA</span>:  [<span class="c-num">442</span>, <span class="c-num">442</span>, <span class="c-num">2493</span>, <span class="c-num">2493</span>]    <span class="c-com"># µm</span>
+<span class="c-key">VERILOG_DEFINES</span>: [<span class="c-str">"SLOT_WORKSHOP"</span>]
+
+<span class="c-key">PAD_SOUTH</span>: [clk_pad, rst_n_pad, <span class="c-str">"inputs\\[0\\].pad"</span>,
+             <span class="c-str">"analog\\[28\\].pad"</span>, …, <span class="c-str">"dvdd_pads\\[2\\].pad"</span>, …]
+<span class="c-key">PAD_EAST</span>:  [ … ]    <span class="c-com"># S → N, 22 pads</span>
+<span class="c-key">PAD_NORTH</span>: [ … ]    <span class="c-com"># E → W, 22 pads</span>
+<span class="c-key">PAD_WEST</span>:  [ … ]    <span class="c-com"># N → S, 22 pads</span></div>
+
+        <div class="card thick" style="padding: 14px 20px 14px 20px; border-left: 4px solid var(--accent); margin-bottom: 10px;">
+          <div class="label" style="color: var(--accent); margin: 0 0 6px 0;">CHIPATON 2026 · slot_workshop</div>
+          <p style="font: 400 17px/1.4 var(--font-serif); color: var(--paper-ink); margin: 0 0 8px 0;">
+            Pre-made in the chipathon template: <strong>2935×2935&thinsp;µm</strong>, mirror of <span class="mono">github.com/JuanMoya/padring_gf180</span>. 60 analog + 20 bidir + 4 dvdd + 4 dvss + clk + rst + 1 spare input. <strong>DRC-clean validated</strong>.
+          </p>
+          <p style="font: 400 15px/1.4 var(--font-serif); color: var(--paper-muted); margin: 0;">
+            Anatomy → <span class="mono" style="color: var(--paper-ink);">demo/rtl2gds_chipathon_padring.ipynb</span><br>
+            Use with your RTL → <span class="mono" style="color: var(--paper-ink);">demo/rtl2gds_chipathon_use.ipynb</span>
+          </p>
+        </div>
+        <div class="card" style="padding: 8px 10px; display:flex; gap: 14px; align-items: center;">
+          <img src="assets/workshop_padring.png" alt="workshop padring render" style="width: 140px; height: 140px; object-fit: contain; flex-shrink: 0;">
+          <div>
+            <div class="label" style="color: var(--paper-muted); margin-bottom: 4px;">Reference run · 2026-04-23</div>
+            <p style="font: 400 15px/1.35 var(--font-serif); color: var(--paper-ink); margin: 0;">
+              KLayout render of <span class="mono">chip_top.gds</span>: padring + fillers + trivial core. 0 DRC / 0 LVS / 0 timing vios across 3 corners.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <!-- PART 4 — Running the flow                                             -->
+  <!-- ==================================================================== -->
+
+  <!-- Section divider 4 -->
+  <section data-label="22 Part 4 · Divider" class="section-divider">
+    <div class="sec-num">Part 04 / 06</div>
+    <h1 class="sec-title">Running the flow</h1>
+    <div class="sec-rule"></div>
+    <p class="sec-sub">One command, five tools, eight to twelve minutes, one GDS.</p>
+    <div class="slide-footer"><span class="brand" style="color: var(--accent);">Mauricio Montanares · IHP</span><span>22 / 38</span></div>
+  </section>
+
+  <!-- Slide 22 — The one command -->
+  <section data-label="23 One command" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 4 · Running</span><span class="rule"></span><span>23 / 38</span></div>
+    <div class="driving-chip tool-openroad"><span class="dc-label">LibreLane driving</span><span class="dc-tool">Yosys → OpenROAD → M+K+N</span></div>
+    <h2 class="slide-title">The one command</h2>
+    <div class="title-rule"></div>
+
+    <div class="code-block" style="margin-top: 56px; font-size: 26px;"><span class="c-com"># from the host, one line:</span>
+docker <span class="c-key">exec</span> gf180 bash -lc \
+    <span class="c-str">'cd /foss/designs/my-chip &amp;&amp; make librelane'</span>
+
+<span class="c-com"># what the Makefile actually runs, unwrapped:</span>
+<span class="c-key">source</span> sak-pdk-script.sh gf180mcuD gf180mcu_fd_sc_mcu7t5v0 &amp;&amp; \
+librelane librelane/slots/slot_1x1.yaml librelane/config.yaml \
+    --pdk gf180mcuD --pdk-root <span class="c-str">$PDK_ROOT</span> --manual-pdk \
+    --run-tag <span class="c-str">$(date +%Y%m%d_%H%M%S)</span></div>
+
+    <div class="row-2" style="margin-top: 44px; gap: 64px; flex: 0;">
+      <div class="card" style="padding: 24px 32px;">
+        <div class="label" style="color: var(--accent);">--run-tag</div>
+        <p style="font: 400 22px/1.5 var(--font-serif); color: var(--paper-ink); margin: 8px 0 0 0;">
+          Timestamped directory under <span class="mono">runs/</span>. Never overwrites — compare any two side by side.
+        </p>
+      </div>
+      <div class="card" style="padding: 24px 32px;">
+        <div class="label" style="color: var(--accent);">Runtime</div>
+        <p style="font: 400 22px/1.5 var(--font-serif); color: var(--paper-ink); margin: 8px 0 0 0;">
+          ~8-12 min on a modern laptop (reference design, no SRAM). Routing dominates.
+        </p>
+      </div>
+    </div>
+
+    <p style="font: italic 400 19px/1.4 var(--font-serif); color: var(--paper-muted); margin: 22px 0 0 0;">
+      Same invocation, notebook form: <span class="mono" style="font-style:normal; color: var(--paper-ink);">demo/rtl2gds_chipathon_use.ipynb</span> — flip <span class="mono" style="font-style:normal;">RUN_FLOW = True</span> in Step 0 to execute.
+    </p>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 23 — runs/ directory -->
+  <section data-label="24 runs dir" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 4 · Running</span><span class="rule"></span><span>24 / 38</span></div>
+    <h2 class="slide-title">What a run leaves behind</h2>
+    <div class="title-rule"></div>
+
+    <div class="code-block sm" style="margin-top: 48px;">runs/<span class="c-num">20260422_143210</span>/
+├── <span class="c-key">config.json</span>         <span class="c-com"># merged, resolved config — reproducibility</span>
+├── <span class="c-key">resolved.json</span>       <span class="c-com"># after all macro / pad expansions</span>
+├── <span class="c-key">metrics.csv</span>         <span class="c-com"># ← the CI oracle (one row per metric)</span>
+├── <span class="c-key">final/</span>
+│   ├── gds/chip_top.gds
+│   ├── def/chip_top.def
+│   ├── lib/ sdf/ spef/ nl/ …
+│   └── metrics.csv        <span class="c-com"># same as above, copy for tarball</span>
+└── <span class="c-key">NN-step_name/</span>        <span class="c-com"># one dir per flow step, in order</span>
+    ├── <span class="c-num">01</span>-Verilator.Lint/
+    ├── <span class="c-num">02</span>-Yosys.JsonHeader/
+    ├── <span class="c-num">03</span>-Yosys.Synthesis/
+    ├── <span class="c-num">..</span>
+    ├── <span class="c-num">38</span>-OpenROAD.IRDropReport/
+    ├── <span class="c-num">42</span>-Magic.StreamOut/
+    ├── <span class="c-num">44</span>-KLayout.XOR/
+    └── <span class="c-num">46</span>-Netgen.LVS/</div>
+
+    <p style="font: 400 24px/1.5 var(--font-serif); color: var(--paper-muted); margin-top: 40px; max-width: 1500px;">
+      Every step has its own directory with tool logs (<span class="mono">openroad.log</span>, <span class="mono">yosys.log</span>), the input DEF, the output DEF, and a per-step <span class="mono">state_out.json</span>. If something fails, you know <strong>exactly</strong> where to look.
+    </p>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 24 — metrics.csv -->
+  <section data-label="25 metrics csv" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 4 · Running</span><span class="rule"></span><span>25 / 38</span></div>
+    <h2 class="slide-title"><span class="code">metrics.csv</span> — the single source of truth</h2>
+    <div class="title-rule"></div>
+
+    <p class="lead" style="margin-top: 24px; max-width: 1500px; font-size: 26px;">
+      One row per metric. Numbers, strings, and booleans — the final line is what a CI job greps.
+    </p>
+
+    <table class="data" style="margin-top: 20px; max-width: 1500px; font-size: 22px;">
+      <thead>
+        <tr><th style="width:560px; padding:10px 24px 8px;">key</th><th style="padding:10px 24px 8px;">value</th><th style="padding:10px 24px 8px;">meaning</th></tr>
+      </thead>
+      <tbody style="font-size:22px;">
+        <tr><td class="mono" style="padding:10px 24px; font-size:22px;">design__die__area</td><td class="mono" style="color: var(--pdk-m3); padding:10px 24px; font-size:22px;">2.01e7</td><td style="padding:10px 24px;">um²</td></tr>
+        <tr><td class="mono" style="padding:10px 24px; font-size:22px;">design__instance__count</td><td class="mono" style="color: var(--pdk-m3); padding:10px 24px; font-size:22px;">84 417</td><td style="padding:10px 24px;">std cells — reference run (chip_top on GF180)</td></tr>
+        <tr><td class="mono" style="padding:10px 24px; font-size:22px;">timing__setup__ws</td><td class="mono" style="color: var(--pdk-diff-n); padding:10px 24px; font-size:22px;">3.47</td><td style="padding:10px 24px;">worst setup slack (ns) — &gt;0 = pass</td></tr>
+        <tr><td class="mono" style="padding:10px 24px; font-size:22px;">timing__hold__ws</td><td class="mono" style="color: var(--pdk-diff-n); padding:10px 24px; font-size:22px;">0.12</td><td style="padding:10px 24px;">worst hold slack</td></tr>
+        <tr><td class="mono" style="padding:10px 24px; font-size:22px;">magic__drc_error__count</td><td class="mono" style="color: var(--pdk-diff-n); font-weight:700; padding:10px 24px; font-size:22px;">0</td><td style="padding:10px 24px;"><strong>must be 0</strong></td></tr>
+        <tr><td class="mono" style="padding:10px 24px; font-size:22px;">klayout__drc_error__count</td><td class="mono" style="color: var(--pdk-diff-n); font-weight:700; padding:10px 24px; font-size:22px;">0</td><td style="padding:10px 24px;"><strong>must be 0</strong></td></tr>
+        <tr><td class="mono" style="padding:10px 24px; font-size:22px;">design__lvs_error__count</td><td class="mono" style="color: var(--pdk-diff-n); font-weight:700; padding:10px 24px; font-size:22px;">0</td><td style="padding:10px 24px;"><strong>must be 0</strong></td></tr>
+        <tr><td class="mono" style="padding:10px 24px; font-size:22px;">antenna__violating__nets</td><td class="mono" style="color: var(--pdk-diff-n); font-weight:700; padding:10px 24px; font-size:22px;">0</td><td style="padding:10px 24px;"><strong>must be 0</strong></td></tr>
+      </tbody>
+    </table>
+
+    <div style="border-left: 4px solid var(--accent); padding: 10px 20px; margin-top: 18px; font: italic 500 22px/1.35 var(--font-serif); color: var(--paper-ink); max-width: 1500px;">
+      CI policy, one line: <span class="mono" style="font-style: normal; color: var(--accent); font-size: 20px;">awk -F, '$2&gt;0 && /error_count/ {exit 1}' metrics.csv</span>
+    </div>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <!-- PART 5 — Signoff & verification                                      -->
+  <!-- ==================================================================== -->
+
+  <!-- Section divider 5 -->
+  <section data-label="26 Part 5 · Divider" class="section-divider">
+    <div class="sec-num">Part 05 / 06</div>
+    <h1 class="sec-title">Signoff &amp; verification</h1>
+    <div class="sec-rule"></div>
+    <p class="sec-sub">Seven checks between "routed" and "taped out" — every one must read zero.</p>
+    <div class="slide-footer"><span class="brand" style="color: var(--accent);">Mauricio Montanares · IHP</span><span>26 / 38</span></div>
+  </section>
+
+  <!-- Slide 27 — Signoff overview -->
+  <section data-label="27 Signoff overview" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 5 · Signoff</span><span class="rule"></span><span>27 / 38</span></div>
+    <div class="driving-chip tool-verif"><span class="dc-label">LibreLane driving</span><span class="dc-tool">Magic + KLayout + Netgen + OpenSTA</span></div>
+    <h2 class="slide-title">Seven checks — and what each guards against</h2>
+    <div class="title-rule"></div>
+
+    <table class="data" style="margin-top: 36px; max-width: 1640px; font-size: 22px;">
+      <thead>
+        <tr><th style="width:180px;">Check</th><th style="width:300px;">Tool</th><th>Question it answers</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="mono tool-orange" style="font-weight:700;">DRC</td><td class="mono">Magic &amp; KLayout</td><td>Does every polygon obey the foundry's geometry rules?</td></tr>
+        <tr><td class="mono tool-orange" style="font-weight:700;">XOR</td><td class="mono">KLayout (Magic vs KLayout GDS)</td><td>Do the two GDS streams match exactly, shape for shape?</td></tr>
+        <tr><td class="mono tool-orange" style="font-weight:700;">LVS</td><td class="mono">Netgen</td><td>Does the layout's extracted netlist match the synthesized Verilog?</td></tr>
+        <tr><td class="mono tool-blue" style="font-weight:700;">RCX</td><td class="mono">OpenRCX (inside OpenROAD)</td><td>What are the real parasitics? Feeds STA and IR.</td></tr>
+        <tr><td class="mono tool-blue" style="font-weight:700;">STA</td><td class="mono">OpenSTA (inside OpenROAD)</td><td>Does the circuit meet timing across all 9 corners?</td></tr>
+        <tr><td class="mono tool-blue" style="font-weight:700;">IR</td><td class="mono">PDNSim (inside OpenROAD)</td><td>Does the power grid stay within spec under load?</td></tr>
+        <tr><td class="mono tool-blue" style="font-weight:700;">Antenna</td><td class="mono">OpenROAD.RepairAntennas</td><td>Will any long metal-only net damage a gate during etch?</td></tr>
+      </tbody>
+    </table>
+
+    <div style="border-left: 4px solid var(--accent); padding: 14px 22px; margin-top: 28px; font: italic 500 22px/1.45 var(--font-serif); color: var(--paper-ink); max-width: 1640px;">
+      Pass all seven with zero errors → the GDS is ready for the foundry. Three disclosed warnings (slew, cap) are acceptable if bounded.
+    </div>
+
+    <div style="margin-top: 18px; display:flex; gap: 20px; align-items: center; font: 500 16px/1 var(--font-sans); color: var(--paper-muted); letter-spacing: 0.04em; text-transform: uppercase;">
+      <span style="display:inline-flex; align-items:center; gap:8px;"><span style="width:12px;height:12px;background:#2d7a2a;border-radius:2px;"></span>Yosys</span>
+      <span style="display:inline-flex; align-items:center; gap:8px;"><span style="width:12px;height:12px;background:#1e6fb0;border-radius:2px;"></span>OpenROAD</span>
+      <span style="display:inline-flex; align-items:center; gap:8px;"><span style="width:12px;height:12px;background:#CF5044;border-radius:2px;"></span>Magic + KLayout + Netgen</span>
+    </div>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 29 — LVS -->
+  <section data-label="28 LVS" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 5 · Signoff</span><span class="rule"></span><span>28 / 38</span></div>
+    <div class="driving-chip tool-verif"><span class="dc-label">LibreLane driving</span><span class="dc-tool">Netgen</span></div>
+    <h2 class="slide-title">LVS — does the layout actually match the circuit?</h2>
+    <div class="title-rule"></div>
+
+    <div style="flex:1; display:flex; align-items:center; justify-content:center; padding: 40px 0;">
+      <svg viewBox="0 0 1500 420" width="100%" style="max-width: 1400px;" aria-label="LVS comparison diagram">
+        <defs>
+          <marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#1A1A1A"/>
+          </marker>
+        </defs>
+        <!-- Layout GDS -->
+        <rect x="40" y="40" width="320" height="130" rx="6" fill="#FFFFFF" stroke="#29ABCA" stroke-width="2.5"/>
+        <text x="200" y="92" text-anchor="middle" font-size="26" font-weight="700" fill="#29ABCA" font-family="Ubuntu">Layout (GDS)</text>
+        <text x="200" y="130" text-anchor="middle" font-size="18" font-family="Ubuntu Mono" fill="#6B6358">→ Magic extract → .spice</text>
+
+        <!-- Synthesized netlist -->
+        <rect x="40" y="240" width="320" height="130" rx="6" fill="#FFFFFF" stroke="#4FB04B" stroke-width="2.5"/>
+        <text x="200" y="292" text-anchor="middle" font-size="26" font-weight="700" fill="#2d7a2a" font-family="Ubuntu">Synth netlist (.nl.v)</text>
+        <text x="200" y="330" text-anchor="middle" font-size="18" font-family="Ubuntu Mono" fill="#6B6358">from Yosys</text>
+
+        <!-- Arrows to Netgen -->
+        <line x1="360" y1="105" x2="560" y2="180" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arr5)"/>
+        <line x1="360" y1="305" x2="560" y2="230" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arr5)"/>
+
+        <!-- Netgen box -->
+        <rect x="570" y="140" width="300" height="130" rx="6" fill="#FFFFFF" stroke="#FC6255" stroke-width="3"/>
+        <text x="720" y="190" text-anchor="middle" font-size="28" font-weight="700" fill="#CF5044" font-family="Ubuntu">Netgen</text>
+        <text x="720" y="225" text-anchor="middle" font-size="18" font-family="Ubuntu Mono" fill="#6B6358">graph-isomorphism</text>
+        <text x="720" y="250" text-anchor="middle" font-size="18" font-family="Ubuntu Mono" fill="#6B6358">comparison</text>
+
+        <!-- Arrow to verdict -->
+        <line x1="870" y1="205" x2="1040" y2="205" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arr5)"/>
+
+        <!-- Verdict -->
+        <rect x="1050" y="100" width="420" height="210" rx="6" fill="#FFFFFF" stroke="#FF862F" stroke-width="2.5"/>
+        <text x="1260" y="160" text-anchor="middle" font-size="24" font-weight="700" fill="#1A1A1A" font-family="Ubuntu">Are the two graphs</text>
+        <text x="1260" y="195" text-anchor="middle" font-size="24" font-weight="700" fill="#1A1A1A" font-family="Ubuntu">the same circuit?</text>
+        <text x="1260" y="245" text-anchor="middle" font-size="22" font-family="Ubuntu Mono" fill="#2d7a2a">yes → lvs_error_count=0</text>
+        <text x="1260" y="275" text-anchor="middle" font-size="22" font-family="Ubuntu Mono" fill="#CF5044">no  → list mismatches</text>
+      </svg>
+    </div>
+
+    <p style="font: 400 24px/1.5 var(--font-serif); color: var(--paper-muted); margin: 24px auto 0 auto; max-width: 1500px;">
+      A mismatched net means the routing really did connect the wrong pins — a bug the foundry cannot fix. This must be <strong style="color: var(--pdk-diff-n);">exactly zero</strong>.
+    </p>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 30 — STA corners -->
+  <section data-label="29 STA corners" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 5 · Signoff</span><span class="rule"></span><span>29 / 38</span></div>
+    <div class="driving-chip tool-openroad"><span class="dc-label">LibreLane driving</span><span class="dc-tool">OpenSTA (inside OpenROAD)</span></div>
+    <h2 class="slide-title">STA — nine corners, two slack numbers</h2>
+    <div class="title-rule"></div>
+
+    <p class="lead" style="margin-top: 28px; max-width: 1500px;">
+      Static Timing Analysis runs once per <strong>PVT corner</strong> — Process, Voltage, Temperature. LibreLane runs nine on GF180 (3 PVT × 3 parasitic extraction corners from OpenRCX). The five that break first:
+    </p>
+
+    <table class="data" style="margin-top: 18px; max-width: 1500px; font-size: 22px;">
+      <thead><tr><th style="width:340px;">Corner</th><th>Process</th><th>Voltage</th><th>Temperature</th><th>What breaks first</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">tt_025C_5v00</td><td>typical</td><td>5.00 V</td><td>25 °C</td><td>reference / sanity</td></tr>
+        <tr><td class="mono">ss_125C_4v50</td><td>slow-slow</td><td>4.50 V</td><td>125 °C</td><td><strong>setup</strong></td></tr>
+        <tr><td class="mono">ff_n40C_5v50</td><td>fast-fast</td><td>5.50 V</td><td>−40 °C</td><td><strong>hold</strong></td></tr>
+        <tr><td class="mono">ss_n40C_4v50</td><td>slow-slow</td><td>4.50 V</td><td>−40 °C</td><td>setup edge</td></tr>
+        <tr><td class="mono">ff_125C_5v50</td><td>fast-fast</td><td>5.50 V</td><td>125 °C</td><td>hold edge</td></tr>
+      </tbody>
+    </table>
+
+    <p style="margin-top: 10px; font: italic 400 18px/1.4 var(--font-serif); color: var(--paper-muted); max-width: 1500px;">
+      Plus 4 more from the cross-product with typ/min/max RC extraction. Zero violations required across all nine.
+    </p>
+
+    <div class="row-2" style="margin-top: 22px; gap: 56px; flex:0;">
+      <div class="card thick" style="padding: 18px 26px;">
+        <div class="label" style="color: rgb(0, 0, 0);">Setup (slow corner)</div>
+        <p style="font: 400 20px/1.45 var(--font-serif); color: var(--paper-ink); margin: 6px 0 0 0;">
+          Signal must arrive <em>before</em> the next clock edge. Negative slack here = clock too fast or path too long.
+        </p>
+      </div>
+      <div class="card thick" style="padding: 18px 26px;">
+        <div class="label" style="color: rgb(0, 0, 0);">Hold (fast corner)</div>
+        <p style="font: 400 20px/1.45 var(--font-serif); color: var(--paper-ink); margin: 6px 0 0 0;">
+          Signal must <em>stay stable</em> long enough after the clock edge. Negative hold slack = a race. LibreLane fixes these by auto-inserting buffers.
+        </p>
+      </div>
+    </div>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 31 — antenna -->
+  <section data-label="30 Antenna" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 5 · Signoff</span><span class="rule"></span><span>30 / 38</span></div>
+    <div class="driving-chip tool-openroad"><span class="dc-label">LibreLane driving</span><span class="dc-tool">OpenROAD.RepairAntennas</span></div>
+    <h2 class="slide-title">Antenna — the one nobody expects</h2>
+    <div class="title-rule"></div>
+
+    <div style="margin-top: 48px; display: grid; grid-template-columns: 1fr 1fr; gap: 72px; align-items: start;">
+      <div class="stack-md">
+        <p class="lead">
+          During back-end-of-line <strong>metal etch</strong>, the wafer sits in a plasma. Exposed metal segments collect ions and build up voltage <em>before</em> the upper layers that would drain them are laid down.
+        </p>
+        <p class="lead">
+          If a partially-built net ends only at a <strong>transistor gate</strong>, the thin gate oxide takes the stress — and breaks down.
+        </p>
+        <ul class="bullets tight">
+          <li>OpenROAD computes the <strong>antenna ratio</strong> — exposed metal area ÷ gate area — per net, per layer.</li>
+          <li>Fix = tap a <strong>protection diode</strong> to the net near the gate. Under stress it conducts and bleeds charge to the substrate.</li>
+          <li>LibreLane runs this automatically in <span class="mono">OpenROAD.RepairAntennas</span>.</li>
+        </ul>
+      </div>
+
+      <div class="stack-md">
+        <div class="card thick" style="padding: 32px 40px;">
+          <div class="label" style="color: var(--accent); margin-bottom: 14px;">The metric to watch</div>
+          <p style="font: 500 36px/1.25 var(--font-mono); color: var(--accent); margin: 0;">
+            antenna__violating__nets&nbsp;=&nbsp;0
+          </p>
+          <p style="font: italic 400 22px/1.4 var(--font-serif); color: var(--paper-muted); margin: 16px 0 0 0;">
+            After repair, every net that touched a gate oxide passes the PDK's area-ratio rule.
+          </p>
+        </div>
+        <div class="card" style="padding: 24px 32px;">
+          <div class="label" style="color: var(--paper-muted); margin-bottom: 10px;">Why this check exists</div>
+          <p style="font: 400 22px/1.45 var(--font-serif); color: var(--paper-ink); margin: 0;">
+            Etch happens <em>before</em> the via chain to upper metals closes. A too-long partial net is an antenna — diodes bleed charge to the substrate through a reverse-biased n+/p-sub junction.
+          </p>
+        </div>
+      </div>
+
+      <div style="display:none;">
+        <div class="label" style="color: var(--accent); margin-bottom: 10px;">Before repair → After repair</div>
+        <div class="card thick" style="padding: 18px 20px;">
+          <svg viewBox="0 0 620 500" style="width: 100%; height: auto; max-height: 500px; display:block; overflow: visible;" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <marker id="ant-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"/>
+              </marker>
+              <marker id="ant-arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--pdk-diff-n)"/>
+              </marker>
+              <pattern id="ant-sub" patternUnits="userSpaceOnUse" width="7" height="7">
+                <path d="M 0 7 L 7 0" stroke="var(--paper-muted)" stroke-width="0.7"/>
+              </pattern>
+              <pattern id="ant-nwell" patternUnits="userSpaceOnUse" width="5" height="5">
+                <path d="M 0 5 L 5 0" stroke="var(--pdk-diff-n)" stroke-width="0.6" opacity="0.6"/>
+              </pattern>
+              <!-- ion glyph: small + circle -->
+              <symbol id="ion" viewBox="0 0 14 14">
+                <circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--accent)" stroke-width="1.3"/>
+                <line x1="4" y1="7" x2="10" y2="7" stroke="var(--accent)" stroke-width="1.3"/>
+                <line x1="7" y1="4" x2="7" y2="10" stroke="var(--accent)" stroke-width="1.3"/>
+              </symbol>
+            </defs>
+
+            <!-- ======================================================= -->
+            <!-- BEFORE — rows: title / ions / metal / via / gate / body -->
+            <!-- ======================================================= -->
+            <text x="16" y="20" style="font: 700 15px var(--font-sans); fill: var(--paper-ink); letter-spacing: 0.06em;">BEFORE — metal-etch step, upper layers not yet built</text>
+
+            <!-- plasma region label (right side, clear of ions) -->
+            <text x="604" y="20" text-anchor="end" style="font: italic 500 12px var(--font-serif); fill: var(--paper-muted);">plasma ambient</text>
+
+            <!-- ions -->
+            <g>
+              <use href="#ion" x="48"  y="32" width="12" height="12"/>
+              <use href="#ion" x="108" y="30" width="12" height="12"/>
+              <use href="#ion" x="170" y="34" width="12" height="12"/>
+              <use href="#ion" x="232" y="30" width="12" height="12"/>
+              <use href="#ion" x="294" y="34" width="12" height="12"/>
+              <use href="#ion" x="356" y="30" width="12" height="12"/>
+              <use href="#ion" x="418" y="34" width="12" height="12"/>
+            </g>
+            <!-- ion flight-paths to metal -->
+            <g stroke="var(--accent)" stroke-width="1.2" fill="none" stroke-dasharray="2 3" marker-end="url(#ant-arrow)">
+              <line x1="54" y1="46" x2="54" y2="76"/>
+              <line x1="114" y1="44" x2="114" y2="76"/>
+              <line x1="176" y1="48" x2="176" y2="76"/>
+              <line x1="238" y1="44" x2="238" y2="76"/>
+              <line x1="300" y1="48" x2="300" y2="76"/>
+              <line x1="362" y1="44" x2="362" y2="76"/>
+              <line x1="424" y1="48" x2="424" y2="76"/>
+            </g>
+
+            <!-- long metal net (partial — no upper-layer drain) -->
+            <rect x="30" y="80" width="400" height="16" fill="var(--pdk-m3)"/>
+            <text x="30" y="74" style="font: 600 12px var(--font-mono); fill: var(--pdk-m3);">metal net (partial, no upper drain)</text>
+            <!-- ⊕ charges pooled on metal -->
+            <g fill="var(--accent)" style="font: 700 13px var(--font-mono);">
+              <text x="60"  y="92">+</text>
+              <text x="120" y="92">+</text>
+              <text x="180" y="92">+</text>
+              <text x="240" y="92">+</text>
+              <text x="300" y="92">+</text>
+              <text x="360" y="92">+</text>
+              <text x="400" y="92">+</text>
+            </g>
+
+            <!-- via down from end of net to poly -->
+            <rect x="418" y="96" width="14" height="38" fill="var(--pdk-m2)"/>
+            <text x="438" y="118" style="font: 500 11px var(--font-mono); fill: var(--pdk-m2);">via</text>
+
+            <!-- poly gate over channel -->
+            <rect x="398" y="134" width="54" height="10" fill="var(--pdk-m2)"/>
+            <text x="460" y="143" style="font: 700 13px var(--font-mono); fill: var(--pdk-m2);">poly gate</text>
+
+            <!-- thin gate-oxide band (shown thicker for visibility) -->
+            <rect x="398" y="144" width="54" height="3" fill="var(--accent)" opacity="0.85"/>
+            <text x="460" y="156" style="font: italic 500 11px var(--font-serif); fill: var(--accent);">gate oxide (stressed)</text>
+
+            <!-- transistor body (substrate slab under gate) -->
+            <rect x="380" y="148" width="90" height="34" fill="url(#ant-sub)" stroke="var(--paper-muted)" stroke-width="1"/>
+            <rect x="388" y="156" width="20" height="18" fill="var(--pdk-diff-n)" opacity="0.5"/>
+            <rect x="442" y="156" width="20" height="18" fill="var(--pdk-diff-n)" opacity="0.5"/>
+            <text x="425" y="170" text-anchor="middle" style="font: 500 11px var(--font-mono); fill: var(--paper-muted);">S        D</text>
+
+            <!-- damage burst -->
+            <g>
+              <path d="M 436 130 L 442 138 L 438 139 L 444 148 L 432 140 L 436 139 Z" fill="var(--accent)"/>
+              <text x="300" y="192" style="font: italic 700 13px var(--font-serif); fill: var(--accent);">⚡ oxide breakdown — device fails</text>
+            </g>
+
+            <!-- divider -->
+            <line x1="16" y1="220" x2="604" y2="220" stroke="var(--paper-border)" stroke-width="1" stroke-dasharray="5 5"/>
+
+            <!-- ======================================================= -->
+            <!-- AFTER                                                   -->
+            <!-- ======================================================= -->
+            <text x="16" y="248" style="font: 700 15px var(--font-sans); fill: var(--paper-ink); letter-spacing: 0.06em;">AFTER — protection diode tapped onto the net</text>
+
+            <!-- ions (same plasma step) -->
+            <g>
+              <use href="#ion" x="48"  y="262" width="12" height="12"/>
+              <use href="#ion" x="108" y="260" width="12" height="12"/>
+              <use href="#ion" x="170" y="264" width="12" height="12"/>
+              <use href="#ion" x="232" y="260" width="12" height="12"/>
+            </g>
+            <g stroke="var(--accent)" stroke-width="1.2" fill="none" stroke-dasharray="2 3" marker-end="url(#ant-arrow)">
+              <line x1="54" y1="276" x2="54" y2="306"/>
+              <line x1="114" y1="274" x2="114" y2="306"/>
+              <line x1="176" y1="278" x2="176" y2="306"/>
+              <line x1="238" y1="274" x2="238" y2="306"/>
+            </g>
+
+            <!-- same metal net -->
+            <rect x="30" y="310" width="400" height="16" fill="var(--pdk-m3)"/>
+            <text x="30" y="304" style="font: 600 12px var(--font-mono); fill: var(--pdk-m3);">same metal net</text>
+
+            <!-- Diode tap near start of net (via down to n+ in p-substrate = reverse diode to ground) -->
+            <rect x="174" y="326" width="14" height="30" fill="var(--pdk-m2)"/>
+            <text x="108" y="340" style="font: italic 500 11px var(--font-serif); fill: var(--paper-muted);">via</text>
+
+            <!-- n+ region in p-substrate forms the diode -->
+            <rect x="158" y="356" width="46" height="22" fill="var(--pdk-diff-n)" opacity="0.6" stroke="var(--pdk-diff-n)" stroke-width="1.2"/>
+            <text x="181" y="371" text-anchor="middle" style="font: 700 11px var(--font-mono); fill: var(--paper-ink);">n+</text>
+            <!-- diode schematic symbol beside it -->
+            <g transform="translate(220,340)">
+              <polygon points="0,4 16,12 0,20" fill="none" stroke="var(--pdk-diff-n)" stroke-width="1.6"/>
+              <line x1="16" y1="2" x2="16" y2="22" stroke="var(--pdk-diff-n)" stroke-width="1.6"/>
+              <text x="24" y="16" style="font: 600 11px var(--font-mono); fill: var(--pdk-diff-n);">protection diode</text>
+            </g>
+
+            <!-- charge-bleed arrow: metal → diode → substrate -->
+            <path d="M 181 356 L 181 390" fill="none" stroke="var(--pdk-diff-n)" stroke-width="2" marker-end="url(#ant-arrow-green)"/>
+            <text x="200" y="400" style="font: italic 600 12px var(--font-serif); fill: var(--pdk-diff-n);">charge shunted to substrate</text>
+
+            <!-- via down to poly gate (still at right end) -->
+            <rect x="418" y="326" width="14" height="38" fill="var(--pdk-m2)"/>
+            <rect x="398" y="364" width="54" height="10" fill="var(--pdk-m2)"/>
+            <text x="460" y="373" style="font: 700 13px var(--font-mono); fill: var(--pdk-m2);">poly gate</text>
+            <!-- intact oxide -->
+            <rect x="398" y="374" width="54" height="3" fill="var(--pdk-diff-n)" opacity="0.7"/>
+            <text x="460" y="386" style="font: italic 500 11px var(--font-serif); fill: var(--pdk-diff-n);">gate oxide — intact</text>
+
+            <!-- transistor body -->
+            <rect x="380" y="378" width="90" height="34" fill="url(#ant-sub)" stroke="var(--paper-muted)" stroke-width="1"/>
+            <rect x="388" y="386" width="20" height="18" fill="var(--pdk-diff-n)" opacity="0.5"/>
+            <rect x="442" y="386" width="20" height="18" fill="var(--pdk-diff-n)" opacity="0.5"/>
+            <text x="425" y="400" text-anchor="middle" style="font: 500 11px var(--font-mono); fill: var(--paper-muted);">S        D</text>
+
+            <!-- substrate ground band (spans both halves) -->
+            <rect x="16" y="430" width="588" height="28" fill="url(#ant-sub)" stroke="var(--paper-muted)" stroke-width="1"/>
+            <text x="310" y="448" text-anchor="middle" style="font: 700 13px var(--font-mono); fill: var(--paper-muted); letter-spacing: 0.08em;">p-SUBSTRATE  (ground)</text>
+
+            <!-- ratio check -->
+            <text x="16" y="484" style="font: italic 700 13px var(--font-serif); fill: var(--pdk-diff-n);">✓ antenna ratio ≤ PDK limit</text>
+          </svg>
+          <div style="display:flex; gap: 20px; margin-top: 12px; flex-wrap: wrap; font: 400 15px/1.35 var(--font-sans);">
+            <div style="display:flex; align-items:center; gap: 8px;">
+              <span style="display:inline-block; width: 14px; height: 14px; background: var(--pdk-m3);"></span>
+              <span class="mono" style="color: var(--pdk-m3);">metal</span>
+            </div>
+            <div style="display:flex; align-items:center; gap: 8px;">
+              <span style="display:inline-block; width: 14px; height: 14px; background: var(--pdk-m2);"></span>
+              <span class="mono" style="color: var(--pdk-m2);">via / poly gate</span>
+            </div>
+            <div style="display:flex; align-items:center; gap: 8px;">
+              <span style="display:inline-block; width: 14px; height: 14px; background: var(--pdk-diff-n); opacity: 0.6;"></span>
+              <span class="mono" style="color: var(--pdk-diff-n);">n+ diode / diffusion</span>
+            </div>
+            <div style="display:flex; align-items:center; gap: 8px;">
+              <span style="display:inline-block; width: 14px; height: 14px; background: url(#ant-sub); border: 1px solid var(--paper-muted);"></span>
+              <span class="mono" style="color: var(--paper-muted);">p-substrate</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <!-- PART 6 — From one chip to a shuttle                                  -->
+  <!-- ==================================================================== -->
+
+  <!-- Section divider 6 -->
+  <section data-label="31 Part 6 · Divider" class="section-divider">
+    <div class="sec-num">Part 06 / 06</div>
+    <h1 class="sec-title">The chip,<br>in numbers</h1>
+    <div class="sec-rule"></div>
+    <p class="sec-sub">What a clean signoff looks like — and the four traps that burn the first run.</p>
+    <div class="slide-footer"><span class="brand" style="color: var(--accent);">Mauricio Montanares · IHP</span><span>31 / 38</span></div>
+  </section>
+
+  <!-- Slide 33 — Headline numbers -->
+  <section data-label="32 Headline numbers" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 6 · The finished chip</span><span class="rule"></span><span>32 / 38</span></div>
+    <h2 class="slide-title">Headline numbers — the reference run</h2>
+    <div class="title-rule"></div>
+
+    <p class="lead" style="margin-top: 10px; max-width: 1500px;">
+      Everything below comes straight from <span class="mono">runs/&lt;tag&gt;/final/metrics.csv</span> after one clean LibreLane pass on the GF180 <span class="mono">chip_top</span> reference design.
+    </p>
+
+    <div style="display:grid; grid-template-columns: 1fr 1fr 1.1fr; gap: 16px; margin-top: 14px; align-items: start;">
+      <!-- Geometry -->
+      <div class="card thick" style="padding: 16px 20px;">
+        <div class="label" style="color: var(--accent); margin-bottom: 10px;">Geometry</div>
+        <table style="width: 100%; border-collapse: collapse; font: 400 19px/1.35 var(--font-sans);">
+          <tr><td style="padding: 3px 0; color: var(--paper-muted);">Die</td><td class="mono" style="text-align: right; font-weight:700;">3.93 × 5.12 mm</td></tr>
+          <tr><td style="padding: 3px 0; color: var(--paper-muted);">Core</td><td class="mono" style="text-align: right; font-weight:700;">3.05 × 4.24 mm</td></tr>
+          <tr><td style="padding: 3px 0; color: var(--paper-muted);">Core util.</td><td class="mono" style="text-align: right; font-weight:700;">10.45 %</td></tr>
+          <tr><td style="padding: 3px 0; color: var(--paper-muted);">Macros</td><td class="mono" style="text-align: right; font-weight:700;">4</td></tr>
+          <tr><td style="padding: 3px 0; color: var(--paper-muted);">Pads</td><td class="mono" style="text-align: right; font-weight:700;">58</td></tr>
+        </table>
+      </div>
+      <!-- Instances -->
+      <div class="card thick" style="padding: 16px 20px;">
+        <div class="label" style="color: var(--accent); margin-bottom: 10px;">Instances &amp; timing</div>
+        <table style="width: 100%; border-collapse: collapse; font: 400 19px/1.35 var(--font-sans);">
+          <tr><td style="padding: 3px 0; color: var(--paper-muted);">Std cells</td><td class="mono" style="text-align: right; font-weight:700;">84 417</td></tr>
+          <tr><td style="padding: 3px 0; color: var(--paper-muted);">Total</td><td class="mono" style="text-align: right; font-weight:700;">251 615</td></tr>
+          <tr><td style="padding: 3px 0; color: var(--paper-muted);">Wirelength</td><td class="mono" style="text-align: right; font-weight:700;">153.5 mm</td></tr>
+          <tr><td style="padding: 3px 0; color: var(--paper-muted);">Clock</td><td class="mono" style="text-align: right; font-weight:700;">40 ns / 25 MHz</td></tr>
+          <tr><td style="padding: 3px 0; color: var(--paper-muted);">Power (tt)</td><td class="mono" style="text-align: right; font-weight:700;">34.3 mW</td></tr>
+        </table>
+      </div>
+      <!-- Render -->
+      <div style="padding: 12px; background: var(--paper-bg); border: 1px solid var(--paper-border); display:flex; flex-direction: column; align-items: center; gap: 8px;">
+        <img src="assets/chip_top_render.png" alt="KLayout render of chip_top.gds"
+             style="display:block; width: 100%; max-height: 300px; object-fit: contain; background: #F7FAB8;"/>
+        <div class="label" style="text-align:center; color: var(--paper-muted); margin: 0;">chip_top.gds · KLayout</div>
+      </div>
+    </div>
+
+    <p style="font: italic 400 20px/1.4 var(--font-serif); color: var(--paper-muted); margin: 14px auto 0 auto; max-width: 1500px;">
+      One die, two SRAMs, 58 pads, four macros — all from <em>one</em> YAML pair and <em>one</em> <span class="mono" style="font-style:normal;">librelane</span> invocation.
+    </p>
+
+    <div style="margin: 14px auto 0 auto; max-width: 1560px; padding: 10px 18px; border: 1px solid var(--accent); border-left: 4px solid var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); display:flex; gap: 22px; align-items: center; flex-wrap: wrap; font: 400 17px/1.35 var(--font-sans);">
+      <span class="label" style="color: var(--accent); margin: 0;">Workshop slot · 2026-04-23</span>
+      <span class="mono">2935 × 2935 µm</span>
+      <span class="mono">84 922 inst</span>
+      <span class="mono">28 563 stdcells</span>
+      <span class="mono" style="color: var(--pdk-diff-n); font-weight:700;">0 DRC</span>
+      <span class="mono" style="color: var(--pdk-diff-n); font-weight:700;">0 LVS</span>
+      <span class="mono" style="color: var(--pdk-diff-n); font-weight:700;">0 setup/hold (3 corners)</span>
+      <span class="mono">2h 15m wall-time</span>
+    </div>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 34 — Signoff checklist -->
+  <section data-label="33 Signoff checklist" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 6 · The finished chip</span><span class="rule"></span><span>33 / 38</span></div>
+    <h2 class="slide-title">Signoff — every row must read zero</h2>
+    <div class="title-rule"></div>
+
+    <p class="lead" style="margin-top: 14px; max-width: 1700px;">
+      A chip is <strong>manufacturable</strong> when this table is all zeros. Two warnings are honest to disclose; they are not failures.
+    </p>
+
+    <table class="data compact" style="margin-top: 14px; max-width: 1700px; font-size: 20px; border-collapse: collapse;">
+      <thead><tr><th style="width:320px;">Check</th><th style="width:360px;">Tool</th><th style="width:180px;">Count</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Magic DRC</td><td class="mono">Magic</td><td class="mono" style="color: var(--pdk-diff-n); font-weight:700;">0</td><td>Geometry rules on the final GDS.</td></tr>
+        <tr><td>KLayout DRC</td><td class="mono">KLayout</td><td class="mono" style="color: var(--pdk-diff-n); font-weight:700;">0</td><td>Independent cross-check — two tools, same verdict.</td></tr>
+        <tr><td>KLayout XOR (Magic vs KLayout)</td><td class="mono">KLayout</td><td class="mono" style="color: var(--pdk-diff-n); font-weight:700;">0</td><td>Two GDS streams, pixel-exact match.</td></tr>
+        <tr><td>KLayout antenna / density</td><td class="mono">KLayout</td><td class="mono" style="color: var(--pdk-diff-n); font-weight:700;">0</td><td>Fill + charge rules.</td></tr>
+        <tr><td>Magic illegal overlap</td><td class="mono">Magic</td><td class="mono" style="color: var(--pdk-diff-n); font-weight:700;">0</td><td>No shape-on-shape conflicts.</td></tr>
+        <tr><td>Netgen LVS</td><td class="mono">Netgen</td><td class="mono" style="color: var(--pdk-diff-n); font-weight:700;">0</td><td>Layout graph ≡ schematic graph.</td></tr>
+        <tr><td>Setup / hold, all 9 STA corners</td><td class="mono">OpenSTA</td><td class="mono" style="color: var(--pdk-diff-n); font-weight:700;">0 / 0</td><td>Parasitics from OpenRCX, 3 extraction × 3 PVT.</td></tr>
+        <tr><td>Routing DRC</td><td class="mono">TritonRoute</td><td class="mono" style="color: var(--pdk-diff-n); font-weight:700;">0</td><td>Internal router rule check.</td></tr>
+        <tr><td>IR drop</td><td class="mono">PDNSim</td><td class="mono" style="color: var(--pdk-diff-n); font-weight:700;">0</td><td>Power grid within spec.</td></tr>
+        <tr style="background: color-mix(in srgb, var(--accent) 8%, transparent);"><td>Max slew warnings</td><td class="mono">OpenSTA · ss corner</td><td class="mono" style="color: var(--accent); font-weight:700;">3</td><td>Disclosed — non-critical nets.</td></tr>
+        <tr style="background: color-mix(in srgb, var(--accent) 8%, transparent);"><td>Max cap warnings</td><td class="mono">OpenSTA · all corners</td><td class="mono" style="color: var(--accent); font-weight:700;">100–103</td><td>Disclosed — bounded, tracked.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 35 — metrics.csv grep recipe -->
+  <section data-label="34 Metrics grep" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 6 · The finished chip</span><span class="rule"></span><span>34 / 38</span></div>
+    <h2 class="slide-title">Reading <span class="mono" style="color: var(--accent);">metrics.csv</span> in one grep</h2>
+    <div class="title-rule"></div>
+
+    <p class="lead" style="margin-top: 28px; max-width: 1500px;">
+      The whole signoff table is nine columns of one CSV. One regex pulls the rows you care about; CI diffs them on every push.
+    </p>
+
+    <div class="code-block sm" style="margin-top: 28px;"><span class="c-com"># One line that answers "is the chip still clean?"</span>
+grep -E <span class="c-str">'^(magic__drc|klayout__drc|lvs|timing__(setup|hold)_vio__count$|design__(violations|die__area|instance__count)|power__total)'</span> \
+     runs/latest/final/metrics.csv</div>
+
+    <div class="row-2" style="margin-top: 36px; gap: 56px;">
+      <div class="card thick" style="padding: 22px 28px;">
+        <div class="label" style="color: var(--accent); margin-bottom: 10px;">Expected output</div>
+<pre class="mono" style="font-size: 18px; line-height: 1.55; color: var(--paper-ink); margin: 0; white-space: pre;">magic__drc__violations,0
+klayout__drc__violations,0
+lvs__total_errors,0
+timing__setup_vio__count,0
+timing__hold_vio__count,0
+design__violations,0
+design__die__area,20.1192
+design__instance__count,251615
+power__total,0.0343</pre>
+      </div>
+
+      <div class="stack-md">
+        <div class="label">The regression pattern</div>
+        <p style="font: 400 24px/1.5 var(--font-serif); color: var(--paper-ink); margin: 0;">
+          Commit a trimmed <span class="mono">metrics.csv</span> as the regression baseline. On every push, CI runs the flow, greps the same lines, and <span class="mono">diff</span>s against the baseline. Any non-zero row fails the job.
+        </p>
+        <p style="font: italic 400 22px/1.45 var(--font-serif); color: var(--paper-muted); margin: 0;">
+          The CSV is the oracle. No dashboards. No queries. One <span class="mono" style="font-style:normal;">grep</span>, one <span class="mono" style="font-style:normal;">diff</span>, one verdict.
+        </p>
+      </div>
+    </div>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 36 — Four pitfalls -->
+  <section data-label="35 Four pitfalls" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 6 · The finished chip</span><span class="rule"></span><span>35 / 38</span></div>
+    <h2 class="slide-title">Four pitfalls — and the one-line fix for each</h2>
+    <div class="title-rule"></div>
+
+    <div style="margin-top: 36px; display: grid; grid-template-columns: 1fr 1fr; gap: 22px 40px; max-width: 1760px;">
+      <!-- 1 -->
+      <div class="card thick" style="padding: 20px 26px;">
+        <div style="display:flex; align-items:baseline; gap: 16px;">
+          <span style="font: 700 32px/1 var(--font-mono); color: var(--accent);">01</span>
+          <div class="label" style="color: var(--paper-muted);">Wrong PDK active</div>
+        </div>
+        <p style="font: 400 20px/1.45 var(--font-serif); color: var(--paper-ink); margin: 8px 0;">
+          Error mentions <span class="mono">sg13g2_stdcell</span> (IHP) while you are targeting GF180.
+        </p>
+        <div class="code-block sm" style="margin: 0; padding: 12px 14px; font-size: 16px;"><span class="c-com"># Fix:</span>
+source sak-pdk-script.sh gf180mcuD gf180mcu_fd_sc_mcu7t5v0</div>
+      </div>
+      <!-- 2 -->
+      <div class="card thick" style="padding: 20px 26px;">
+        <div style="display:flex; align-items:baseline; gap: 16px;">
+          <span style="font: 700 32px/1 var(--font-mono); color: var(--accent);">02</span>
+          <div class="label" style="color: var(--paper-muted);">Missing SRAM / I/O files</div>
+        </div>
+        <p style="font: 400 20px/1.45 var(--font-serif); color: var(--paper-ink); margin: 8px 0;">
+          Error cites an IHP path; the script pointed LibreLane at the wrong PDK root.
+        </p>
+        <div class="code-block sm" style="margin: 0; padding: 12px 14px; font-size: 16px;"><span class="c-com"># Fix — pass it explicitly:</span>
+PDK_ROOT=/foss/designs/template/gf180mcu make librelane</div>
+      </div>
+      <!-- 3 -->
+      <div class="card thick" style="padding: 20px 26px;">
+        <div style="display:flex; align-items:baseline; gap: 16px;">
+          <span style="font: 700 32px/1 var(--font-mono); color: var(--accent);">03</span>
+          <div class="label" style="color: var(--paper-muted);">Unknown I/O cell</div>
+        </div>
+        <p style="font: 400 20px/1.45 var(--font-serif); color: var(--paper-ink); margin: 8px 0;">
+          <span class="mono">gf180mcu_ws_io__…</span> unresolved — the wafer-space PDK fork is not installed.
+        </p>
+        <div class="code-block sm" style="margin: 0; padding: 12px 14px; font-size: 16px;"><span class="c-com"># Fix:</span>
+make clone-pdk   <span class="c-com"># clones the ws fork</span></div>
+      </div>
+      <!-- 4 -->
+      <div class="card thick" style="padding: 20px 26px;">
+        <div style="display:flex; align-items:baseline; gap: 16px;">
+          <span style="font: 700 32px/1 var(--font-mono); color: var(--accent);">04</span>
+          <div class="label" style="color: var(--paper-muted);">Flow is absurdly slow</div>
+        </div>
+        <p style="font: 400 20px/1.45 var(--font-serif); color: var(--paper-ink); margin: 8px 0;">
+          Magic DRC (~32 min) + KLayout antenna (~7 min) dominate runtime. For iteration only:
+        </p>
+        <div class="code-block sm" style="margin: 0; padding: 12px 14px; font-size: 16px;"><span class="c-com"># Fast inner loop — NEVER tape out without one full DRC run:</span>
+make librelane-nodrc</div>
+      </div>
+    </div>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 37 — What to try next + notebook -->
+  <section data-label="36 What to try next" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 6 · The finished chip</span><span class="rule"></span><span>36 / 38</span></div>
+    <h2 class="slide-title">What to try next</h2>
+    <div class="title-rule"></div>
+
+    <div class="row-2" style="margin-top: 48px; gap: 72px;">
+      <ol style="counter-reset: item; list-style: none; padding: 0; margin: 0; max-width: 820px;">
+        <li style="counter-increment: item; display:grid; grid-template-columns: 64px 1fr; gap: 20px; align-items:baseline; padding: 18px 0; border-bottom: 1px solid var(--paper-line);">
+          <span style="font: 700 32px/1 var(--font-mono); color: var(--accent);">01</span>
+          <span style="font: 400 24px/1.4 var(--font-serif); color: var(--paper-ink);">Swap <span class="mono">chip_core.sv</span> for your own logic. Same padring, same slot, new behaviour.</span>
+        </li>
+        <li style="counter-increment: item; display:grid; grid-template-columns: 64px 1fr; gap: 20px; align-items:baseline; padding: 18px 0; border-bottom: 1px solid var(--paper-line);">
+          <span style="font: 700 32px/1 var(--font-mono); color: var(--accent);">02</span>
+          <span style="font: 400 24px/1.4 var(--font-serif); color: var(--paper-ink);">Change <span class="mono">CLOCK_PERIOD</span> and watch slack move. 40 ns → 20 ns is a finger exercise.</span>
+        </li>
+        <li style="counter-increment: item; display:grid; grid-template-columns: 64px 1fr; gap: 20px; align-items:baseline; padding: 18px 0; border-bottom: 1px solid var(--paper-line);">
+          <span style="font: 700 32px/1 var(--font-mono); color: var(--accent);">03</span>
+          <span style="font: 400 24px/1.4 var(--font-serif); color: var(--paper-ink);">Swap the slot — <span class="mono">1x0p5</span>, <span class="mono">0p5x0p5</span>. Same design, three die sizes.</span>
+        </li>
+        <li style="counter-increment: item; display:grid; grid-template-columns: 64px 1fr; gap: 20px; align-items:baseline; padding: 18px 0;">
+          <span style="font: 700 32px/1 var(--font-mono); color: var(--accent);">04</span>
+          <span style="font: 400 24px/1.4 var(--font-serif); color: var(--paper-ink);">Submit to Tiny Tapeout or a wafer-space MPW. The template is already aligned to both.</span>
+        </li>
+      </ol>
+
+      <div class="stack-md" style="align-self: start;">
+        <div class="card thick" style="padding: 22px 28px;">
+          <div class="label" style="color: var(--accent); margin-bottom: 10px;">Companion notebooks · <span class="mono" style="color: var(--paper-ink); font-size: 15px;">./demo/</span></div>
+          <table style="width: 100%; border-collapse: collapse; font: 400 16px/1.35 var(--font-sans);">
+            <tr style="border-bottom: 1px solid var(--paper-line);">
+              <td class="mono" style="padding: 6px 8px 6px 0; color: var(--accent); font-weight: 700; white-space: nowrap;">00</td>
+              <td class="mono" style="padding: 6px 8px; color: var(--paper-ink); white-space: nowrap;">slots_explained</td>
+              <td style="padding: 6px 0; color: var(--paper-muted); font-size: 14px;">read-only intro · 10 min</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--paper-line);">
+              <td class="mono" style="padding: 6px 8px 6px 0; color: var(--accent); font-weight: 700;">01</td>
+              <td class="mono" style="padding: 6px 8px; color: var(--paper-ink);">counter</td>
+              <td style="padding: 6px 0; color: var(--paper-muted); font-size: 14px;">Classic · bare block · ~2 min</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--paper-line);">
+              <td class="mono" style="padding: 6px 8px 6px 0; color: var(--accent); font-weight: 700;">02</td>
+              <td class="mono" style="padding: 6px 8px; color: var(--paper-ink);">chip_top_custom</td>
+              <td style="padding: 6px 0; color: var(--paper-muted); font-size: 14px;">Chip flow · custom macro</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--paper-line);">
+              <td class="mono" style="padding: 6px 8px 6px 0; color: var(--accent); font-weight: 700;">03</td>
+              <td class="mono" style="padding: 6px 8px; color: var(--paper-ink);">chipathon_padring</td>
+              <td style="padding: 6px 0; color: var(--paper-muted); font-size: 14px;">create a new slot</td>
+            </tr>
+            <tr>
+              <td class="mono" style="padding: 6px 8px 6px 0; color: var(--accent); font-weight: 700;">04</td>
+              <td class="mono" style="padding: 6px 8px; color: var(--paper-ink);">chipathon_use</td>
+              <td style="padding: 6px 0; color: var(--paper-muted); font-size: 14px;">your RTL → workshop slot</td>
+            </tr>
+          </table>
+        </div>
+        <p style="font: italic 400 19px/1.45 var(--font-serif); color: var(--paper-muted); margin: 0;">
+          The rest is iteration — one design, one command, one <span class="mono" style="color: var(--accent); font-style:normal;">metrics.csv</span> at a time.
+        </p>
+      </div>
+    </div>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 38 — Further reading -->
+  <section data-label="37 Further reading" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 6 · The finished chip</span><span class="rule"></span><span>37 / 38</span></div>
+    <h2 class="slide-title">Further reading</h2>
+    <div class="title-rule"></div>
+
+    <table class="data" style="margin-top: 56px; max-width: 1500px; font-size: 22px;">
+      <thead><tr><th style="width:420px;">Resource</th><th>What's there</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">librelane.rtfd.io</td><td>Step reference, variable reference, flow internals.</td></tr>
+        <tr><td class="mono">github.com/librelane/librelane</td><td>Source, examples, issues.</td></tr>
+        <tr><td class="mono">github.com/wafer-space/gf180mcu</td><td>The patched PDK fork with the I/O cells LibreLane needs.</td></tr>
+        <tr><td class="mono">github.com/wafer-space/gf180mcu-project-template</td><td>The project skeleton this deck is built on.</td></tr>
+        <tr><td class="mono">github.com/JuanMoya/padring_gf180</td><td>The reference analog-heavy padring (stand-alone <span class="mono">padring</span> tool) our <span class="mono">slot_workshop</span> mirrors.</td></tr>
+        <tr><td class="mono">github.com/hpretl/iic-osic-tools</td><td>The all-in-one Docker image.</td></tr>
+        <tr><td class="mono">theopenroadproject.org</td><td>Place &amp; route, STA, reports — the tool doing most of the EDA work.</td></tr>
+        <tr><td class="mono">opencircuitdesign.com/magic</td><td>Magic VLSI docs — the interactive layout + DRC viewer.</td></tr>
+        <tr><td class="mono">./demo/ (5 notebooks)</td><td>Hands-on companions to this deck. Start with <span class="mono">demo/README.md</span> for the reading order.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
+
+  <!-- Slide 38 — End card -->
+  <section data-label="38 End" class="end-card">
+    <div class="end-inner">
+      <div class="sec-num" style="color: var(--accent);">End · 40 / 40</div>
+      <h1 class="sec-title" style="color: #FFFFFF;">Questions?</h1>
+      <div class="sec-rule" style="background: var(--accent);"></div>
+      <p class="sec-sub" style="color: rgba(255,255,255,0.75);"><br></p>
+      <div style="margin-top: 80px; display:flex; align-items:baseline; gap: 48px;">
+        <div>
+          <div class="label" style="color: rgba(255,255,255,0.55); margin-bottom: 6px;">Presenter</div>
+          <div style="font: 500 22px/1.2 var(--font-sans); color: #FFFFFF;">Mauricio Montanares</div>
+          <div style="font: 400 18px/1.3 var(--font-serif); color: rgba(255,255,255,0.6); margin-top: 4px;">Scientist, IHP</div>
+        </div>
+        <div>
+          <div class="label" style="color: rgba(255,255,255,0.55); margin-bottom: 6px;">Companion material</div>
+          <div style="font: 400 20px/1.3 var(--font-mono); color: rgba(255,255,255,0.85);">./demo/ &nbsp;·&nbsp; 5 notebooks</div>
+          <div style="font: italic 400 16px/1.3 var(--font-serif); color: rgba(255,255,255,0.55); margin-top: 4px;">read <span class="mono" style="font-style:normal;">demo/README.md</span> first</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+</deck-stage>
+
+<script>
+(async () => {
+  try { await customElements.whenDefined('deck-stage'); } catch (e) {}
+  try { await document.fonts.ready; } catch (e) {}
+  setTimeout(() => { try { window.print(); } catch (e) {} }, 500);
+})();
+</script>
+</body>
+</html>

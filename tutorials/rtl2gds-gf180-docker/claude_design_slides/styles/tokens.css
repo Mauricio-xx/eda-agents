@@ -1,0 +1,286 @@
+/* ==========================================================================
+   OpenSilicon Labs — Design System tokens
+   Motion-first technical education for open-source silicon.
+   Colors: PDK layer semantics + Manim didactic palette.
+   ========================================================================== */
+
+/* --- Fonts -------------------------------------------------------------- */
+@import url('https://fonts.googleapis.com/css2?family=Ubuntu:ital,wght@0,300;0,400;0,500;0,700;1,400;1,500&family=Ubuntu+Mono:ital,wght@0,400;0,700;1,400&family=Ubuntu+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+
+/* Fallback local declarations not used — all fonts loaded via Google Fonts.
+   If the user wants self-hosted files, copy into /fonts and re-wire here. */
+
+:root {
+  /* =====================================================================
+     Core canvas — Manim dark mode (the "stage")
+     ===================================================================== */
+  --stage-bg:        #0A0F14;   /* deepest — outside the frame */
+  --stage-surface:   #11171E;   /* scene surface — Manim uses #333333, we go darker for silicon vibe */
+  --stage-panel:     #171F28;   /* HUD panels, sidebars */
+  --stage-raised:    #1E2732;   /* raised card inside a HUD */
+  --stage-border:    #2A3440;   /* hairline dividers on dark */
+  --stage-grid:      #1A2430;   /* graph paper grid lines */
+  --stage-grid-2:    #243040;   /* major axis lines */
+
+  /* Paper mode — Distill.pub style technical diagrams */
+  --paper-bg:        #FAFAF7;   /* warm paper */
+  --paper-surface:   #FFFFFF;   /* pure white cards */
+  --paper-ink:       #1A1A1A;   /* body text */
+  --paper-border:    #E6E4DC;   /* hairline rules */
+  --paper-muted:     #6B6358;   /* captions */
+  --paper-grid:      #EAE7DC;
+
+  /* =====================================================================
+     Foreground / text on dark stage
+     ===================================================================== */
+  --fg-1:            #FFFFFF;   /* primary text, headlines */
+  --fg-2:            #DDDDDD;   /* secondary — matches Manim GREY_A */
+  --fg-3:            #BBBBBB;   /* tertiary — matches Manim GREY_B */
+  --fg-4:            #888888;   /* muted — matches Manim GREY_C */
+  --fg-5:            #444444;   /* disabled */
+
+  /* =====================================================================
+     PDK LAYER PALETTE — semantic silicon colors.
+     These ARE the brand. Never use raw hexes in prose; name them.
+     ===================================================================== */
+
+  /* Diffusion / Active — green (n-well, p-well, implant) */
+  --pdk-diff:        #83C167;   /* primary diffusion — Manim GREEN_C */
+  --pdk-diff-n:      #4FB04B;   /* n-diffusion, saturated */
+  --pdk-diff-p:      #CFE84F;   /* p-diffusion, yellow-green */
+  --pdk-diff-soft:   #C9E2AE;   /* tint for fills — GREEN_A */
+
+  /* Polysilicon — red (gate material) */
+  --pdk-poly:        #FC6255;   /* primary poly — Manim RED_C */
+  --pdk-poly-deep:   #CF5044;   /* RED_E — strokes */
+  --pdk-poly-soft:   #F7A1A3;   /* RED_A — fills */
+
+  /* Metal layers — cool blue → purple, ascending */
+  --pdk-m1:          #58C4DD;   /* Metal 1 — cyan — BLUE_C */
+  --pdk-m2:          #29ABCA;   /* Metal 2 — BLUE_D */
+  --pdk-m3:          #4A7BD9;   /* Metal 3 — electric blue */
+  --pdk-m4:          #6B5BD9;   /* Metal 4 — indigo */
+  --pdk-m5:          #9A72AC;   /* Metal 5 — PURPLE_C */
+  --pdk-m6:          #B189C6;   /* Metal 6 — PURPLE_B */
+
+  /* Vias / contacts — bright signal */
+  --pdk-via:         #FFE14B;   /* gold contact dot */
+  --pdk-contact:     #F4D345;   /* YELLOW_D */
+
+  /* Substrate / well outlines */
+  --pdk-substrate:   #736357;   /* GREY_BROWN */
+  --pdk-nwell:       #A6CF8C;   /* GREEN_B — tint */
+  --pdk-pwell:       #F9B775;   /* GOLD_B — tint */
+
+  /* =====================================================================
+     Didactic highlights — 3B1B / Manim emphasis colors
+     Used to draw the eye during a beat.
+     ===================================================================== */
+  --hi-yellow:       #FFE14B;   /* signal / currently-active / selected */
+  --hi-teal:         #5CD0B3;   /* secondary emphasis — TEAL_C */
+  --hi-orange:       #FF862F;   /* warnings, transition markers */
+  --hi-pink:         #D147BD;   /* rare accent — labels, section names */
+  --hi-white:        #FFFFFF;   /* stroke over dark */
+
+  /* =====================================================================
+     DRC / semantic status — Design Rule Check & telemetry
+     ===================================================================== */
+  --drc-error:       #FC6255;   /* rule violation */
+  --drc-warning:     #F0AC5F;   /* GOLD_C — warning */
+  --drc-clean:       #5CD0B3;   /* passed */
+  --drc-info:        #58C4DD;   /* informational */
+
+  /* DRC marker patterns live in --drc-stipple-* mixins below */
+
+  /* =====================================================================
+     Typography scale
+     ===================================================================== */
+  /* Ubuntu font family — sole typographic voice */
+  --font-serif:      "Ubuntu", "Helvetica Neue", sans-serif;        /* used where body/math/display serif would be — Ubuntu (humanist) replaces STIX */
+  --font-sans:       "Ubuntu Sans", "Ubuntu", "Helvetica Neue", sans-serif;
+  --font-mono:       "Ubuntu Mono", "SF Mono", "Consolas", monospace;
+
+  /* Display — headlines on dark stages, serif for math-adjacent feel */
+  --type-display-1: 600 72px/1.08 var(--font-serif);  /* hero */
+  --type-display-2: 600 56px/1.10 var(--font-serif);
+  --type-h1:        600 40px/1.15 var(--font-serif);
+  --type-h2:        600 30px/1.22 var(--font-serif);
+  --type-h3:        600 22px/1.30 var(--font-serif);
+
+  /* Body — serif for essay/educational prose (Distill style) */
+  --type-body-lg:   400 19px/1.55 var(--font-serif);
+  --type-body:      400 16px/1.60 var(--font-serif);
+  --type-body-sm:   400 14px/1.55 var(--font-serif);
+  --type-caption:   400 13px/1.45 var(--font-serif);
+
+  /* UI — sans-serif for chrome, HUD labels, nav */
+  --type-ui-lg:     500 16px/1.35 var(--font-sans);
+  --type-ui:        500 14px/1.35 var(--font-sans);
+  --type-ui-sm:     500 12px/1.30 var(--font-sans);
+  --type-ui-xs:     600 11px/1.25 var(--font-sans);  /* HUD tiny labels, uppercase */
+
+  /* Code — mono for Verilog, Tcl, telemetry, layer names */
+  --type-code-lg:   400 15px/1.55 var(--font-mono);
+  --type-code:      400 13px/1.50 var(--font-mono);
+  --type-code-sm:   400 12px/1.45 var(--font-mono);
+  --type-hud:       500 11px/1.25 var(--font-mono);  /* HUD telemetry readouts */
+
+  /* Math — italic serif, slightly larger */
+  --type-math:      italic 500 17px/1.50 var(--font-serif);
+
+  /* =====================================================================
+     Spacing — based on a 4px grid, echoing Manim's MED_SMALL_BUFF etc.
+     ===================================================================== */
+  --space-0:   0;
+  --space-1:   4px;    /* small_buff   */
+  --space-2:   8px;
+  --space-3:   12px;
+  --space-4:   16px;   /* med_small_buff */
+  --space-5:   24px;
+  --space-6:   32px;   /* med_large_buff */
+  --space-7:   48px;
+  --space-8:   64px;   /* large_buff */
+  --space-9:   96px;
+  --space-10:  128px;
+
+  /* =====================================================================
+     Radii — technical, crisp. Avoid pill shapes.
+     ===================================================================== */
+  --radius-0:  0;        /* schematic boxes, grid cells */
+  --radius-1:  2px;      /* HUD chips */
+  --radius-2:  4px;      /* buttons, inputs */
+  --radius-3:  6px;      /* cards */
+  --radius-4:  10px;     /* large panels */
+  --radius-round: 999px; /* reserve for node circles in graphs */
+
+  /* =====================================================================
+     Strokes — calibrated to Manim's DEFAULT_STROKE_WIDTH (4px at 1920)
+     ===================================================================== */
+  --stroke-hair:  0.5px;  /* grid lines */
+  --stroke-thin:  1px;    /* borders */
+  --stroke-reg:   1.5px;  /* schematic wires */
+  --stroke-bold:  2.5px;  /* emphasized path */
+  --stroke-heavy: 4px;    /* Manim default, highlighted path */
+
+  /* =====================================================================
+     Elevation — HUDs are flat by default; use only for floating menus.
+     Layered strokes > drop shadows. Glow is reserved for "active signal."
+     ===================================================================== */
+  --shadow-1: 0 1px 2px rgba(0,0,0,0.3), 0 0 0 1px var(--stage-border);
+  --shadow-2: 0 4px 12px rgba(0,0,0,0.4), 0 0 0 1px var(--stage-border);
+  --shadow-3: 0 12px 32px rgba(0,0,0,0.55), 0 0 0 1px var(--stage-border);
+  --shadow-paper: 0 1px 0 rgba(0,0,0,0.04), 0 2px 8px rgba(0,0,0,0.06);
+
+  /* Signal glow — use sparingly, reserved for "live" wires / selected nodes */
+  --glow-yellow: 0 0 12px rgba(255, 225, 75, 0.55), 0 0 2px rgba(255, 225, 75, 0.9);
+  --glow-cyan:   0 0 12px rgba(88, 196, 221, 0.55), 0 0 2px rgba(88, 196, 221, 0.9);
+  --glow-green:  0 0 12px rgba(131, 193, 103, 0.5);
+  --glow-poly:   0 0 12px rgba(252, 98, 85, 0.45);
+
+  /* =====================================================================
+     Motion — Manim easing curves (smooth_in_out, rush_from, rush_into)
+     Use these by name; never ease-in-out.
+     ===================================================================== */
+  --ease-manim-smooth:  cubic-bezier(0.65, 0, 0.35, 1);      /* smooth_in_out */
+  --ease-manim-rush-in: cubic-bezier(0.85, 0, 0.15, 1);      /* rush_into    */
+  --ease-manim-rush-from: cubic-bezier(0.33, 0.1, 0.68, 1);  /* rush_from    */
+  --ease-manim-overshoot: cubic-bezier(0.34, 1.4, 0.64, 1);  /* there_and_back for UI tap */
+
+  --dur-beat-1: 180ms;   /* micro — hover */
+  --dur-beat-2: 360ms;   /* UI transitions */
+  --dur-beat-3: 720ms;   /* scene change, Manim FadeIn */
+  --dur-beat-4: 1200ms;  /* cinematic zoom */
+}
+
+/* ==========================================================================
+   SEMANTIC TYPE — apply via utility class or element selector
+   ========================================================================== */
+
+.t-display-1 { font: var(--type-display-1); letter-spacing: -0.02em; }
+.t-display-2 { font: var(--type-display-2); letter-spacing: -0.02em; }
+.t-h1        { font: var(--type-h1);        letter-spacing: -0.015em; }
+.t-h2        { font: var(--type-h2);        letter-spacing: -0.01em; }
+.t-h3        { font: var(--type-h3);        letter-spacing: -0.005em; }
+
+.t-body-lg   { font: var(--type-body-lg); }
+.t-body      { font: var(--type-body); }
+.t-body-sm   { font: var(--type-body-sm); }
+.t-caption   { font: var(--type-caption); color: var(--paper-muted); }
+
+.t-ui-lg     { font: var(--type-ui-lg); }
+.t-ui        { font: var(--type-ui); }
+.t-ui-sm     { font: var(--type-ui-sm); }
+.t-ui-xs     { font: var(--type-ui-xs); letter-spacing: 0.08em; text-transform: uppercase; }
+
+.t-code-lg   { font: var(--type-code-lg); }
+.t-code      { font: var(--type-code); }
+.t-code-sm   { font: var(--type-code-sm); }
+.t-hud       { font: var(--type-hud); letter-spacing: 0.05em; text-transform: uppercase; }
+
+.t-math      { font: var(--type-math); }
+
+/* ==========================================================================
+   STAGE SURFACES — global background treatments
+   ========================================================================== */
+
+.stage-dark {
+  background: var(--stage-surface);
+  color: var(--fg-1);
+}
+
+.stage-paper {
+  background: var(--paper-bg);
+  color: var(--paper-ink);
+}
+
+.stage-grid {
+  background-color: var(--stage-surface);
+  background-image:
+    linear-gradient(var(--stage-grid) 0.5px, transparent 0.5px),
+    linear-gradient(90deg, var(--stage-grid) 0.5px, transparent 0.5px);
+  background-size: 32px 32px;
+}
+
+.stage-grid-paper {
+  background-color: var(--paper-bg);
+  background-image:
+    linear-gradient(var(--paper-grid) 0.5px, transparent 0.5px),
+    linear-gradient(90deg, var(--paper-grid) 0.5px, transparent 0.5px);
+  background-size: 24px 24px;
+}
+
+/* ==========================================================================
+   DRC STIPPLE PATTERNS — error marking, Design Rule Check
+   Use as background-image on violating region.
+   ========================================================================== */
+
+.drc-stipple-error {
+  background-image:
+    repeating-linear-gradient(
+      45deg,
+      rgba(252, 98, 85, 0.7) 0 2px,
+      transparent 2px 6px
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      rgba(252, 98, 85, 0.7) 0 2px,
+      transparent 2px 6px
+    );
+  outline: 1.5px solid var(--drc-error);
+}
+
+.drc-stipple-warn {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(240, 172, 95, 0.55) 0 2px,
+    transparent 2px 6px
+  );
+  outline: 1px dashed var(--drc-warning);
+}
+
+.drc-crosshatch {
+  background-image:
+    repeating-linear-gradient(45deg, #fff 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(-45deg, #000 0 1px, transparent 1px 5px);
+  background-color: rgba(255,255,255,0.05);
+}

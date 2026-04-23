@@ -125,15 +125,14 @@ grep -E '^(magic__drc|klayout__drc|lvs|timing__(setup|hold)_vio__count$|design__
   Image \url{https://github.com/iic-jku/IIC-OSIC-TOOLS} $\cdot$
   Template \url{https://github.com/wafer-space/gf180mcu-project-template} $\cdot$
   Wafer-space PDK fork \url{https://github.com/wafer-space/gf180mcu} $\cdot$
-  Audit in \cmd{eda-agents/docs/iic\_osic\_tools\_audit.md}.
+  GF180 PDK \url{https://github.com/google/gf180mcu-pdk}.
   \note{%
     Call-to-action slide. The cheapest way to learn is to take the
     template, replace \cmd{chip\_core.sv} with ``hello world'' logic
-    (blinky, counter, UART echo), and re-run. 45 minutes later you have a
-    real GDS.\par
+    (blinky, counter, UART echo), and re-run. 45 minutes later you have
+    a real GDS.\par
     For presenter: point people to the companion Jupyter notebook
     (\cmd{demo/rtl2gds\_counter.ipynb}) which walks through a minimal
-    counter in 8 cells -- faster iteration target than the full chip
-    template. Mention the sister deck on using AI agents to drive the
-    flow (\cmd{tutorials/agents-analog-digital/}).}
+    counter in 7 steps -- a faster iteration target than the full-chip
+    template. It is fully self-contained; drop it anywhere and run.}
 \end{frame}

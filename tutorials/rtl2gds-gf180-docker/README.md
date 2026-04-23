@@ -13,10 +13,8 @@ an expert designer can import `slides + notes` into a polished deck with
 animations later. See the `notes` Make target for the speaker build.
 
 A companion Jupyter notebook ships a hands-on, tiny counter through the
-same flow in 8 cells: `demo/rtl2gds_counter.ipynb`.
-
-A sibling deck introduces the eda-agents AI-driven workflow for analog
-and digital blocks: `../agents-analog-digital/`.
+same flow: `demo/rtl2gds_counter.ipynb`. The notebook is fully
+self-contained -- drop it into any folder and run it.
 
 ## Building the PDF
 
@@ -97,17 +95,10 @@ README.md
 
 ## Source of authority
 
-All commands, metrics, and error messages in these slides are quoted from:
+All commands, metrics, and error messages in these slides are quoted
+from a full reference run of `hpretl/iic-osic-tools:next` against the
+wafer-space GF180 project template on 2026-04-13, cross-checked against
+the upstream [LibreLane documentation](https://librelane.readthedocs.io/en/stable/).
 
-- `docs/iic_osic_tools_audit.md` (in the `eda-agents` repo) -- audit report
-  of `hpretl/iic-osic-tools:next` that produced the reference run on
-  2026-04-13.
-- `final/metrics.csv` from that reference run.
-
-Do not invent new numbers without re-running the flow.
-
-## Related decks
-
-- `../agents-analog-digital/` -- short Beamer deck introducing the
-  eda-agents stack: analog sizing, digital RTL-to-GDS agent hierarchy,
-  autoresearch loop, MCP tooling.
+The reference metrics live in `final/metrics.csv` of that run. Do not
+invent new numbers without re-running the flow.
