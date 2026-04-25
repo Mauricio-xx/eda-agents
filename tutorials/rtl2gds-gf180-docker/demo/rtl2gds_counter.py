@@ -86,9 +86,15 @@ meta:
   substituting_steps:
     Magic.StreamOut: null
     KLayout.XOR: null
+    KLayout.DRC: null            # gf180mcuD ships no KLAYOUT_DRC_RUNSET; the step crashes
+                                 # with "Unable to open file: .../None" if librelane is
+                                 # ever invoked without --manual-pdk (e.g. when an agent
+                                 # reuses this config). Magic DRC at 0 is the authoritative
+                                 # DRC for this PDK.
 
 RUN_MAGIC_STREAMOUT: false
 RUN_KLAYOUT_XOR: false
+RUN_KLAYOUT_DRC: false
 
 DESIGN_NAME: counter
 VERILOG_FILES:

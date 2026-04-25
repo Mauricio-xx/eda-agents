@@ -8,15 +8,22 @@
 # Magic's streamout output is not needed for signoff. Skipping
 # Magic.StreamOut also means KLayout.XOR (which diffs the two
 # streamouts) has nothing to compare against; disable it accordingly.
+#
+# KLayout.DRC is gated off because gf180mcuD ships no KLAYOUT_DRC_RUNSET;
+# the step crashes with ``Unable to open file: .../None`` whenever
+# librelane is invoked without --manual-pdk (the typical agent path).
+# Magic DRC at 0 is the authoritative DRC for this PDK.
 meta:
   version: 3
   flow: Classic
   substituting_steps:
     Magic.StreamOut: null
     KLayout.XOR: null
+    KLayout.DRC: null
 
 RUN_MAGIC_STREAMOUT: false
 RUN_KLAYOUT_XOR: false
+RUN_KLAYOUT_DRC: false
 
 DESIGN_NAME: counter_4bit
 VERILOG_FILES:
