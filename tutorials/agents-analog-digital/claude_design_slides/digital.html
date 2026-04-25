@@ -1,0 +1,1660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>The Digital Loop — eda-agents (RTL-to-GDS agents)</title>
+<link rel="stylesheet" href="styles/tokens.css">
+<link rel="stylesheet" href="styles/deck.css">
+<script src="deck-stage.js" defer></script>
+<script type="application/json" id="speaker-notes">
+[
+  "Title slide. 'This is the deep dive on the digital loop — RTL-to-GDS through a hierarchy of five agents, one LibreLane flow, three CLI runtimes. Companion to analog.html.'",
+  "Audience calibration. For someone who has seen the overview deck and wants to drive a real digital block. Eight parts, ~50 minutes. Dense material in the speaker notes.",
+  "Read the agenda. The middle is load-bearing: the four-specialist hierarchy, the three CLI runtimes, and where OpenCode plugs in.",
+  "Section divider — Part 1. 'What problem are the digital agents actually solving? Let's set the scope before naming any class.'",
+  "RTL-to-GDS is the problem. Verilog in, manufacturable GDSII out. Seven phases: synthesis, floorplan, PDN, placement, CTS, routing, signoff. 79 steps under the hood. LibreLane is the orchestrator; the agents are the layer on top that decides when to re-run what with what knobs.",
+  "LibreLane is orchestration, not an EDA tool. Yosys synthesises, OpenROAD places and routes, Magic writes GDS, KLayout cross-checks, Netgen does LVS. LibreLane decides which one runs when. The agents we describe today drive LibreLane — they never invoke the underlying tools directly.",
+  "Cost asymmetry — digital side. One LibreLane run on a small design: minutes to tens of minutes. LLM cost per proposal: cents to a dollar depending on model. Budget per exploration: a handful of evaluations, not hundreds. This is why DigitalAutoresearchRunner defaults to budget=5, and why search is discrete over pre-selected knob points, not continuous.",
+  "Section divider — Part 2. 'Three user-facing agents you invoke from a CLI. Two of them drive Docker.'",
+  "The digital agent roster. digital-testbench-author generates cocotb testbenches that run across RTL sim, post-synth gate-level sim, and post-PnR gate-level + SDF sim — one testbench, three simulation modes. gf180-docker-digital drives the full RTL-to-GDS flow on GF180MCU inside the hpretl container. librelane-expert is the config.yaml authoring specialist — it does not run the flow, it helps you write it. All three ship in both .claude/agents/ and .opencode/agent/.",
+  "digital-testbench-author — capability. Takes an RTL module + a brief. Emits a cocotb testbench that follows three discipline rules: ReadOnly access to DUT signals (no mutations from the monitor), assert-only failure signalling (no 'print and continue'), post-reset settling cycle before checks begin. The resulting testbench runs unchanged across iverilog (RTL), yosys+sta (gate-level), and gls-with-sdf (post-PnR timing sim). This is the single biggest lever for digital verification productivity.",
+  "gf180-docker-digital — the end-to-end driver. Owns the LibreLane flow inside the hpretl/iic-osic-tools container. Via docker exec: runs librelane config.yaml, greps metrics.csv, reads flow logs, re-runs with modified config on failure. The user approves each docker-exec call from the host; the agent never gets blanket container access.",
+  "Section divider — Part 3. 'Under the CLI agents sits the ADK hierarchy. Five Python classes, one master, four specialists, curated tool allowlists.'",
+  "ProjectManager — the master LlmAgent. Built on Google ADK. Reads the design brief, plans the flow phases, delegates to the four specialists in sequence: verification first (gate synthesis), then synthesis (gate PnR), then physical design (gate signoff), then signoff (gate acceptance). Each delegation is an ADK sub-agent call with a bounded tool set. Source: src/eda_agents/agents/digital_adk_agents.py line 473 for the master, 248/273/302/336 for the four sub-agents.",
+  "verification_engineer. Runs RTL lint (verilator/yosys) and cocotb simulation. Gates synthesis — if lint or sim fails, the master does not call the next specialist. VERIF_TOOLS = {run_rtl_lint, run_rtl_sim}. That is the entire surface the verification engineer can touch.",
+  "synthesis_engineer. Runs Yosys via LibreLane partial flow (stopping at SYNTH). Reads timing reports, proposes config changes, re-runs. SYNTH_TOOLS = {run_librelane_flow, read_timing_report, check_flow_status, modify_flow_config}. No physical-design tools — synthesis cannot accidentally invoke OpenROAD.",
+  "physical_designer. Owns floorplan, PDN, placement, CTS, routing — everything between synthesis and signoff. Can invoke run_physical_slice to re-run a specific phase without re-synthesising. PHYSICAL_TOOLS = {run_librelane_flow, run_physical_slice, modify_flow_config, read_timing_report, check_flow_status}.",
+  "signoff_checker. DRC, LVS, STA, precheck. Can re-run the whole flow if signoff fails and the root cause is upstream. SIGNOFF_TOOLS = {run_klayout_drc, read_drc_summary, run_klayout_lvs, modify_flow_config, rerun_flow, check_flow_status, run_precheck}. This is the last gate — if it passes, the run is accepted.",
+  "Section divider — Part 4. 'DigitalAutoresearchRunner. Greedy search over LibreLane knobs. Where all four backends — including OpenCode — plug in.'",
+  "DigitalAutoresearchRunner. Same greedy-loop shape as the analog runner, but the design space is discrete: density ∈ {60, 65, 70}, clock period ∈ {50, 40, 30} ns, PDN pitch ∈ {4, 6, 8}. Budget defaults to 5 — each evaluation is a full LibreLane run. Scores by a user-weighted FoM over timing (WNS), area, power. Unlike analog, the budget knob is about wall time, not search breadth.",
+  "The four backends. DigitalAutoresearchRunner accepts backend='adk' | 'cc_cli' | 'litellm' | 'opencode'. ADK runs the 5-agent tree. cc_cli hands the prompt to claude --print. litellm is a plain-API path with no agent hierarchy. opencode hands the prompt to 'opencode run --format json' — multi-provider via -m, so you can use Gemini Flash, Z.AI GLM-5.1, local Ollama, or any provider opencode supports.",
+  "OpenCodeHarness. 263 lines at src/eda_agents/agents/opencode_harness.py. Async subprocess wrapper around 'opencode run --format json --dir work_dir [-m model] prompt'. Returns the shared HarnessResult (same dataclass as ClaudeCodeHarness). ndjson event stream parsed inline, cost + tokens extracted. npm install -g opencode-ai installs the CLI; eda-init bootstraps opencode.json.",
+  "Caveat on ProjectManager. ProjectManager itself currently accepts backend='adk' or 'cc_cli' — it raises on 'opencode' (line 403-404 of digital_adk_agents.py). This is a deliberate phasing: the OpenCode integration landed first in DigitalAutoresearchRunner (where each eval is a single shot) and in the curated .opencode/agent/*.md roster (where the user orchestrates the flow interactively). Wiring OpenCode into the ProjectManager multi-agent tree is planned — for now, the OpenCode path for an end-to-end RTL-to-GDS is 'opencode --agent gf180-docker-digital' in the TUI, not ProjectManager.run().",
+  "Section divider — Part 5. 'GenericDesign. Zero-Python-class path. Wrap any LibreLane config in two lines.'",
+  "GenericDesign — the config-only path. Wraps a LibreLane YAML config as a 13-method DigitalDesign instance. No per-project Python class needed. Derives project_name, specs_description, fom_description, validate_clone, and everything the agents read from the config + PDK root. Source: src/eda_agents/core/designs/generic.py.",
+  "Using GenericDesign. Three lines to instantiate, plus an optional FoM-weight override. This is the 80% path — register a config, hand it to ProjectManager (or DigitalAutoresearchRunner), done. Use an explicit subclass only when the design needs bespoke pre/post-flow hooks (macros, nix-shell, non-standard RTL fetch).",
+  "The 20% path — explicit DigitalDesign subclass. See src/eda_agents/core/designs/fazyrv_hachure.py (GF180 RISC-V SoC) and systolic_mac_dft.py (CI fixture). Subclassing gives you full control of the lifecycle — design fetch, pre-flow RTL preparation, post-flow metric extraction — at the cost of writing ~150 lines of Python.",
+  "Section divider — Part 6. 'Three CLI runtimes. Pick by subscription, mode, and budget.'",
+  "Claude Code — claude. Anthropic subscription only. Interactive via /agents slash command; headless via claude --print --output-format json. The cc_cli backend in Python wraps the headless mode. ~/.config/claude-code/mcp.json registers the eda-agents MCP server.",
+  "OpenCode — opencode. Multi-provider: Anthropic, OpenAI, Gemini (direct or via OpenRouter), Ollama for local, Z.AI coding plan, Cursor + Windsurf subscription bridges. Interactive via 'opencode --agent gf180-docker-digital'; headless via 'opencode run --format json'. opencode.json at the repo root registers the MCP server. eda-init bootstraps it.",
+  "ADK / Python — DigitalAutoresearchRunner or ProjectManager directly. No CLI, no TUI. Deterministic model pinning via a LiteLLM string. This is the path examples/09_rtl2gds_digital.py takes by default, and the path CI takes in the digital-tb-validation workflow.",
+  "Comparison table. Three runtimes: claude, opencode, ADK/Python. Rows: subscription, interactive mode, headless mode, wrapped-in-Python entry point, typical use. This is the one slide to screenshot if a colleague asks 'which one should I use?'",
+  "Section divider — Part 7. 'Skills + MCP. How any backend talks to the same stack.'",
+  "digital.* namespace. Eight skills: project_manager, verification, synthesis, physical, signoff (one per agent role), plus cocotb_testbench (testbench authoring discipline), critique_sim_failure (read a failing sim log, propose a fix), critique_synth_lint (read a lint report, propose RTL changes).",
+  "flow.* namespace. Six skills spanning analog + digital: drc_checker, drc_fixer, lvs_checker, runner (the generic LibreLane driver), rtl2gds_gf180_docker (the full GF180 RTL-to-GDS recipe), analog_signoff_gf180_docker (the analog counterpart). These are the bridges between domains — a DRC skill does not care whether the block that failed is analog or digital.",
+  "MCP registration — same story as the analog deck. Claude Code reads ~/.config/claude-code/mcp.json; OpenCode reads opencode.json at the repo root. eda-init bootstraps both. One eda-mcp stdio server; all skills, tools, designs accessible.",
+  "Section divider — Part 8. 'Demos. Two notebooks, one per abstraction level.'",
+  "Demo 1 — agents_rtl2gds_counter.ipynb. Wraps a 4-bit counter config.yaml with GenericDesign, hands it to ProjectManager, runs dry-run by default. Shows the master + 4 specialists hierarchy without spending tokens. Flip RUN_REAL=True and the LibreLane flow runs end-to-end via docker + LLM backend. ~10-15 min.",
+  "Demo 2 — agents_digital_autoresearch.ipynb. DigitalAutoresearchRunner on the same counter. Knob sweep over density + clock period. Shows backend='opencode' with a multi-provider model selection (Gemini Flash by default, easily swapped to Z.AI GLM-5.1 or Ollama local). Demonstrates resumable runs across backend switches.",
+  "Running the demos — prerequisites summary. Docker Engine for the flow container, ~15 GB disk for hpretl/iic-osic-tools. For cc_cli: Anthropic subscription + claude CLI. For opencode: opencode CLI installed, any provider key matching -m. For ADK: any LiteLLM-compatible provider key. All three paths coexist in the same repo; flip a string.",
+  "The safety story. Both notebooks default all RUN_* flags to False. Opening them runs no Docker, no LLM, no cost. A deliberate flip per step makes the tutorial teachable without surprise bills.",
+  "Starter commands cheat sheet. Screenshot this slide. Four invocations cover every CLI-to-flow path: Claude Code interactive via /agents, OpenCode interactive with a provider model, OpenCode headless for CI, and direct Python through examples/10_digital_autoresearch.py. The last one is the only path that gives you resumable greedy knob search today — start there if you are not sure which to pick.",
+  "Closing. The digital loop is infrastructure. LibreLane is the flow engine. ProjectManager is the hierarchy. DigitalAutoresearchRunner is the explorer. GenericDesign is the zero-Python-class entry. Three CLI runtimes — Claude Code, OpenCode, direct Python — cover every subscription. Read the code; invite questions on adding a new backend or a new specialist."
+]
+</script>
+<style>
+  .agent-card {
+    background: var(--paper-surface); border: 1px solid var(--paper-border);
+    border-radius: var(--radius-3); padding: 24px 28px;
+    border-left: 4px solid var(--pdk-m3);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .agent-card .ac-name { font: 500 26px/1.1 var(--font-mono); color: var(--paper-ink); }
+  .agent-card .ac-desc { font: 400 22px/1.4 var(--font-serif); color: var(--paper-muted); }
+  .agent-card .ac-chip {
+    font: 500 14px/1 var(--font-mono); letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--pdk-m3);
+  }
+
+  .pdk-row { display: flex; align-items: center; gap: 12px; margin: 6px 0; }
+  .pdk-row img { width: 26px; height: 26px; }
+  .pdk-row span {
+    font: 500 16px/1 var(--font-mono); letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--paper-muted);
+  }
+
+  .title-brand-corner { position: absolute; top: 56px; right: var(--sp-x); display: flex; align-items: center; gap: 14px; }
+  .title-brand-corner img { height: 42px; display: block; }
+
+  .section-divider { position: relative; }
+  .section-divider .sec-brand {
+    position: absolute; bottom: 56px; left: var(--sp-x);
+    display: flex; align-items: center; gap: 14px;
+  }
+  .section-divider .sec-brand img { height: 28px; opacity: 0.72; display: block; }
+
+  .end-card { position: relative; }
+  .end-card .end-brand {
+    position: absolute; bottom: 56px; right: var(--sp-x);
+    display: flex; align-items: center; gap: 14px; opacity: 0.8;
+  }
+  .end-card .end-brand img { height: 36px; display: block; }
+
+  .skill-col { display: flex; flex-direction: column; gap: 8px; }
+  .skill-col h4 {
+    font: 500 22px/1 var(--font-mono); letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 14px 0;
+  }
+  .skill-col ul { list-style: none; padding: 0; margin: 0; }
+  .skill-col li { font: 400 22px/1.5 var(--font-mono); color: var(--paper-ink); padding: 4px 0; }
+
+  .spec-card {
+    background: var(--paper-surface); border: 1px solid var(--paper-border);
+    border-radius: var(--radius-3); padding: 24px 28px;
+    border-top: 4px solid var(--pdk-m3);
+  }
+  .spec-card .sc-name { font: 500 28px/1.15 var(--font-mono); color: var(--paper-ink); }
+  .spec-card .sc-role { font: italic 400 20px/1.4 var(--font-serif); color: var(--paper-muted); margin-top: 4px; }
+  .spec-card .sc-tools {
+    font: 400 18px/1.5 var(--font-mono); color: var(--pdk-m3);
+    margin-top: 14px; padding-top: 12px;
+    border-top: 1px dashed var(--paper-border);
+  }
+
+  .backend-grid {
+    display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 20px; margin-top: 32px;
+  }
+  .backend-mini {
+    background: var(--paper-surface); border: 1px solid var(--paper-border);
+    border-radius: var(--radius-3); padding: 20px 22px;
+    border-top: 4px solid var(--accent);
+  }
+  .backend-mini.bm-adk { border-top-color: var(--pdk-diff-n); }
+  .backend-mini.bm-cc  { border-top-color: var(--pdk-m3); }
+  .backend-mini.bm-oc  { border-top-color: var(--hi-pink); }
+  .backend-mini.bm-ll  { border-top-color: var(--accent); }
+  .backend-mini .bm-name { font: 600 24px/1.1 var(--font-mono); color: var(--paper-ink); }
+  .backend-mini .bm-desc { font: 400 20px/1.4 var(--font-serif); color: var(--paper-muted); margin-top: 8px; }
+
+  /* Phase ribbon — used on the four specialist slides (14-17) to show the
+     LibreLane phase each specialist owns without adding more prose. */
+  .phase-ribbon {
+    display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px;
+    margin-top: 56px;
+  }
+  .phase-ribbon .pr-eyebrow {
+    grid-column: 1 / -1;
+    font: 500 15px/1 var(--font-mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--paper-muted);
+    margin-bottom: 14px;
+  }
+  .ph {
+    background: var(--paper-surface);
+    border: 1px solid var(--paper-border);
+    border-radius: var(--radius-2);
+    padding: 14px 10px;
+    text-align: center;
+    font: 500 15px/1.1 var(--font-mono);
+    color: var(--paper-muted);
+    opacity: 0.55;
+  }
+  .ph .ph-sub {
+    display: block;
+    font-size: 11px;
+    color: var(--paper-muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-top: 6px;
+  }
+  .ph.active {
+    opacity: 1;
+    background: #FFFFFF;
+    color: var(--paper-ink);
+    border-color: var(--pdk-m3);
+    box-shadow: 0 0 0 2px var(--pdk-m3) inset;
+  }
+  .ph.active .ph-sub { color: var(--pdk-m3); }
+</style>
+</head>
+<body>
+
+<deck-stage width="1920" height="1080">
+
+  <!-- 01 Title -->
+  <section data-label="01 Title" class="slide-paper slide-title-page" style="justify-content: center; padding: 0 var(--sp-x);">
+    <div class="title-brand-corner"><img src="assets/logo-mark.svg" alt="OpenSilicon Labs mark" style="height: 56px;"></div>
+    <div class="label" style="letter-spacing:0.22em; font-size:20px; margin-bottom: 32px; color: var(--pdk-m3); font-weight: 700;">
+      eda-agents &middot; deep dive
+    </div>
+    <h1 style="font: 600 104px/1.02 var(--font-serif); letter-spacing:-0.025em; margin:0; color: var(--paper-ink); max-width: 1620px;">
+      The <span style="color: var(--pdk-m3);">Digital</span> Loop
+    </h1>
+    <p style="font: 400 40px/1.3 var(--font-serif); color: var(--paper-muted); margin: 36px 0 0 0; max-width: 1400px;">
+      RTL-to-GDS through five agents, one LibreLane flow, three CLI runtimes — including OpenCode.
+    </p>
+    <div style="width: 240px; height: 3px; background: var(--pdk-m3); margin: 56px 0;"></div>
+    <div style="display:flex; align-items:baseline; gap: 56px;">
+      <div><div class="label" style="margin-bottom:8px;">Presenter</div>
+        <div style="font: 500 28px/1.2 var(--font-sans); color: var(--paper-ink);">Mauricio Montanares</div>
+        <div style="font: 400 22px/1.3 var(--font-serif); color: var(--paper-muted); margin-top:4px;">Scientist, IHP</div></div>
+      <div><div class="label" style="margin-bottom:8px;">Date</div>
+        <div style="font: 400 22px/1.3 var(--font-mono); color: var(--paper-ink);">2026&middot;04&middot;23</div></div>
+      <div><div class="label" style="margin-bottom:8px;">Deck</div>
+        <div style="font: 400 22px/1.3 var(--font-mono); color: var(--paper-ink);">42 slides &middot; 8 parts</div></div>
+      <div><div class="label" style="margin-bottom:8px;">Sibling</div>
+        <div style="font: 400 22px/1.3 var(--font-mono); color: var(--paper-ink);">analog.html</div></div>
+    </div>
+  </section>
+
+  <!-- 02 Objectives -->
+  <section data-label="02 Objectives" class="slide-paper">
+    <div class="slide-eyebrow"><span>Objectives</span><span class="rule"></span><span>2 / 42</span></div>
+    <h2 class="slide-title">What you will learn</h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 72px;">
+      <div class="stack-md">
+        <ul class="bullets">
+          <li>The <strong>RTL-to-GDS problem</strong> the digital agents solve, and where LibreLane sits.</li>
+          <li>The <strong>five ADK agents</strong> in detail — master + four specialists, one tool allowlist each.</li>
+          <li>Four backends: <span class="mono">adk</span>, <span class="mono">cc_cli</span>, <span class="mono">litellm</span>, <span class="mono">opencode</span> &mdash; where each plugs in.</li>
+          <li><strong>GenericDesign</strong> — the zero-Python-class path from config.yaml to a running agent hierarchy.</li>
+        </ul>
+      </div>
+      <div class="card" style="align-self:start; margin-top: 12px;">
+        <div class="label">Paired notebooks</div>
+        <ul style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:18px; font: 400 26px/1.4 var(--font-serif);">
+          <li><span class="mono" style="color: var(--pdk-m3);">demo/agents_rtl2gds_counter.ipynb</span><br><span class="muted">ProjectManager + 4 specialists; dry-run default, ~10-15 min real.</span></li>
+          <li><span class="mono" style="color: var(--pdk-m3);">demo/agents_digital_autoresearch.ipynb</span><br><span class="muted">DigitalAutoresearchRunner + OpenCode backend; knob sweep.</span></li>
+        </ul>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Digital &middot; objectives</span></div>
+  </section>
+
+  <!-- 03 Agenda -->
+  <section data-label="03 Agenda" class="slide-paper">
+    <div class="slide-eyebrow"><span>Agenda</span><span class="rule"></span><span>3 / 42</span></div>
+    <h2 class="slide-title">Eight parts, five-ish minutes each</h2>
+    <div class="title-rule"></div>
+    <ol style="list-style:none; padding:0; margin: 56px 0 0 0; display:grid; grid-template-columns: 1fr 1fr; gap: 28px 96px; font: 400 28px/1.3 var(--font-serif);">
+      <li style="display:flex; gap:28px; align-items: baseline;"><span style="font: 500 22px/1 var(--font-mono); color: var(--pdk-m3);">01</span><span>The <strong>digital problem</strong></span></li>
+      <li style="display:flex; gap:28px; align-items: baseline;"><span style="font: 500 22px/1 var(--font-mono); color: var(--pdk-m3);">02</span><span>User-facing <strong>CLI agents</strong></span></li>
+      <li style="display:flex; gap:28px; align-items: baseline;"><span style="font: 500 22px/1 var(--font-mono); color: var(--pdk-m3);">03</span><span><strong>ProjectManager</strong> + 4 specialists</span></li>
+      <li style="display:flex; gap:28px; align-items: baseline;"><span style="font: 500 22px/1 var(--font-mono); color: var(--pdk-m3);">04</span><span><strong>DigitalAutoresearchRunner</strong> + 4 backends</span></li>
+      <li style="display:flex; gap:28px; align-items: baseline;"><span style="font: 500 22px/1 var(--font-mono); color: var(--pdk-m3);">05</span><span><strong>GenericDesign</strong> — config-only entry</span></li>
+      <li style="display:flex; gap:28px; align-items: baseline;"><span style="font: 500 22px/1 var(--font-mono); color: var(--pdk-m3);">06</span><span>Three <strong>CLI runtimes</strong></span></li>
+      <li style="display:flex; gap:28px; align-items: baseline;"><span style="font: 500 22px/1 var(--font-mono); color: var(--pdk-m3);">07</span><span>Skills + <strong>MCP</strong></span></li>
+      <li style="display:flex; gap:28px; align-items: baseline;"><span style="font: 500 22px/1 var(--font-mono); color: var(--pdk-m3);">08</span><span><strong>Demo</strong> walkthroughs + close</span></li>
+    </ol>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Digital &middot; agenda</span></div>
+  </section>
+
+  <!-- 04 Part 1 divider -->
+  <section data-label="04 Part 1" class="section-divider">
+    <div class="sec-num">Part 01</div>
+    <h2 class="sec-title">The digital<br>problem</h2>
+    <div class="sec-rule" style="background: var(--pdk-m3);"></div>
+    <p class="sec-sub">RTL-to-GDS through a flow orchestrator. What the agents actually do on top of LibreLane.</p>
+    <div class="sec-brand"><img src="assets/logo-wordmark.svg" alt="OpenSilicon Labs"></div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 01 &middot; problem</span></div>
+  </section>
+
+  <!-- 05 RTL-to-GDS -->
+  <section data-label="05 RTL2GDS" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 1 &middot; problem</span><span class="rule"></span><span>5 / 42</span></div>
+    <h2 class="slide-title">RTL-to-GDS &mdash; seven phases, 79 steps</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 56px; display: grid; grid-template-columns: repeat(7, 1fr); gap: 14px;">
+      <div class="flow-node poly" style="min-height: 72px;"><span>Synth</span><small>Yosys</small></div>
+      <div class="flow-node diff" style="min-height: 72px;"><span>Floor</span><small>OpenROAD</small></div>
+      <div class="flow-node m1" style="min-height: 72px;"><span>PDN</span><small>OpenROAD</small></div>
+      <div class="flow-node m3" style="min-height: 72px;"><span>Place</span><small>OpenROAD</small></div>
+      <div class="flow-node m3" style="min-height: 72px;"><span>CTS</span><small>OpenROAD</small></div>
+      <div class="flow-node m3" style="min-height: 72px;"><span>Route</span><small>TritonRoute</small></div>
+      <div class="flow-node via" style="min-height: 72px;"><span>Signoff</span><small>Magic/KLayout</small></div>
+    </div>
+    <div class="card thick" style="margin-top: 56px; border-left-color: var(--pdk-m3);">
+      <div class="label" style="color: var(--pdk-m3);">Where the agents sit</div>
+      <div style="font: 400 26px/1.5 var(--font-serif); color: var(--paper-ink); margin-top: 10px;">
+        The seven phases are <em>LibreLane's</em> responsibility. The digital agents sit on top and decide <em>when to re-run what with what knobs</em>. They never invoke Yosys, OpenROAD, Magic, KLayout, or Netgen directly &mdash; every action goes through a LibreLane step.
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 01 &middot; problem</span></div>
+  </section>
+
+  <!-- 06 LibreLane is orchestration -->
+  <section data-label="06 LL orchestrator" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 1 &middot; problem</span><span class="rule"></span><span>6 / 42</span></div>
+    <h2 class="slide-title">LibreLane is an <em>orchestrator</em>, not an EDA tool</h2>
+    <div class="title-rule"></div>
+    <div class="row-2 row-2-wide-left" style="margin-top: 32px; gap: 64px;">
+      <div class="stack-md">
+        <p class="lead">Single command: <span class="mono" style="color: var(--pdk-m3);">librelane config.yaml</span>. Under the hood, six independent open-source projects cooperate.</p>
+        <ul class="bullets tight">
+          <li><strong style="color: var(--pdk-diff-n);">Yosys</strong> &mdash; RTL &rarr; gate-level netlist.</li>
+          <li><strong style="color: var(--pdk-m3);">OpenROAD</strong> &mdash; floorplan, PDN, placement, CTS, routing.</li>
+          <li><strong style="color: var(--pdk-m3);">Magic</strong> &mdash; DRC + GDS streamout.</li>
+          <li><strong style="color: var(--pdk-m3);">KLayout</strong> &mdash; second DRC engine + XOR cross-check.</li>
+          <li><strong style="color: var(--hi-orange);">Netgen</strong> &mdash; LVS.</li>
+          <li><strong style="color: var(--hi-orange);">OpenSTA</strong> &mdash; static timing analysis.</li>
+        </ul>
+        <div class="card thick" style="border-left-color: var(--accent); margin-top: 12px;">
+          <div class="label" style="color: var(--accent);">Agent implication</div>
+          <div style="font: 400 22px/1.45 var(--font-serif); margin-top: 6px;">
+            When a flow fails, the fix is in one of the six tools' logs &mdash; not in LibreLane itself. Agents diagnose <strong>at the tool layer</strong>.
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; justify-content: center;">
+        <!-- Hub-and-spoke: LibreLane center, 6 tools around it -->
+        <svg viewBox="0 0 640 600" width="100%" style="max-width: 640px;">
+          <defs>
+            <marker id="arrHub" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#FF862F"/>
+            </marker>
+          </defs>
+
+          <!-- center: LibreLane -->
+          <rect x="200" y="250" width="240" height="100" rx="8" fill="#FFFFFF" stroke="#FF862F" stroke-width="3"/>
+          <text x="320" y="288" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="24" font-weight="600" fill="#1A1A1A">LibreLane</text>
+          <text x="320" y="316" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" fill="#FF862F">79 steps &middot; 7 phases</text>
+          <text x="320" y="336" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">librelane config.yaml</text>
+
+          <!-- Yosys top -->
+          <rect x="240" y="40" width="160" height="64" rx="6" fill="#FFFFFF" stroke="#4FB04B" stroke-width="2"/>
+          <text x="320" y="68" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="16" font-weight="600" fill="#1A1A1A">Yosys</text>
+          <text x="320" y="88" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#2d7a2a">synthesis</text>
+          <line x1="320" y1="104" x2="320" y2="250" stroke="#FF862F" stroke-width="1.5" marker-end="url(#arrHub)"/>
+
+          <!-- OpenROAD top-right -->
+          <rect x="440" y="100" width="170" height="64" rx="6" fill="#FFFFFF" stroke="#4A7BD9" stroke-width="2"/>
+          <text x="525" y="128" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="16" font-weight="600" fill="#1A1A1A">OpenROAD</text>
+          <text x="525" y="148" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#4A7BD9">PnR</text>
+          <line x1="478" y1="164" x2="400" y2="250" stroke="#FF862F" stroke-width="1.5" marker-end="url(#arrHub)"/>
+
+          <!-- Magic bottom-right -->
+          <rect x="440" y="436" width="170" height="64" rx="6" fill="#FFFFFF" stroke="#9A72AC" stroke-width="2"/>
+          <text x="525" y="464" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="16" font-weight="600" fill="#1A1A1A">Magic</text>
+          <text x="525" y="484" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#9A72AC">DRC + streamout</text>
+          <line x1="478" y1="436" x2="400" y2="350" stroke="#FF862F" stroke-width="1.5" marker-end="url(#arrHub)"/>
+
+          <!-- KLayout bottom -->
+          <rect x="240" y="500" width="160" height="64" rx="6" fill="#FFFFFF" stroke="#58C4DD" stroke-width="2"/>
+          <text x="320" y="528" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="16" font-weight="600" fill="#1A1A1A">KLayout</text>
+          <text x="320" y="548" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#29ABCA">DRC + XOR</text>
+          <line x1="320" y1="500" x2="320" y2="350" stroke="#FF862F" stroke-width="1.5" marker-end="url(#arrHub)"/>
+
+          <!-- Netgen bottom-left -->
+          <rect x="30" y="436" width="170" height="64" rx="6" fill="#FFFFFF" stroke="#FC6255" stroke-width="2"/>
+          <text x="115" y="464" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="16" font-weight="600" fill="#1A1A1A">Netgen</text>
+          <text x="115" y="484" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#CF5044">LVS</text>
+          <line x1="162" y1="436" x2="240" y2="350" stroke="#FF862F" stroke-width="1.5" marker-end="url(#arrHub)"/>
+
+          <!-- OpenSTA top-left -->
+          <rect x="30" y="100" width="170" height="64" rx="6" fill="#FFFFFF" stroke="#F0AC5F" stroke-width="2"/>
+          <text x="115" y="128" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="16" font-weight="600" fill="#1A1A1A">OpenSTA</text>
+          <text x="115" y="148" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#9a7d00">STA</text>
+          <line x1="162" y1="164" x2="240" y2="250" stroke="#FF862F" stroke-width="1.5" marker-end="url(#arrHub)"/>
+
+          <text x="320" y="590" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="14" font-style="italic" fill="#6B6358">six independent projects &middot; one orchestrator decides who runs when</text>
+        </svg>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 01 &middot; problem</span></div>
+  </section>
+
+  <!-- 07 Cost asymmetry digital -->
+  <section data-label="07 Cost digital" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 1 &middot; problem</span><span class="rule"></span><span>7 / 42</span></div>
+    <h2 class="slide-title">Cost asymmetry &mdash; why digital autoresearch is discrete</h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 56px;">
+      <div class="card thick" style="border-left-color: var(--pdk-m3);">
+        <div class="label" style="color: var(--pdk-m3);">Per LibreLane run</div>
+        <div style="font: 500 64px/1 var(--font-mono); color: var(--paper-ink); margin: 12px 0 8px 0;">~ <span style="color: var(--accent);">minutes</span></div>
+        <div style="font: 400 22px/1.4 var(--font-serif); color: var(--paper-muted);">Small counter: 1&ndash;2 min. Chipathon padring: 35&ndash;45 min. Magic streamout can dominate on IHP.</div>
+      </div>
+      <div class="card thick" style="border-left-color: var(--pdk-m3);">
+        <div class="label" style="color: var(--pdk-m3);">Per LLM proposal</div>
+        <div style="font: 500 64px/1 var(--font-mono); color: var(--paper-ink); margin: 12px 0 8px 0;">~ <span style="color: var(--accent);">cents &ndash; $1</span></div>
+        <div style="font: 400 22px/1.4 var(--font-serif); color: var(--paper-muted);">Model-dependent. Gemini Flash &laquo; Sonnet &laquo; Opus. OpenCode multi-provider opens the cheap end.</div>
+      </div>
+    </div>
+    <div class="card" style="margin-top: 40px; border-left: 4px solid var(--accent);">
+      <div class="label" style="color: var(--accent);">Search-strategy implication</div>
+      <div style="font: 400 24px/1.5 var(--font-serif); color: var(--paper-ink); margin-top: 10px;">
+        Budget per run: <strong>a handful</strong> of evaluations. <span class="mono" style="color: var(--pdk-m3);">DigitalAutoresearchRunner</span> defaults to <span class="mono">budget=5</span>. Design space is <em>discrete</em> — density in {60, 65, 70}, clock in {50, 40, 30} ns, PDN pitch in {4, 6, 8} &mdash; with nearest-value snapping on proposals.
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 01 &middot; problem</span></div>
+  </section>
+
+  <!-- 08 Part 2 divider -->
+  <section data-label="08 Part 2" class="section-divider">
+    <div class="sec-num">Part 02</div>
+    <h2 class="sec-title">User-facing<br>CLI agents</h2>
+    <div class="sec-rule" style="background: var(--pdk-m3);"></div>
+    <p class="sec-sub">Three agents. Two drive Docker. One writes config.yaml. All five ship in both Claude Code and OpenCode.</p>
+    <div class="sec-brand"><img src="assets/logo-wordmark.svg" alt="OpenSilicon Labs"></div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 02 &middot; CLI agents</span></div>
+  </section>
+
+  <!-- 09 Digital agent roster -->
+  <section data-label="09 CLI roster" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 2 &middot; CLI agents</span><span class="rule"></span><span>9 / 42</span></div>
+    <h2 class="slide-title">The user-facing agent roster</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 48px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 28px;">
+      <div class="agent-card">
+        <div class="ac-chip"><img src="assets/icons/pdk/m3.svg" alt="" style="width:18px;height:18px;"> Digital &middot; host-side</div>
+        <div class="ac-name">digital-testbench-author</div>
+        <div class="ac-desc">Authors a cocotb testbench that runs untouched across RTL, post-synth GL, and post-PnR GL + SDF.</div>
+      </div>
+      <div class="agent-card">
+        <div class="ac-chip"><img src="assets/icons/pdk/m3.svg" alt="" style="width:18px;height:18px;"> Digital &middot; docker</div>
+        <div class="ac-name">gf180-docker-digital</div>
+        <div class="ac-desc">Drives the full RTL-to-GDS flow on GF180MCU inside <span class="mono">hpretl/iic-osic-tools</span>. User approves each docker-exec call.</div>
+      </div>
+      <div class="agent-card" style="border-left-color: var(--paper-muted);">
+        <div class="ac-chip" style="color: var(--paper-muted);">Shared &middot; config</div>
+        <div class="ac-name">librelane-expert</div>
+        <div class="ac-desc">config.yaml authoring specialist. Does not run the flow &mdash; helps you write it.</div>
+      </div>
+    </div>
+    <div style="margin-top: 40px; font: italic 400 22px/1.4 var(--font-serif); color: var(--paper-muted);">
+      All three registered under <span class="mono" style="color: var(--paper-ink);">.claude/agents/</span> and mirrored at <span class="mono" style="color: var(--paper-ink);">.opencode/agent/</span>. Same prompt body, two runtimes.
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 02 &middot; CLI agents</span></div>
+  </section>
+
+  <!-- 10 testbench-author deep dive -->
+  <section data-label="10 TB author" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 2 &middot; CLI agents</span><span class="rule"></span><span>10 / 42</span></div>
+    <h2 class="slide-title"><span class="code">digital-testbench-author</span> &mdash; one TB, three sims</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 28px; display: flex; align-items: center; justify-content: center;">
+      <!-- ONE testbench feeding THREE different simulation harnesses -->
+      <svg viewBox="0 0 1600 440" width="100%" style="max-width: 1600px;">
+        <defs>
+          <marker id="arrTB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#4A7BD9"/>
+          </marker>
+        </defs>
+
+        <!-- single testbench -->
+        <rect x="40" y="160" width="280" height="120" rx="8" fill="#FFFFFF" stroke="#4A7BD9" stroke-width="3"/>
+        <text x="180" y="198" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="20" font-weight="600" fill="#1A1A1A">cocotb testbench</text>
+        <text x="180" y="224" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" fill="#4A7BD9">ReadOnly monitor</text>
+        <text x="180" y="244" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" fill="#4A7BD9">assert-only failures</text>
+        <text x="180" y="264" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" fill="#4A7BD9">post-reset settle</text>
+
+        <!-- fan out -->
+        <line x1="320" y1="220" x2="420" y2="100"  stroke="#4A7BD9" stroke-width="2" marker-end="url(#arrTB)"/>
+        <line x1="320" y1="220" x2="420" y2="220"  stroke="#4A7BD9" stroke-width="2" marker-end="url(#arrTB)"/>
+        <line x1="320" y1="220" x2="420" y2="340"  stroke="#4A7BD9" stroke-width="2" marker-end="url(#arrTB)"/>
+
+        <!-- 3 sim tracks -->
+        <g font-family="Ubuntu Mono, monospace">
+          <!-- RTL sim -->
+          <rect x="440" y="60" width="500" height="90" rx="6" fill="#FAFAF7" stroke="#4FB04B" stroke-width="2"/>
+          <text x="460" y="86" font-family="Ubuntu Mono, monospace" font-size="12" letter-spacing="0.1em" fill="#2d7a2a">RTL SIM</text>
+          <text x="460" y="112" font-size="16" font-weight="600" fill="#1A1A1A">iverilog &middot; fast feedback</text>
+          <text x="460" y="134" font-size="13" fill="#6B6358">DUT: Verilog source</text>
+
+          <!-- Post-synth GL sim -->
+          <rect x="440" y="180" width="500" height="90" rx="6" fill="#FAFAF7" stroke="#58C4DD" stroke-width="2"/>
+          <text x="460" y="206" font-family="Ubuntu Mono, monospace" font-size="12" letter-spacing="0.1em" fill="#29ABCA">POST-SYNTH GL SIM</text>
+          <text x="460" y="232" font-size="16" font-weight="600" fill="#1A1A1A">iverilog + Yosys netlist</text>
+          <text x="460" y="254" font-size="13" fill="#6B6358">DUT: synthesized gate-level, std cells resolved</text>
+
+          <!-- Post-PnR GL + SDF -->
+          <rect x="440" y="300" width="500" height="90" rx="6" fill="#FAFAF7" stroke="#9A72AC" stroke-width="2"/>
+          <text x="460" y="326" font-family="Ubuntu Mono, monospace" font-size="12" letter-spacing="0.1em" fill="#9A72AC">POST-PnR GL + SDF</text>
+          <text x="460" y="352" font-size="16" font-weight="600" fill="#1A1A1A">iverilog + PnR netlist + SDF</text>
+          <text x="460" y="374" font-size="13" fill="#6B6358">DUT: routed netlist, timing back-annotated</text>
+        </g>
+
+        <!-- common verdict block -->
+        <line x1="940" y1="105" x2="1040" y2="210" stroke="#FF862F" stroke-width="2"/>
+        <line x1="940" y1="225" x2="1040" y2="220" stroke="#FF862F" stroke-width="2"/>
+        <line x1="940" y1="345" x2="1040" y2="230" stroke="#FF862F" stroke-width="2"/>
+        <rect x="1040" y="170" width="220" height="100" rx="6" fill="#FFFFFF" stroke="#FF862F" stroke-width="3"/>
+        <text x="1150" y="205" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="18" font-weight="600" fill="#1A1A1A">verdict</text>
+        <text x="1150" y="230" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" fill="#FF862F">pass | fail</text>
+        <text x="1150" y="252" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">same assertions</text>
+
+        <!-- discipline callout -->
+        <rect x="1300" y="100" width="280" height="240" rx="6" fill="#FAFAF7" stroke="#FFE14B" stroke-width="2"/>
+        <text x="1320" y="130" font-family="Ubuntu Mono, monospace" font-size="12" letter-spacing="0.1em" fill="#9a7d00">DISCIPLINE</text>
+        <line x1="1320" y1="142" x2="1560" y2="142" stroke="#E6E4DC"/>
+        <text x="1320" y="170" font-family="Ubuntu Mono, monospace" font-size="14" font-weight="600" fill="#1A1A1A">ReadOnly monitor</text>
+        <text x="1320" y="188" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">no mutation of DUT signals</text>
+        <text x="1320" y="218" font-family="Ubuntu Mono, monospace" font-size="14" font-weight="600" fill="#1A1A1A">assert-only failures</text>
+        <text x="1320" y="236" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">no "print and continue"</text>
+        <text x="1320" y="266" font-family="Ubuntu Mono, monospace" font-size="14" font-weight="600" fill="#1A1A1A">post-reset settle</text>
+        <text x="1320" y="284" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">no false pass on X-prop</text>
+        <text x="1320" y="314" font-family="Ubuntu Mono, monospace" font-size="14" font-weight="600" fill="#1A1A1A">same assertions</text>
+        <text x="1320" y="332" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">across all three harnesses</text>
+      </svg>
+    </div>
+    <div style="margin-top: 20px; font: italic 400 22px/1.4 var(--font-serif); color: var(--paper-muted); max-width: 1700px;">
+      The single biggest lever for digital verification productivity: one testbench, three simulation modes, identical passes/fails.
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 02 &middot; CLI agents</span></div>
+  </section>
+
+  <!-- 11 gf180-docker-digital deep dive -->
+  <section data-label="11 GF180 digital" class="slide-stage-grid">
+    <div class="slide-eyebrow"><span>Part 2 &middot; CLI agents</span><span class="rule"></span><span>11 / 42</span></div>
+    <h2 class="slide-title"><span class="code">gf180-docker-digital</span> &mdash; the end-to-end driver</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 28px;">
+      <svg viewBox="0 0 1640 480" width="100%" style="max-width: 1640px;">
+        <defs>
+          <marker id="arrDG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#FFE14B"/>
+          </marker>
+          <marker id="arrDGr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#83C167"/>
+          </marker>
+        </defs>
+
+        <!-- agent -->
+        <g transform="translate(40,180)">
+          <rect width="280" height="120" rx="8" fill="#171F28" stroke="#4A7BD9" stroke-width="2.5"/>
+          <text x="140" y="46" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="22" font-weight="500" fill="#FFFFFF">agent</text>
+          <text x="140" y="74" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="14" fill="#BBBBBB">gf180-docker-digital</text>
+          <text x="140" y="100" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" fill="#4A7BD9">host-side, Python</text>
+        </g>
+
+        <!-- docker exec calls -->
+        <g>
+          <rect x="400" y="80" width="340" height="60" rx="6" fill="#171F28" stroke="#FFE14B" stroke-width="2"/>
+          <text x="420" y="118" font-family="Ubuntu Mono, monospace" font-size="15" fill="#FFE14B">docker exec ... librelane config.yaml</text>
+
+          <rect x="400" y="170" width="340" height="60" rx="6" fill="#171F28" stroke="#FFE14B" stroke-width="2"/>
+          <text x="420" y="208" font-family="Ubuntu Mono, monospace" font-size="15" fill="#FFE14B">docker exec ... grep metrics.csv</text>
+
+          <rect x="400" y="260" width="340" height="60" rx="6" fill="#171F28" stroke="#FFE14B" stroke-width="2"/>
+          <text x="420" y="298" font-family="Ubuntu Mono, monospace" font-size="15" fill="#FFE14B">docker exec ... read step logs</text>
+
+          <rect x="400" y="350" width="340" height="60" rx="6" fill="#171F28" stroke="#FFE14B" stroke-width="2"/>
+          <text x="420" y="388" font-family="Ubuntu Mono, monospace" font-size="15" fill="#FFE14B">docker exec ... apply config fix &middot; rerun</text>
+        </g>
+
+        <line x1="320" y1="220" x2="400" y2="110" stroke="#FFE14B" stroke-width="2" marker-end="url(#arrDG)"/>
+        <line x1="320" y1="240" x2="400" y2="200" stroke="#FFE14B" stroke-width="2" marker-end="url(#arrDG)"/>
+        <line x1="320" y1="250" x2="400" y2="290" stroke="#FFE14B" stroke-width="2" marker-end="url(#arrDG)"/>
+        <line x1="320" y1="260" x2="400" y2="380" stroke="#FFE14B" stroke-width="2" marker-end="url(#arrDG)"/>
+
+        <!-- container -->
+        <g transform="translate(840, 80)">
+          <rect width="420" height="360" rx="10" fill="#171F28" stroke="#58C4DD" stroke-width="2.5"/>
+          <text x="210" y="40" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="22" font-weight="500" fill="#FFFFFF">container</text>
+          <text x="210" y="64" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="14" fill="#BBBBBB">hpretl/iic-osic-tools:next</text>
+          <line x1="30" y1="82" x2="390" y2="82" stroke="#2A3440"/>
+          <text x="210" y="110" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="15" fill="#FC6255" font-weight="500">librelane</text>
+          <text x="210" y="134" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" fill="#BBBBBB">Yosys &middot; OpenROAD</text>
+          <text x="210" y="154" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" fill="#BBBBBB">Magic &middot; KLayout &middot; Netgen</text>
+          <line x1="30" y1="178" x2="390" y2="178" stroke="#2A3440"/>
+          <text x="210" y="204" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="14" fill="#83C167">GF180MCU PDK</text>
+          <text x="210" y="224" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#888888">/foss/pdks/gf180mcuD/</text>
+          <line x1="30" y1="246" x2="390" y2="246" stroke="#2A3440"/>
+          <text x="210" y="272" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="14" fill="#FFE14B">workspace bind-mount</text>
+          <text x="210" y="292" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#888888">/foss/designs &larr;&rarr; ~/eda/designs</text>
+          <line x1="30" y1="316" x2="390" y2="316" stroke="#2A3440"/>
+          <text x="210" y="342" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" fill="#888888">runs/.../final/metrics.csv</text>
+        </g>
+
+        <line x1="740" y1="110" x2="840" y2="120" stroke="#FFE14B" stroke-width="2" marker-end="url(#arrDG)"/>
+        <line x1="740" y1="200" x2="840" y2="200" stroke="#FFE14B" stroke-width="2" marker-end="url(#arrDG)"/>
+        <line x1="740" y1="290" x2="840" y2="280" stroke="#FFE14B" stroke-width="2" marker-end="url(#arrDG)"/>
+        <line x1="740" y1="380" x2="840" y2="360" stroke="#FFE14B" stroke-width="2" marker-end="url(#arrDG)"/>
+
+        <!-- host side: log + metrics verdict -->
+        <g transform="translate(1340, 180)">
+          <rect width="260" height="120" rx="8" fill="#171F28" stroke="#83C167" stroke-width="2.5"/>
+          <text x="130" y="46" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="22" font-weight="500" fill="#FFFFFF">host log</text>
+          <text x="130" y="74" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" fill="#BBBBBB">WNS &middot; DRC &middot; LVS &middot; area</text>
+          <text x="130" y="98" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" fill="#83C167">greppable verdict</text>
+        </g>
+
+        <line x1="1260" y1="240" x2="1340" y2="240" stroke="#83C167" stroke-width="2" marker-end="url(#arrDGr)"/>
+
+        <!-- approval note -->
+        <g transform="translate(40, 350)">
+          <rect width="280" height="90" rx="6" fill="#171F28" stroke="#FF862F" stroke-width="1.5" stroke-dasharray="4 3"/>
+          <text x="20" y="32" font-family="Ubuntu Mono, monospace" font-size="12" letter-spacing="0.1em" fill="#FF862F">USER APPROVAL</text>
+          <text x="20" y="58" font-family="Ubuntu Mono, monospace" font-size="14" fill="#FFFFFF">every docker exec</text>
+          <text x="20" y="78" font-family="Ubuntu Mono, monospace" font-size="12" fill="#BBBBBB">no blanket container access</text>
+        </g>
+      </svg>
+    </div>
+    <div style="margin-top: 16px; font: italic 400 22px/1.4 var(--font-serif); color: var(--fg-3); text-align: center; align-self: center; max-width: 1500px;">
+      Container is disposable &middot; artifacts persist in the bind-mount &middot; agent reads metrics.csv and iterates with targeted config edits.
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 02 &middot; CLI agents</span></div>
+  </section>
+
+  <!-- 12 Part 3 divider -->
+  <section data-label="12 Part 3" class="section-divider">
+    <div class="sec-num">Part 03</div>
+    <h2 class="sec-title">ProjectManager<br>+ 4 specialists</h2>
+    <div class="sec-rule" style="background: var(--pdk-m3);"></div>
+    <p class="sec-sub">Google ADK multi-agent tree. Master delegates. Each specialist has a bounded tool allowlist.</p>
+    <div class="sec-brand"><img src="assets/logo-wordmark.svg" alt="OpenSilicon Labs"></div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 03 &middot; hierarchy</span></div>
+  </section>
+
+  <!-- 13 Hierarchy overview -->
+  <section data-label="13 PM hierarchy" class="slide-stage">
+    <div class="slide-eyebrow"><span>Part 3 &middot; hierarchy</span><span class="rule"></span><span>13 / 42</span></div>
+    <h2 class="slide-title">The ADK tree</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 32px; flex: 1; display: flex; align-items: center; justify-content: center;">
+      <svg viewBox="0 0 1500 540" width="100%" style="max-width: 1500px;">
+        <defs>
+          <marker id="arrH" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#4A7BD9"/>
+          </marker>
+        </defs>
+        <g font-family="Ubuntu Sans, Ubuntu, sans-serif" fill="#FFFFFF">
+          <g transform="translate(570,30)">
+            <rect width="360" height="110" rx="6" fill="#171F28" stroke="#4A7BD9" stroke-width="2.5"/>
+            <text x="180" y="52" text-anchor="middle" font-size="26" font-weight="500">project_manager</text>
+            <text x="180" y="84" text-anchor="middle" font-size="16" fill="#BBBBBB" font-family="Ubuntu Mono, monospace">ADK LlmAgent &middot; master</text>
+          </g>
+          <line x1="750" y1="140" x2="190" y2="280" stroke="#4A7BD9" stroke-width="2" marker-end="url(#arrH)"/>
+          <line x1="750" y1="140" x2="560" y2="280" stroke="#4A7BD9" stroke-width="2" marker-end="url(#arrH)"/>
+          <line x1="750" y1="140" x2="920" y2="280" stroke="#4A7BD9" stroke-width="2" marker-end="url(#arrH)"/>
+          <line x1="750" y1="140" x2="1290" y2="280" stroke="#4A7BD9" stroke-width="2" marker-end="url(#arrH)"/>
+          <g transform="translate(40,290)"><rect width="300" height="180" rx="6" fill="#171F28" stroke="#83C167" stroke-width="2"/><text x="150" y="42" text-anchor="middle" font-size="20" font-weight="500">verification_engineer</text><text x="150" y="82" text-anchor="middle" font-size="15" fill="#BBBBBB" font-family="Ubuntu Mono, monospace">RTL lint</text><text x="150" y="104" text-anchor="middle" font-size="15" fill="#BBBBBB" font-family="Ubuntu Mono, monospace">cocotb sim</text><text x="150" y="138" text-anchor="middle" font-size="14" fill="#FFE14B" font-family="Ubuntu Mono, monospace">VERIF_TOOLS</text></g>
+          <g transform="translate(410,290)"><rect width="300" height="180" rx="6" fill="#171F28" stroke="#83C167" stroke-width="2"/><text x="150" y="42" text-anchor="middle" font-size="20" font-weight="500">synthesis_engineer</text><text x="150" y="82" text-anchor="middle" font-size="15" fill="#BBBBBB" font-family="Ubuntu Mono, monospace">Yosys via LibreLane</text><text x="150" y="104" text-anchor="middle" font-size="15" fill="#BBBBBB" font-family="Ubuntu Mono, monospace">partial flow to SYNTH</text><text x="150" y="138" text-anchor="middle" font-size="14" fill="#FFE14B" font-family="Ubuntu Mono, monospace">SYNTH_TOOLS</text></g>
+          <g transform="translate(780,290)"><rect width="300" height="180" rx="6" fill="#171F28" stroke="#83C167" stroke-width="2"/><text x="150" y="42" text-anchor="middle" font-size="20" font-weight="500">physical_designer</text><text x="150" y="82" text-anchor="middle" font-size="15" fill="#BBBBBB" font-family="Ubuntu Mono, monospace">floorplan / PDN</text><text x="150" y="104" text-anchor="middle" font-size="15" fill="#BBBBBB" font-family="Ubuntu Mono, monospace">place / CTS / route</text><text x="150" y="138" text-anchor="middle" font-size="14" fill="#FFE14B" font-family="Ubuntu Mono, monospace">PHYSICAL_TOOLS</text></g>
+          <g transform="translate(1150,290)"><rect width="300" height="180" rx="6" fill="#171F28" stroke="#83C167" stroke-width="2"/><text x="150" y="42" text-anchor="middle" font-size="20" font-weight="500">signoff_checker</text><text x="150" y="82" text-anchor="middle" font-size="15" fill="#BBBBBB" font-family="Ubuntu Mono, monospace">DRC / LVS</text><text x="150" y="104" text-anchor="middle" font-size="15" fill="#BBBBBB" font-family="Ubuntu Mono, monospace">STA / precheck</text><text x="150" y="138" text-anchor="middle" font-size="14" fill="#FFE14B" font-family="Ubuntu Mono, monospace">SIGNOFF_TOOLS</text></g>
+        </g>
+      </svg>
+    </div>
+    <div style="margin-top: 20px; font: italic 400 22px/1.4 var(--font-serif); color: var(--fg-3); text-align: center; align-self: center; max-width: 1500px;">
+      Source: <span class="mono" style="color: var(--fg-2); font-style: normal;">src/eda_agents/agents/digital_adk_agents.py</span> &middot; master line 473, specialists 248 / 273 / 302 / 336.
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 03 &middot; hierarchy</span></div>
+  </section>
+
+  <!-- 14 verification_engineer -->
+  <section data-label="14 Verif" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 3 &middot; hierarchy</span><span class="rule"></span><span>14 / 42</span></div>
+    <h2 class="slide-title"><span class="code">verification_engineer</span></h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div class="spec-card">
+        <div class="sc-name">verification_engineer</div>
+        <div class="sc-role">Gates synthesis. If lint or sim fails, the master does not call the next specialist.</div>
+        <div class="sc-tools">VERIF_TOOLS = { run_rtl_lint, run_rtl_sim }</div>
+      </div>
+      <div class="stack-md">
+        <ul class="bullets tight">
+          <li><strong>run_rtl_lint</strong> &mdash; verilator + yosys lint, error-level diagnostics only.</li>
+          <li><strong>run_rtl_sim</strong> &mdash; cocotb + iverilog on the authored testbench.</li>
+          <li>No access to LibreLane. No access to DRC / LVS tools. Two tools only; two decisions possible (proceed or fail).</li>
+        </ul>
+      </div>
+    </div>
+    <div class="phase-ribbon">
+      <div class="pr-eyebrow">Where this specialist sits in the LibreLane pipeline</div>
+      <div class="ph active">RTL/TB<span class="ph-sub">this</span></div>
+      <div class="ph">Synth</div>
+      <div class="ph">Floor</div>
+      <div class="ph">PDN</div>
+      <div class="ph">Place</div>
+      <div class="ph">CTS</div>
+      <div class="ph">Route</div>
+      <div class="ph">Signoff</div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 03 &middot; hierarchy</span></div>
+  </section>
+
+  <!-- 15 synthesis_engineer -->
+  <section data-label="15 Synth" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 3 &middot; hierarchy</span><span class="rule"></span><span>15 / 42</span></div>
+    <h2 class="slide-title"><span class="code">synthesis_engineer</span></h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div class="spec-card">
+        <div class="sc-name">synthesis_engineer</div>
+        <div class="sc-role">Drives LibreLane partial flow up to the SYNTH step. Reads timing reports, proposes config tweaks, re-runs.</div>
+        <div class="sc-tools">SYNTH_TOOLS = { run_librelane_flow, read_timing_report, check_flow_status, modify_flow_config }</div>
+      </div>
+      <div class="stack-md">
+        <ul class="bullets tight">
+          <li><strong>No physical-design tools</strong> &mdash; cannot accidentally invoke OpenROAD placement.</li>
+          <li><strong>Config mutation is scoped</strong> &mdash; <span class="mono">modify_flow_config</span> accepts only synthesis-domain keys.</li>
+          <li>Re-run after config change; <span class="mono">read_timing_report</span> decides if the synth is acceptable.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="phase-ribbon">
+      <div class="pr-eyebrow">Where this specialist sits in the LibreLane pipeline</div>
+      <div class="ph">RTL/TB</div>
+      <div class="ph active">Synth<span class="ph-sub">this</span></div>
+      <div class="ph">Floor</div>
+      <div class="ph">PDN</div>
+      <div class="ph">Place</div>
+      <div class="ph">CTS</div>
+      <div class="ph">Route</div>
+      <div class="ph">Signoff</div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 03 &middot; hierarchy</span></div>
+  </section>
+
+  <!-- 16 physical_designer -->
+  <section data-label="16 Physical" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 3 &middot; hierarchy</span><span class="rule"></span><span>16 / 42</span></div>
+    <h2 class="slide-title"><span class="code">physical_designer</span></h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div class="spec-card">
+        <div class="sc-name">physical_designer</div>
+        <div class="sc-role">Floorplan, PDN, placement, CTS, routing. Everything between synthesis and signoff.</div>
+        <div class="sc-tools">PHYSICAL_TOOLS = { run_librelane_flow, run_physical_slice, modify_flow_config, read_timing_report, check_flow_status }</div>
+      </div>
+      <div class="stack-md">
+        <ul class="bullets tight">
+          <li><strong>run_physical_slice</strong> &mdash; re-run a single phase (e.g. just CTS) without re-synthesising.</li>
+          <li>Iterative by nature &mdash; routing often needs two or three passes on tough designs.</li>
+          <li>Reads timing at each slice; escalates to master if post-CTS WNS is &gt; |budget|.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="phase-ribbon">
+      <div class="pr-eyebrow">Where this specialist sits in the LibreLane pipeline</div>
+      <div class="ph">RTL/TB</div>
+      <div class="ph">Synth</div>
+      <div class="ph active">Floor<span class="ph-sub">this</span></div>
+      <div class="ph active">PDN<span class="ph-sub">this</span></div>
+      <div class="ph active">Place<span class="ph-sub">this</span></div>
+      <div class="ph active">CTS<span class="ph-sub">this</span></div>
+      <div class="ph active">Route<span class="ph-sub">this</span></div>
+      <div class="ph">Signoff</div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 03 &middot; hierarchy</span></div>
+  </section>
+
+  <!-- 17 signoff_checker -->
+  <section data-label="17 Signoff" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 3 &middot; hierarchy</span><span class="rule"></span><span>17 / 42</span></div>
+    <h2 class="slide-title"><span class="code">signoff_checker</span></h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div class="spec-card">
+        <div class="sc-name">signoff_checker</div>
+        <div class="sc-role">DRC, LVS, STA, precheck. The last gate. If it passes, the run is accepted.</div>
+        <div class="sc-tools">SIGNOFF_TOOLS = { run_klayout_drc, read_drc_summary, run_klayout_lvs, modify_flow_config, rerun_flow, check_flow_status, run_precheck }</div>
+      </div>
+      <div class="stack-md">
+        <ul class="bullets tight">
+          <li><strong>Two independent DRC engines</strong> &mdash; Magic (in LibreLane) + KLayout (here). XOR cross-check catches tool bugs.</li>
+          <li><strong>rerun_flow</strong> &mdash; if signoff fails and the root cause is upstream, this specialist can trigger a full re-run.</li>
+          <li><strong>run_precheck</strong> &mdash; wafer-space MPW precheck (for Chipathon / TinyTapeout submissions).</li>
+        </ul>
+      </div>
+    </div>
+    <div class="phase-ribbon">
+      <div class="pr-eyebrow">Where this specialist sits in the LibreLane pipeline</div>
+      <div class="ph">RTL/TB</div>
+      <div class="ph">Synth</div>
+      <div class="ph">Floor</div>
+      <div class="ph">PDN</div>
+      <div class="ph">Place</div>
+      <div class="ph">CTS</div>
+      <div class="ph">Route</div>
+      <div class="ph active">Signoff<span class="ph-sub">this</span></div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 03 &middot; hierarchy</span></div>
+  </section>
+
+  <!-- 18 Part 4 divider -->
+  <section data-label="18 Part 4" class="section-divider">
+    <div class="sec-num">Part 04</div>
+    <h2 class="sec-title">DigitalAutoresearch<br>Runner &middot; 4 backends</h2>
+    <div class="sec-rule" style="background: var(--pdk-m3);"></div>
+    <p class="sec-sub">Greedy search over LibreLane knobs. Where OpenCode plugs in as a first-class backend.</p>
+    <div class="sec-brand"><img src="assets/logo-wordmark.svg" alt="OpenSilicon Labs"></div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 04 &middot; autoresearch</span></div>
+  </section>
+
+  <!-- 19 DigitalAutoresearchRunner -->
+  <section data-label="19 DigitalAR" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 4 &middot; autoresearch</span><span class="rule"></span><span>19 / 42</span></div>
+    <h2 class="slide-title"><span class="code">DigitalAutoresearchRunner</span></h2>
+    <div class="title-rule"></div>
+    <div class="row-2 row-2-wide-left" style="margin-top: 32px; gap: 56px;">
+      <div style="display: flex; align-items: center; justify-content: center;">
+        <!-- Discrete 3D knob lattice - density x clock period x PDN pitch -->
+        <svg viewBox="0 0 720 520" width="100%" style="max-width: 720px;">
+          <text x="360" y="30" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" letter-spacing="0.1em" fill="#6B6358">DESIGN SPACE &middot; 27 POINTS</text>
+          <text x="360" y="50" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="16" font-style="italic" fill="#6B6358">density &times; clock period &times; PDN pitch</text>
+
+          <!-- axes (isometric projection) -->
+          <!-- X: density -->
+          <line x1="100" y1="420" x2="460" y2="420" stroke="#1A1A1A" stroke-width="1.5" marker-end="url(#arrL3)"/>
+          <!-- Y: clock (up) -->
+          <line x1="100" y1="420" x2="100" y2="100" stroke="#1A1A1A" stroke-width="1.5" marker-end="url(#arrL3)"/>
+          <!-- Z: PDN (back-right) -->
+          <line x1="100" y1="420" x2="280" y2="300" stroke="#1A1A1A" stroke-width="1.5" marker-end="url(#arrL3)"/>
+
+          <defs>
+            <marker id="arrL3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#1A1A1A"/>
+            </marker>
+          </defs>
+
+          <!-- axis labels -->
+          <text x="480" y="424" font-family="Ubuntu Mono, monospace" font-size="12" fill="#1A1A1A">density %</text>
+          <text x="180" y="425" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">60</text>
+          <text x="280" y="425" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">65</text>
+          <text x="380" y="425" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">70</text>
+
+          <text x="100" y="90" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" fill="#1A1A1A">clock ns</text>
+          <text x="65" y="144" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">30</text>
+          <text x="65" y="244" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">40</text>
+          <text x="65" y="344" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">50</text>
+
+          <text x="290" y="294" font-family="Ubuntu Mono, monospace" font-size="12" fill="#1A1A1A">PDN pitch</text>
+
+          <!-- 3x3x3 lattice of points; 3 layers offset along z -->
+          <!-- Layer 1 (PDN=4, front) -->
+          <g fill="#E6E4DC">
+            <circle cx="180" cy="340" r="7"/>
+            <circle cx="280" cy="340" r="7"/>
+            <circle cx="380" cy="340" r="7"/>
+            <circle cx="180" cy="240" r="7"/>
+            <circle cx="280" cy="240" r="7"/>
+            <circle cx="380" cy="240" r="7"/>
+            <circle cx="180" cy="140" r="7"/>
+            <circle cx="280" cy="140" r="7"/>
+            <circle cx="380" cy="140" r="7"/>
+          </g>
+          <!-- Layer 2 (PDN=6, middle) offset (+30, -20) -->
+          <g fill="#C9E2AE" opacity="0.85">
+            <circle cx="210" cy="320" r="7"/>
+            <circle cx="310" cy="320" r="7"/>
+            <circle cx="410" cy="320" r="7"/>
+            <circle cx="210" cy="220" r="7"/>
+            <circle cx="310" cy="220" r="7"/>
+            <circle cx="410" cy="220" r="7"/>
+            <circle cx="210" cy="120" r="7"/>
+            <circle cx="310" cy="120" r="7"/>
+            <circle cx="410" cy="120" r="7"/>
+          </g>
+          <!-- Layer 3 (PDN=8, back) offset more -->
+          <g fill="#83C167" opacity="0.7">
+            <circle cx="240" cy="300" r="7"/>
+            <circle cx="340" cy="300" r="7"/>
+            <circle cx="440" cy="300" r="7"/>
+            <circle cx="240" cy="200" r="7"/>
+            <circle cx="340" cy="200" r="7"/>
+            <circle cx="440" cy="200" r="7"/>
+            <circle cx="240" cy="100" r="7"/>
+            <circle cx="340" cy="100" r="7"/>
+            <circle cx="440" cy="100" r="7"/>
+          </g>
+
+          <!-- greedy path: 5 points visited -->
+          <g stroke="#FF862F" stroke-width="2.5" fill="none">
+            <line x1="280" y1="340" x2="310" y2="320"/>
+            <line x1="310" y1="320" x2="310" y2="220"/>
+            <line x1="310" y1="220" x2="410" y2="220"/>
+            <line x1="410" y1="220" x2="340" y2="200"/>
+          </g>
+          <g fill="#FF862F" stroke="#CF5044" stroke-width="1.5">
+            <circle cx="280" cy="340" r="10"/>
+            <circle cx="310" cy="320" r="10"/>
+            <circle cx="310" cy="220" r="10"/>
+            <circle cx="410" cy="220" r="10"/>
+            <circle cx="340" cy="200" r="10"/>
+          </g>
+          <g font-family="Ubuntu Mono, monospace" font-size="11" fill="#FFFFFF" text-anchor="middle" font-weight="600">
+            <text x="280" y="344">1</text>
+            <text x="310" y="324">2</text>
+            <text x="310" y="224">3</text>
+            <text x="410" y="224">4</text>
+            <text x="340" y="204">5*</text>
+          </g>
+
+          <!-- budget box -->
+          <g transform="translate(520, 80)">
+            <rect x="0" y="0" width="180" height="220" rx="6" fill="#FAFAF7" stroke="#E6E4DC" stroke-width="1.5"/>
+            <text x="18" y="28" font-family="Ubuntu Mono, monospace" font-size="11" letter-spacing="0.08em" fill="#6B6358">BUDGET</text>
+            <line x1="18" y1="40" x2="162" y2="40" stroke="#E6E4DC"/>
+            <text x="18" y="68" font-family="Ubuntu Mono, monospace" font-size="13" fill="#1A1A1A">budget = 5</text>
+            <text x="18" y="88" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">(of 27 points)</text>
+            <text x="18" y="122" font-family="Ubuntu Mono, monospace" font-size="13" fill="#1A1A1A">eval cost</text>
+            <text x="18" y="142" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">~5-15 min each</text>
+            <text x="18" y="176" font-family="Ubuntu Mono, monospace" font-size="13" fill="#FF862F">best @ eval 5</text>
+            <text x="18" y="196" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">FoM guides next</text>
+          </g>
+
+          <!-- FoM legend -->
+          <text x="360" y="490" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="14" fill="#1A1A1A">FoM = timing_w &middot; WNS + area_w &middot; area + power_w &middot; power</text>
+          <text x="360" y="510" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">nearest-value snap on each proposal &middot; greedy refinement with restart-on-regression</text>
+        </svg>
+      </div>
+      <div class="stack-md">
+        <ul class="bullets tight">
+          <li><strong>Same greedy shape</strong> as analog &mdash; Propose &rarr; Map &rarr; Evaluate &rarr; Score &rarr; Log &rarr; Iterate.</li>
+          <li><strong>Discrete space.</strong> density &isin; {60, 65, 70}, clock &isin; {50, 40, 30} ns, PDN pitch &isin; {4, 6, 8}.</li>
+          <li><strong>Budget 5</strong> by default. Each eval = full LibreLane run.</li>
+          <li><strong>FoM:</strong> weighted timing (WNS), area, power.</li>
+        </ul>
+        <div>
+          <div class="label">Constructor &middot; backends accepted</div>
+          <div class="code-block sm" style="margin-top: 10px;"><span class="c-fn">DigitalAutoresearchRunner</span>(
+  design=<span class="c-fn">design</span>,
+  backend=<span class="c-str">"opencode"</span>,
+  <span class="c-com"># adk | cc_cli | litellm | opencode</span>
+  budget=<span class="c-num">5</span>,
+)</div>
+        </div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 04 &middot; autoresearch</span></div>
+  </section>
+
+  <!-- 20 Four backends overview -->
+  <section data-label="20 Four backends" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 4 &middot; autoresearch</span><span class="rule"></span><span>20 / 42</span></div>
+    <h2 class="slide-title">Four backends, one runner</h2>
+    <div class="title-rule"></div>
+    <div class="backend-grid">
+      <div class="backend-mini bm-adk">
+        <div class="bm-name">adk</div>
+        <div class="bm-desc">Google ADK runner. 5-agent tree, locked-down tool sets. CI-friendly.</div>
+      </div>
+      <div class="backend-mini bm-cc">
+        <div class="bm-name">cc_cli</div>
+        <div class="bm-desc">claude --print --output-format json. Anthropic subscription.</div>
+      </div>
+      <div class="backend-mini bm-ll">
+        <div class="bm-name">litellm</div>
+        <div class="bm-desc">Plain LiteLLM API call. No CLI, no agent hierarchy. Deterministic + cheap.</div>
+      </div>
+      <div class="backend-mini bm-oc">
+        <div class="bm-name">opencode</div>
+        <div class="bm-desc">opencode run --format json. Multi-provider: Anthropic, OpenAI, Gemini, Z.AI, Ollama.</div>
+      </div>
+    </div>
+    <div class="card thick" style="margin-top: 40px; border-left-color: var(--accent);">
+      <div class="label" style="color: var(--accent);">Backend choice is a string</div>
+      <div style="font: 400 24px/1.5 var(--font-mono); color: var(--paper-ink); margin-top: 10px;">
+        <span class="c-fn">DigitalAutoresearchRunner</span>(design, backend=<span class="c-str">"opencode"</span>, opencode_model=<span class="c-str">"openrouter/google/gemini-3-flash-preview"</span>)
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 04 &middot; autoresearch</span></div>
+  </section>
+
+  <!-- 21 OpenCodeHarness -->
+  <section data-label="21 OC harness" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 4 &middot; autoresearch</span><span class="rule"></span><span>21 / 42</span></div>
+    <h2 class="slide-title"><span class="code">OpenCodeHarness</span> &mdash; the plumbing</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 24px;">
+      <svg viewBox="0 0 1600 580" width="100%" style="max-width: 1600px;">
+        <defs>
+          <marker id="arrHar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#D147BD"/>
+          </marker>
+          <marker id="arrHarG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#83C167"/>
+          </marker>
+        </defs>
+
+        <!-- row labels -->
+        <text x="40"   y="40" font-family="Ubuntu Mono, monospace" font-size="12" letter-spacing="0.12em" fill="#6B6358">PYTHON CALLER</text>
+        <text x="420"  y="40" font-family="Ubuntu Mono, monospace" font-size="12" letter-spacing="0.12em" fill="#D147BD">OPENCODE CLI</text>
+        <text x="860"  y="40" font-family="Ubuntu Mono, monospace" font-size="12" letter-spacing="0.12em" fill="#B89100">PARSER</text>
+        <text x="1220" y="40" font-family="Ubuntu Mono, monospace" font-size="12" letter-spacing="0.12em" fill="#2d7a2a">RESULT</text>
+
+        <!-- Python caller box -->
+        <g transform="translate(40, 60)">
+          <rect x="0" y="0" width="280" height="150" rx="8" fill="#FFFFFF" stroke="#4A7BD9" stroke-width="2.5"/>
+          <text x="140" y="34" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="18" font-weight="600" fill="#1A1A1A">Python caller</text>
+          <line x1="20" y1="48" x2="260" y2="48" stroke="#E6E4DC"/>
+          <text x="20" y="78" font-family="Ubuntu Mono, monospace" font-size="12" fill="#1A1A1A">h = OpenCodeHarness(</text>
+          <text x="32" y="96" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">prompt, work_dir,</text>
+          <text x="32" y="112" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">model=..., cli_path=...)</text>
+          <text x="20" y="136" font-family="Ubuntu Mono, monospace" font-size="12" fill="#1A1A1A">await h.run()</text>
+        </g>
+
+        <!-- subprocess.exec arrow -->
+        <text x="370"  y="120" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#D147BD">asyncio.subprocess</text>
+        <text x="370"  y="136" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#D147BD">_exec()</text>
+        <line x1="320" y1="148" x2="420" y2="148" stroke="#D147BD" stroke-width="2" marker-end="url(#arrHar)"/>
+
+        <!-- opencode CLI box -->
+        <g transform="translate(420, 60)">
+          <rect x="0" y="0" width="340" height="150" rx="8" fill="#FFFFFF" stroke="#D147BD" stroke-width="3"/>
+          <text x="170" y="34" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="18" font-weight="600" fill="#1A1A1A">opencode run</text>
+          <line x1="20" y1="48" x2="320" y2="48" stroke="#E6E4DC"/>
+          <text x="170" y="78" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" fill="#D147BD">--format json</text>
+          <text x="170" y="98" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" fill="#D147BD">--dir &lt;work_dir&gt;</text>
+          <text x="170" y="118" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" fill="#D147BD">-m &lt;provider/model&gt;</text>
+          <text x="170" y="140" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">prompt as positional arg</text>
+        </g>
+
+        <!-- ndjson event stream: wiggly line inside the 100px gap; label BELOW the main row -->
+        <path d="M 765,130 L 855,130 L 765,150 L 855,150 L 765,170 L 855,170 L 765,190 L 855,190"
+              fill="none" stroke="#D147BD" stroke-width="1.5"/>
+        <line x1="855" y1="148" x2="862" y2="148" stroke="#D147BD" stroke-width="2" marker-end="url(#arrHar)"/>
+        <text x="810" y="240" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" letter-spacing="0.12em" fill="#D147BD">NDJSON EVENT STREAM</text>
+        <text x="810" y="258" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">one JSON object per line</text>
+
+        <!-- parser box -->
+        <g transform="translate(860, 60)">
+          <rect x="0" y="0" width="260" height="150" rx="8" fill="#FFFFFF" stroke="#FFE14B" stroke-width="2.5"/>
+          <text x="130" y="34" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="18" font-weight="600" fill="#1A1A1A">_parse_events</text>
+          <line x1="20" y1="48" x2="240" y2="48" stroke="#E6E4DC"/>
+          <text x="20" y="78" font-family="Ubuntu Mono, monospace" font-size="12" fill="#1A1A1A">assistant text</text>
+          <text x="20" y="98" font-family="Ubuntu Mono, monospace" font-size="12" fill="#1A1A1A">cost &middot; tokens</text>
+          <text x="20" y="118" font-family="Ubuntu Mono, monospace" font-size="12" fill="#1A1A1A">tool calls</text>
+          <text x="20" y="140" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">static @ line 198</text>
+        </g>
+
+        <!-- arrow to HarnessResult -->
+        <line x1="1120" y1="148" x2="1220" y2="148" stroke="#83C167" stroke-width="2" marker-end="url(#arrHarG)"/>
+
+        <!-- HarnessResult box -->
+        <g transform="translate(1220, 60)">
+          <rect x="0" y="0" width="340" height="150" rx="8" fill="#FFFFFF" stroke="#83C167" stroke-width="2.5"/>
+          <text x="170" y="34" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="18" font-weight="600" fill="#1A1A1A">HarnessResult</text>
+          <line x1="20" y1="48" x2="320" y2="48" stroke="#E6E4DC"/>
+          <text x="20" y="78" font-family="Ubuntu Mono, monospace" font-size="12" fill="#1A1A1A">text: str</text>
+          <text x="20" y="98" font-family="Ubuntu Mono, monospace" font-size="12" fill="#1A1A1A">total_cost_usd: float</text>
+          <text x="20" y="118" font-family="Ubuntu Mono, monospace" font-size="12" fill="#1A1A1A">model_usage: dict</text>
+          <text x="20" y="140" font-family="Ubuntu Mono, monospace" font-size="11" fill="#2d7a2a">== ClaudeCodeHarness result</text>
+        </g>
+
+        <!-- divider between main flow and provider dropdown -->
+        <line x1="40" y1="280" x2="1560" y2="280" stroke="#E6E4DC" stroke-dasharray="4 4"/>
+
+        <!-- provider dropdown: well below the boxes, no overlap -->
+        <text x="590" y="320" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" letter-spacing="0.12em" fill="#6B6358">-m &lt;PROVIDER/MODEL&gt;  &middot;  PICKED PER CALL, NOT PINNED IN AGENT</text>
+        <g transform="translate(230, 340)">
+          <rect x="0" y="0" width="1140" height="150" rx="8" fill="#FAFAF7" stroke="#E6E4DC" stroke-width="1.5"/>
+          <!-- 6 provider rows in two columns -->
+          <g font-family="Ubuntu Mono, monospace" font-size="13" fill="#1A1A1A">
+            <text x="30"  y="36">anthropic/claude-sonnet-4-6</text>
+            <text x="30"  y="66">openrouter/google/gemini-3-flash</text>
+            <text x="30"  y="96">openai/gpt-5-mini</text>
+            <text x="580" y="36">zai-coding-plan/glm-5.1</text>
+            <text x="580" y="66">google/gemini-2.5-pro</text>
+            <text x="580" y="96">ollama/llama3.1  <tspan fill="#6B6358">(local)</tspan></text>
+          </g>
+          <line x1="560" y1="24" x2="560" y2="126" stroke="#E6E4DC"/>
+          <text x="570" y="140" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358" letter-spacing="0.08em">SAME HARNESS &middot; SWAP PROVIDER BY STRING</text>
+        </g>
+
+        <!-- caption: well below everything, no overlap -->
+        <text x="800" y="540" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="15" font-style="italic" fill="#6B6358">
+          ~263 LOC at <tspan font-family="Ubuntu Mono, monospace" font-style="normal" fill="#1A1A1A">src/eda_agents/agents/opencode_harness.py</tspan>
+        </text>
+        <text x="800" y="562" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="14" font-style="italic" fill="#6B6358">
+          returns the shared HarnessResult so agent code is backend-agnostic
+        </text>
+      </svg>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 04 &middot; autoresearch</span></div>
+  </section>
+
+  <!-- 22 ProjectManager caveat -->
+  <section data-label="22 PM caveat" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 4 &middot; autoresearch</span><span class="rule"></span><span>22 / 42</span></div>
+    <h2 class="slide-title">Caveat &mdash; <span class="code">ProjectManager</span> vs OpenCode</h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div class="card thick" style="border-left-color: var(--pdk-m3);">
+        <div class="label" style="color: var(--pdk-m3);">ProjectManager today</div>
+        <div style="font: 400 24px/1.5 var(--font-serif); margin-top: 8px;">
+          Accepts <span class="mono">backend=<span style="color: var(--pdk-diff-n);">"adk"</span></span> or <span class="mono">backend=<span style="color: var(--pdk-m3);">"cc_cli"</span></span>. Raises <span class="mono">ValueError</span> on anything else. This is deliberate phasing, not an oversight.
+        </div>
+      </div>
+      <div class="card thick" style="border-left-color: var(--hi-pink);">
+        <div class="label" style="color: var(--hi-pink);">OpenCode path today</div>
+        <div style="font: 400 24px/1.5 var(--font-serif); margin-top: 8px;">
+          <strong>End-to-end RTL-to-GDS via OpenCode:</strong><br>
+          <span class="mono">opencode --agent gf180-docker-digital</span> in the TUI.<br>
+          <strong>Knob-search autoresearch via OpenCode:</strong><br>
+          <span class="mono">DigitalAutoresearchRunner(backend="opencode")</span> in Python.
+        </div>
+      </div>
+    </div>
+    <div style="margin-top: 40px; font: italic 400 22px/1.4 var(--font-serif); color: var(--paper-muted);">
+      Wiring OpenCode into the ProjectManager multi-agent tree is planned; see <span class="mono" style="color: var(--paper-ink);">docs/s12_handoffs/s12d_opencode_wrapper.md</span>.
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 04 &middot; autoresearch</span></div>
+  </section>
+
+  <!-- 23 Part 5 divider -->
+  <section data-label="23 Part 5" class="section-divider">
+    <div class="sec-num">Part 05</div>
+    <h2 class="sec-title">GenericDesign<br>&mdash; zero Python class</h2>
+    <div class="sec-rule" style="background: var(--pdk-m3);"></div>
+    <p class="sec-sub">Any LibreLane config becomes a 13-method DigitalDesign in two lines.</p>
+    <div class="sec-brand"><img src="assets/logo-wordmark.svg" alt="OpenSilicon Labs"></div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 05 &middot; design wrapper</span></div>
+  </section>
+
+  <!-- 24 GenericDesign concept -->
+  <section data-label="24 Generic" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 5 &middot; design wrapper</span><span class="rule"></span><span>24 / 42</span></div>
+    <h2 class="slide-title"><span class="code">GenericDesign</span> &mdash; what it wraps</h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div class="stack-md">
+        <ul class="bullets tight">
+          <li>Takes a LibreLane <span class="mono">config.yaml</span> path and an optional <span class="mono">pdk_root</span>.</li>
+          <li>Derives the 13 <span class="mono">DigitalDesign</span> methods the agents expect: project_name, specs_description, fom_description, validate_clone, etc.</li>
+          <li>Supports <strong>FoM weight overrides</strong> without subclassing.</li>
+          <li>Source: <span class="mono" style="color: var(--paper-ink);">src/eda_agents/core/designs/generic.py</span>.</li>
+        </ul>
+      </div>
+      <div>
+        <div class="label">Instantiation</div>
+        <div class="code-block sm" style="margin-top: 10px;"><span class="c-key">from</span> eda_agents.core.designs.generic <span class="c-key">import</span> GenericDesign
+
+design = <span class="c-fn">GenericDesign</span>(
+    config_path=<span class="c-str">"./counter_project/config.yaml"</span>,
+    pdk_root=<span class="c-key">None</span>,          <span class="c-com"># falls back to $PDK_ROOT</span>
+    pdk_config=<span class="c-str">"gf180mcu"</span>,
+    fom_weights={<span class="c-str">"timing_w"</span>: <span class="c-num">1.0</span>,
+                 <span class="c-str">"area_w"</span>:   <span class="c-num">0.5</span>,
+                 <span class="c-str">"power_w"</span>:  <span class="c-num">0.3</span>},
+)</div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 05 &middot; design wrapper</span></div>
+  </section>
+
+  <!-- 25 GenericDesign hand-off -->
+  <section data-label="25 Generic handoff" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 5 &middot; design wrapper</span><span class="rule"></span><span>25 / 42</span></div>
+    <h2 class="slide-title">Generic &rarr; ProjectManager &rarr; flow</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 40px;">
+      <div class="code-block"><span class="c-key">import</span> asyncio
+<span class="c-key">from</span> eda_agents.core.designs.generic <span class="c-key">import</span> GenericDesign
+<span class="c-key">from</span> eda_agents.agents.digital_adk_agents <span class="c-key">import</span> ProjectManager
+
+design = <span class="c-fn">GenericDesign</span>(config_path=<span class="c-str">"./counter_project/config.yaml"</span>,
+                        pdk_config=<span class="c-str">"gf180mcu"</span>)
+
+pm = <span class="c-fn">ProjectManager</span>(design=design, model=<span class="c-str">"google/gemini-3-flash-preview"</span>,
+                    backend=<span class="c-str">"cc_cli"</span>, max_budget_usd=<span class="c-num">1.00</span>)
+
+<span class="c-com"># Dry-run first (safe, no Docker, no LLM)</span>
+result = asyncio.<span class="c-fn">run</span>(pm.<span class="c-fn">run</span>(Path(<span class="c-str">"./results"</span>), dry_run=<span class="c-key">True</span>))
+
+<span class="c-com"># Real run when ready</span>
+result = asyncio.<span class="c-fn">run</span>(pm.<span class="c-fn">run</span>(Path(<span class="c-str">"./results"</span>)))</div>
+    </div>
+    <div style="margin-top: 36px; font: italic 400 22px/1.4 var(--font-serif); color: var(--paper-muted);">
+      This is the entire glue. No registry to edit, no bespoke Python class. Works for any LibreLane-compatible design.
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 05 &middot; design wrapper</span></div>
+  </section>
+
+  <!-- 26 Explicit DigitalDesign subclass -->
+  <section data-label="26 Explicit DD" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 5 &middot; design wrapper</span><span class="rule"></span><span>26 / 42</span></div>
+    <h2 class="slide-title">When to subclass <span class="code">DigitalDesign</span> explicitly</h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div class="stack-md">
+        <ul class="bullets tight">
+          <li><strong>Design fetch hooks</strong> &mdash; nix-shell, submodule update, git-lfs, custom RTL generators.</li>
+          <li><strong>Pre-flow RTL prep</strong> &mdash; Verilog generation from templates, parameter sweeps.</li>
+          <li><strong>Post-flow metric extraction</strong> &mdash; custom metrics beyond metrics.csv.</li>
+          <li><strong>Multi-macro designs</strong> &mdash; when one config does not cover the whole project.</li>
+        </ul>
+      </div>
+      <div class="card thick" style="border-left-color: var(--pdk-m3);">
+        <div class="label" style="color: var(--pdk-m3);">Shipped examples</div>
+        <div style="font: 400 22px/1.5 var(--font-serif); margin-top: 8px;">
+          <span class="mono">fazyrv_hachure.py</span> &mdash; GF180 RISC-V SoC, uses nix-shell.<br>
+          <span class="mono">systolic_mac_dft.py</span> &mdash; CI fixture, simpler.<br>
+          Both at <span class="mono" style="color: var(--paper-ink);">src/eda_agents/core/designs/</span>. ~150 lines each &mdash; explicit is small.
+        </div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 05 &middot; design wrapper</span></div>
+  </section>
+
+  <!-- 27 Part 6 divider -->
+  <section data-label="27 Part 6" class="section-divider">
+    <div class="sec-num">Part 06</div>
+    <h2 class="sec-title">Three CLI runtimes</h2>
+    <div class="sec-rule" style="background: var(--pdk-m3);"></div>
+    <p class="sec-sub">Same agents, same skills. Claude Code, OpenCode, or direct Python &mdash; pick by subscription and mode.</p>
+    <div class="sec-brand"><img src="assets/logo-wordmark.svg" alt="OpenSilicon Labs"></div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 06 &middot; runtimes</span></div>
+  </section>
+
+  <!-- 28 Claude Code digital -->
+  <section data-label="28 Claude Code" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 6 &middot; runtimes</span><span class="rule"></span><span>28 / 42</span></div>
+    <h2 class="slide-title">Claude Code &mdash; <span class="code">claude --print</span></h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div class="stack-md">
+        <ul class="bullets tight">
+          <li><strong>Subscription:</strong> Anthropic only.</li>
+          <li><strong>Interactive:</strong> <span class="mono">/agents gf180-docker-digital</span> inside a Claude Code session.</li>
+          <li><strong>Headless:</strong> <span class="mono">claude --print --output-format json</span> wrapped by <span class="mono">ClaudeCodeHarness</span> in Python.</li>
+          <li><strong>Safety:</strong> <span class="mono">--dangerously-skip-permissions</span> is double-gated &mdash; constructor + env var.</li>
+        </ul>
+      </div>
+      <div>
+        <div class="label">MCP registration</div>
+        <div class="code-block sm" style="margin-top: 10px;"><span class="c-com"># ~/.config/claude-code/mcp.json</span>
+{<span class="c-key">"mcpServers"</span>: {
+  <span class="c-key">"eda-agents"</span>: {
+    <span class="c-key">"type"</span>: <span class="c-str">"stdio"</span>,
+    <span class="c-key">"command"</span>: <span class="c-str">"eda-mcp"</span>
+}}}</div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 06 &middot; runtimes</span></div>
+  </section>
+
+  <!-- 29 OpenCode digital -->
+  <section data-label="29 OpenCode" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 6 &middot; runtimes</span><span class="rule"></span><span>29 / 42</span></div>
+    <h2 class="slide-title">OpenCode &mdash; one CLI, five agents, any provider</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 24px; display: flex; align-items: center; justify-content: center;">
+      <!-- 3-layer architecture: invocation -> .opencode/agent/ -> providers -->
+      <svg viewBox="0 0 1500 560" width="100%" style="max-width: 1500px;">
+        <defs>
+          <marker id="arrOC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#D147BD"/>
+          </marker>
+        </defs>
+
+        <!-- Layer 1: user invocations -->
+        <g transform="translate(60, 20)">
+          <rect x="0" y="0" width="1380" height="90" rx="8" fill="#FAFAF7" stroke="#E6E4DC" stroke-width="1.5"/>
+          <text x="24" y="26" font-family="Ubuntu Mono, monospace" font-size="11" letter-spacing="0.08em" fill="#6B6358">INVOCATION LAYER</text>
+          <g font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">
+            <rect x="40" y="42" width="360" height="36" rx="4" fill="#FFFFFF" stroke="#D147BD" stroke-width="1.5"/>
+            <text x="56" y="66">opencode --agent gf180-docker-digital</text>
+            <text x="380" y="30" text-anchor="end" font-size="10" fill="#D147BD">TUI</text>
+
+            <rect x="440" y="42" width="460" height="36" rx="4" fill="#FFFFFF" stroke="#D147BD" stroke-width="1.5"/>
+            <text x="456" y="66">opencode run --agent &lt;name&gt; --format json</text>
+            <text x="880" y="30" text-anchor="end" font-size="10" fill="#D147BD">headless</text>
+
+            <rect x="940" y="42" width="400" height="36" rx="4" fill="#FFFFFF" stroke="#D147BD" stroke-width="1.5"/>
+            <text x="956" y="66">DigitalAutoresearchRunner(backend="opencode")</text>
+            <text x="1320" y="30" text-anchor="end" font-size="10" fill="#D147BD">Python</text>
+          </g>
+        </g>
+
+        <!-- 3 arrows down into the agent roster -->
+        <line x1="230" y1="110" x2="230" y2="170" stroke="#D147BD" stroke-width="1.5" marker-end="url(#arrOC)"/>
+        <line x1="670" y1="110" x2="670" y2="170" stroke="#D147BD" stroke-width="1.5" marker-end="url(#arrOC)"/>
+        <line x1="1140" y1="110" x2="1140" y2="170" stroke="#D147BD" stroke-width="1.5" marker-end="url(#arrOC)"/>
+
+        <!-- Layer 2: .opencode/agent/ roster -->
+        <g transform="translate(60, 180)">
+          <rect x="0" y="0" width="1380" height="170" rx="8" fill="#FAFAF7" stroke="#D147BD" stroke-width="2.5"/>
+          <text x="24" y="26" font-family="Ubuntu Mono, monospace" font-size="11" letter-spacing="0.08em" fill="#D147BD">.opencode/agent/*.md &middot; CURATED ROSTER</text>
+
+          <g font-family="Ubuntu Mono, monospace" font-size="13" fill="#1A1A1A">
+            <rect x="28" y="50"  width="245" height="100" rx="4" fill="#FFFFFF" stroke="#83C167" stroke-width="1.5"/>
+            <text x="150" y="76" text-anchor="middle" font-weight="600">analog-topology-recommender</text>
+            <text x="150" y="98" text-anchor="middle" font-size="11" fill="#6B6358">NL spec &rarr; topology JSON</text>
+            <text x="150" y="130" text-anchor="middle" font-size="11" fill="#2d7a2a" letter-spacing="0.05em">SKILL: analog.idea_to_topology</text>
+
+            <rect x="293" y="50"  width="245" height="100" rx="4" fill="#FFFFFF" stroke="#83C167" stroke-width="1.5"/>
+            <text x="415" y="76" text-anchor="middle" font-weight="600">analog-sizing-advisor</text>
+            <text x="415" y="98" text-anchor="middle" font-size="11" fill="#6B6358">gm/ID + autoresearch</text>
+            <text x="415" y="130" text-anchor="middle" font-size="11" fill="#2d7a2a" letter-spacing="0.05em">SKILL: analog.gmid_sizing</text>
+
+            <rect x="558" y="50"  width="245" height="100" rx="4" fill="#FFFFFF" stroke="#4A7BD9" stroke-width="1.5"/>
+            <text x="680" y="76" text-anchor="middle" font-weight="600">digital-testbench-author</text>
+            <text x="680" y="98" text-anchor="middle" font-size="11" fill="#6B6358">cocotb TB, 3-sim discipline</text>
+            <text x="680" y="130" text-anchor="middle" font-size="11" fill="#4A7BD9" letter-spacing="0.05em">SKILL: digital.cocotb_testbench</text>
+
+            <rect x="823" y="50"  width="245" height="100" rx="4" fill="#FFFFFF" stroke="#4A7BD9" stroke-width="1.5"/>
+            <text x="945" y="76" text-anchor="middle" font-weight="600">gf180-docker-digital</text>
+            <text x="945" y="98" text-anchor="middle" font-size="11" fill="#6B6358">RTL-to-GDS via docker exec</text>
+            <text x="945" y="130" text-anchor="middle" font-size="11" fill="#4A7BD9" letter-spacing="0.05em">SKILL: flow.rtl2gds_gf180_docker</text>
+
+            <rect x="1088" y="50" width="262" height="100" rx="4" fill="#FFFFFF" stroke="#FF862F" stroke-width="1.5"/>
+            <text x="1219" y="76" text-anchor="middle" font-weight="600">gf180-docker-analog</text>
+            <text x="1219" y="98" text-anchor="middle" font-size="11" fill="#6B6358">analog signoff via docker exec</text>
+            <text x="1219" y="130" text-anchor="middle" font-size="11" fill="#FF862F" letter-spacing="0.05em">SKILL: flow.analog_signoff_gf180</text>
+          </g>
+        </g>
+
+        <!-- arrow down to providers -->
+        <line x1="750" y1="350" x2="750" y2="410" stroke="#D147BD" stroke-width="1.5" marker-end="url(#arrOC)"/>
+        <text x="780" y="390" font-family="Ubuntu Mono, monospace" font-size="12" fill="#D147BD">-m provider/model (per call, not pinned in agent)</text>
+
+        <!-- Layer 3: providers -->
+        <g transform="translate(60, 420)">
+          <rect x="0" y="0" width="1380" height="120" rx="8" fill="#FAFAF7" stroke="#E6E4DC" stroke-width="1.5"/>
+          <text x="24" y="26" font-family="Ubuntu Mono, monospace" font-size="11" letter-spacing="0.08em" fill="#6B6358">PROVIDER LAYER &middot; PICK AT CALL TIME</text>
+
+          <g font-family="Ubuntu Mono, monospace" font-size="12" fill="#1A1A1A">
+            <rect x="24"  y="44" width="180" height="56" rx="4" fill="#FFFFFF" stroke="#FC6255"/>
+            <text x="114" y="68" text-anchor="middle" font-weight="600">anthropic/</text>
+            <text x="114" y="88" text-anchor="middle" font-size="11" fill="#CF5044">claude-sonnet-4-6</text>
+
+            <rect x="216" y="44" width="180" height="56" rx="4" fill="#FFFFFF" stroke="#4FB04B"/>
+            <text x="306" y="68" text-anchor="middle" font-weight="600">openai/</text>
+            <text x="306" y="88" text-anchor="middle" font-size="11" fill="#2d7a2a">gpt-5-mini</text>
+
+            <rect x="408" y="44" width="220" height="56" rx="4" fill="#FFFFFF" stroke="#4A7BD9"/>
+            <text x="518" y="68" text-anchor="middle" font-weight="600">openrouter/</text>
+            <text x="518" y="88" text-anchor="middle" font-size="11" fill="#4A7BD9">google/gemini-3-flash</text>
+
+            <rect x="640" y="44" width="220" height="56" rx="4" fill="#FFFFFF" stroke="#9A72AC"/>
+            <text x="750" y="68" text-anchor="middle" font-weight="600">zai-coding-plan/</text>
+            <text x="750" y="88" text-anchor="middle" font-size="11" fill="#9A72AC">glm-5.1</text>
+
+            <rect x="872" y="44" width="180" height="56" rx="4" fill="#FFFFFF" stroke="#29ABCA"/>
+            <text x="962" y="68" text-anchor="middle" font-weight="600">ollama/</text>
+            <text x="962" y="88" text-anchor="middle" font-size="11" fill="#29ABCA">local, no network</text>
+
+            <rect x="1064" y="44" width="170" height="56" rx="4" fill="#FFFFFF" stroke="#FF862F"/>
+            <text x="1149" y="68" text-anchor="middle" font-weight="600">google/</text>
+            <text x="1149" y="88" text-anchor="middle" font-size="11" fill="#FF862F">gemini-2.5-pro</text>
+
+            <rect x="1246" y="44" width="110" height="56" rx="4" fill="#FFFFFF" stroke="#F0AC5F"/>
+            <text x="1301" y="68" text-anchor="middle" font-weight="600">cursor/</text>
+            <text x="1301" y="88" text-anchor="middle" font-size="11" fill="#9a7d00">windsurf/</text>
+          </g>
+        </g>
+      </svg>
+    </div>
+    <div style="margin-top: 12px; font: italic 400 22px/1.4 var(--font-serif); color: var(--paper-muted); max-width: 1700px; text-align: center;">
+      Same 5-agent surface (mirror of <span class="mono" style="color: var(--paper-ink);">.claude/agents/</span>) &middot; provider picked per call with <span class="mono">-m</span> &middot; MCP wired via <span class="mono">./opencode.json</span> at the repo root.
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 06 &middot; runtimes</span></div>
+  </section>
+
+  <!-- 30 ADK / Python -->
+  <section data-label="30 Python" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 6 &middot; runtimes</span><span class="rule"></span><span>30 / 42</span></div>
+    <h2 class="slide-title">Direct Python &mdash; ADK / DigitalAutoresearchRunner</h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div class="stack-md">
+        <ul class="bullets tight">
+          <li><strong>No CLI, no TUI.</strong> Import, construct, await.</li>
+          <li><strong>Deterministic:</strong> the model string is pinned in code.</li>
+          <li><strong>CI-friendly:</strong> no user-in-the-loop approvals.</li>
+          <li>This is the path <span class="mono">examples/09_rtl2gds_digital.py</span> takes with <span class="mono">--backend adk</span>.</li>
+        </ul>
+      </div>
+      <div>
+        <div class="label">Typical invocation</div>
+        <div class="code-block sm" style="margin-top: 10px;"><span class="c-com"># CI: ProjectManager over ADK</span>
+<span class="c-key">from</span> eda_agents.agents.digital_adk_agents <span class="c-key">import</span> ProjectManager
+
+pm = <span class="c-fn">ProjectManager</span>(design=design,
+                    backend=<span class="c-str">"adk"</span>,
+                    model=<span class="c-str">"google/gemini-3-flash-preview"</span>)
+result = <span class="c-key">await</span> pm.<span class="c-fn">run</span>(Path(<span class="c-str">"./ci_results"</span>))
+
+<span class="c-com"># Greedy knob search with any of 4 backends</span>
+runner = <span class="c-fn">DigitalAutoresearchRunner</span>(
+    design=design, backend=<span class="c-str">"opencode"</span>,
+    opencode_model=<span class="c-str">"openrouter/google/gemini-3-flash-preview"</span>,
+    budget=<span class="c-num">5</span>,
+)</div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 06 &middot; runtimes</span></div>
+  </section>
+
+  <!-- 31 Runtime comparison table -->
+  <section data-label="31 Runtime table" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 6 &middot; runtimes</span><span class="rule"></span><span>31 / 42</span></div>
+    <h2 class="slide-title">Runtime comparison &mdash; which one should you use?</h2>
+    <div class="title-rule"></div>
+    <table class="data" style="margin-top: 48px;">
+      <thead>
+        <tr><th></th><th>Claude Code</th><th>OpenCode</th><th>ADK / Python</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Subscription</strong></td><td>Anthropic</td><td class="mono">any provider</td><td>any LiteLLM key</td></tr>
+        <tr><td><strong>Interactive</strong></td><td class="mono">/agents &lt;name&gt;</td><td class="mono">opencode --agent</td><td>&mdash;</td></tr>
+        <tr><td><strong>Headless</strong></td><td class="mono">claude --print</td><td class="mono">opencode run</td><td>Python import</td></tr>
+        <tr><td><strong>Python wrapper</strong></td><td class="mono">ClaudeCodeHarness</td><td class="mono">OpenCodeHarness</td><td>native</td></tr>
+        <tr><td><strong>ProjectManager</strong></td><td>yes</td><td style="color: var(--hi-orange);">TUI only</td><td>yes</td></tr>
+        <tr><td><strong>DigitalAutoresearchRunner</strong></td><td>yes</td><td>yes</td><td>yes</td></tr>
+        <tr><td><strong>Typical use</strong></td><td>Claude subscribers</td><td>cheap exploration</td><td>CI + benchmarks</td></tr>
+      </tbody>
+    </table>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 06 &middot; runtimes</span></div>
+  </section>
+
+  <!-- 32 Part 7 divider -->
+  <section data-label="32 Part 7" class="section-divider">
+    <div class="sec-num">Part 07</div>
+    <h2 class="sec-title">Skills + MCP</h2>
+    <div class="sec-rule" style="background: var(--pdk-m3);"></div>
+    <p class="sec-sub">How every backend talks to the same stack.</p>
+    <div class="sec-brand"><img src="assets/logo-wordmark.svg" alt="OpenSilicon Labs"></div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 07 &middot; skills</span></div>
+  </section>
+
+  <!-- 33 digital.* namespace -->
+  <section data-label="33 Digital skills" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 7 &middot; skills</span><span class="rule"></span><span>33 / 42</span></div>
+    <h2 class="slide-title">The <span class="code">digital.*</span> namespace</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 48px; display: grid; grid-template-columns: 1fr 1fr; gap: 56px;">
+      <div class="skill-col">
+        <h4 style="color: var(--pdk-m3);">one per role</h4>
+        <ul>
+          <li>digital.project_manager</li>
+          <li>digital.verification</li>
+          <li>digital.synthesis</li>
+          <li>digital.physical</li>
+          <li>digital.signoff</li>
+        </ul>
+      </div>
+      <div class="skill-col">
+        <h4 style="color: var(--pdk-m3);">craft + critique</h4>
+        <ul>
+          <li>digital.cocotb_testbench</li>
+          <li>digital.critique_sim_failure</li>
+          <li>digital.critique_synth_lint</li>
+        </ul>
+      </div>
+    </div>
+    <div style="margin-top: 40px; font: italic 400 22px/1.4 var(--font-serif); color: var(--paper-muted);">
+      Source: <span class="mono" style="color: var(--paper-ink);">src/eda_agents/skills/digital.py</span>. Each skill is a decorator-registered Markdown template; the MCP server renders on demand.
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 07 &middot; skills</span></div>
+  </section>
+
+  <!-- 34 flow.* namespace -->
+  <section data-label="34 Flow skills" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 7 &middot; skills</span><span class="rule"></span><span>34 / 42</span></div>
+    <h2 class="slide-title">The <span class="code">flow.*</span> namespace &mdash; cross-domain bridges</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 48px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 28px;">
+      <div class="card">
+        <div class="label" style="color: var(--accent);">runner</div>
+        <ul class="bullets tight" style="margin-top: 10px;">
+          <li><span class="mono">flow.runner</span> &mdash; generic LibreLane driver.</li>
+          <li><span class="mono">flow.rtl2gds_gf180_docker</span> &mdash; full GF180 recipe.</li>
+          <li><span class="mono">flow.analog_signoff_gf180_docker</span> &mdash; analog counterpart.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="label" style="color: var(--accent);">checkers</div>
+        <ul class="bullets tight" style="margin-top: 10px;">
+          <li><span class="mono">flow.drc_checker</span> &mdash; Magic or KLayout.</li>
+          <li><span class="mono">flow.lvs_checker</span> &mdash; Netgen.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="label" style="color: var(--accent);">fixers</div>
+        <ul class="bullets tight" style="margin-top: 10px;">
+          <li><span class="mono">flow.drc_fixer</span> &mdash; propose targeted fix, not blanket retry.</li>
+        </ul>
+      </div>
+    </div>
+    <div style="margin-top: 36px; font: italic 400 22px/1.4 var(--font-serif); color: var(--paper-muted);">
+      A DRC skill does not care whether the failed block is analog or digital &mdash; it reads the violation, suggests the fix. That's why these live outside either namespace.
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 07 &middot; skills</span></div>
+  </section>
+
+  <!-- 35 MCP registration -->
+  <section data-label="35 MCP" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 7 &middot; skills</span><span class="rule"></span><span>35 / 42</span></div>
+    <h2 class="slide-title">MCP registration &mdash; one server, two clients</h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div>
+        <div class="label">Claude Code &middot; <span class="mono">~/.config/claude-code/mcp.json</span></div>
+        <div class="code-block sm" style="margin-top: 10px;">{<span class="c-key">"mcpServers"</span>: {
+  <span class="c-key">"eda-agents"</span>: {
+    <span class="c-key">"type"</span>: <span class="c-str">"stdio"</span>,
+    <span class="c-key">"command"</span>: <span class="c-str">"eda-mcp"</span>
+  }
+}}</div>
+      </div>
+      <div>
+        <div class="label">OpenCode &middot; <span class="mono">./opencode.json</span></div>
+        <div class="code-block sm" style="margin-top: 10px;">{<span class="c-key">"$schema"</span>: <span class="c-str">"https://opencode.ai/config.json"</span>,
+ <span class="c-key">"mcp"</span>: {<span class="c-key">"eda-agents"</span>: {
+    <span class="c-key">"type"</span>: <span class="c-str">"local"</span>,
+    <span class="c-key">"command"</span>: [<span class="c-str">".venv/bin/python"</span>,
+                <span class="c-str">"-m"</span>, <span class="c-str">"eda_agents.mcp"</span>]
+ }}}</div>
+      </div>
+    </div>
+    <div class="card thick" style="margin-top: 40px; border-left-color: var(--accent);">
+      <div class="label" style="color: var(--accent);">Bootstrap</div>
+      <div style="font: 400 24px/1.5 var(--font-serif); margin-top: 8px;">
+        <span class="mono">eda-init</span> writes both files plus the <span class="mono">.opencode/agent/</span> roster. Run it once after you clone.
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 07 &middot; skills</span></div>
+  </section>
+
+  <!-- 36 Part 8 divider -->
+  <section data-label="36 Part 8" class="section-divider">
+    <div class="sec-num">Part 08</div>
+    <h2 class="sec-title">Demos &middot; run it<br>yourself</h2>
+    <div class="sec-rule" style="background: var(--pdk-m3);"></div>
+    <p class="sec-sub">Two notebooks. Safe defaults. Same 4-bit counter on GF180MCU.</p>
+    <div class="sec-brand"><img src="assets/logo-wordmark.svg" alt="OpenSilicon Labs"></div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 08 &middot; demo</span></div>
+  </section>
+
+  <!-- 37 counter notebook -->
+  <section data-label="37 Counter nb" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 8 &middot; demo</span><span class="rule"></span><span>37 / 42</span></div>
+    <h2 class="slide-title">Demo 1 &mdash; <span class="code">agents_rtl2gds_counter.ipynb</span></h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div>
+        <div class="label">Six steps</div>
+        <ol style="font: 400 24px/1.5 var(--font-serif); margin-top: 14px; padding-left: 28px;">
+          <li>Editable install &mdash; <span class="mono">pip install -e .</span></li>
+          <li>Docker + GF180 image + CLI + API-key check</li>
+          <li>Stage <span class="mono">counter.v</span> + <span class="mono">config.yaml</span> inline</li>
+          <li>Construct <span class="mono">ProjectManager</span> + dry-run (safe)</li>
+          <li>Full RTL-to-GDS run (gated by <span class="mono">RUN_REAL=True</span>, ~10&ndash;15 min)</li>
+          <li>Read <span class="mono">rtl2gds_results.json</span> + <span class="mono">metrics.csv</span></li>
+        </ol>
+      </div>
+      <div class="card thick" style="border-left-color: var(--pdk-m3);">
+        <div class="label" style="color: var(--pdk-m3);">Same counter as the sibling</div>
+        <div style="font: 400 22px/1.4 var(--font-serif); margin-top: 8px;">
+          Uses identical RTL + <span class="mono">config.yaml</span> as <span class="mono">../../rtl2gds-gf180-docker/demo/rtl2gds_counter.ipynb</span>. One test design, two tutorials.
+        </div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 08 &middot; demo</span></div>
+  </section>
+
+  <!-- 38 autoresearch notebook -->
+  <section data-label="38 AR nb" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 8 &middot; demo</span><span class="rule"></span><span>38 / 42</span></div>
+    <h2 class="slide-title">Demo 2 &mdash; <span class="code">agents_digital_autoresearch.ipynb</span></h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div>
+        <div class="label">What it showcases</div>
+        <ol style="font: 400 24px/1.5 var(--font-serif); margin-top: 14px; padding-left: 28px;">
+          <li><span class="mono">DigitalAutoresearchRunner</span> on the same counter design.</li>
+          <li>Knob sweep over density (60 / 65 / 70) and clock period (50 / 40 / 30 ns).</li>
+          <li>Backend <span class="mono" style="color: var(--hi-pink);">opencode</span> with <span class="mono">-m openrouter/google/gemini-3-flash-preview</span>.</li>
+          <li>Demonstrates resumable runs &mdash; kill the kernel, re-run, the TSV picks up.</li>
+        </ol>
+      </div>
+      <div class="card thick" style="border-left-color: var(--hi-pink);">
+        <div class="label" style="color: var(--hi-pink);">Why OpenCode here</div>
+        <div style="font: 400 22px/1.5 var(--font-serif); margin-top: 8px;">
+          Five LibreLane evaluations at Gemini-Flash-via-OpenRouter prices is well under $0.50. The same run on Sonnet is 10&ndash;20&times; that. Multi-provider is an <em>economic</em> feature for greedy loops.
+        </div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 08 &middot; demo</span></div>
+  </section>
+
+  <!-- 39 Prerequisites summary -->
+  <section data-label="39 Prereqs" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 8 &middot; demo</span><span class="rule"></span><span>39 / 42</span></div>
+    <h2 class="slide-title">Prerequisites summary</h2>
+    <div class="title-rule"></div>
+    <table class="data" style="margin-top: 48px;">
+      <thead>
+        <tr><th>Path</th><th>Install</th><th>Credentials</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Docker flow</strong></td><td class="mono">docker pull hpretl/iic-osic-tools:next</td><td>&mdash;</td></tr>
+        <tr><td><strong>cc_cli backend</strong></td><td class="mono">npm install -g @anthropic-ai/claude-code</td><td>Anthropic subscription</td></tr>
+        <tr><td><strong>opencode backend</strong></td><td class="mono">npm install -g opencode-ai</td><td>any provider key (via -m)</td></tr>
+        <tr><td><strong>ADK backend</strong></td><td class="mono">pip install "eda-agents[adk]"</td><td>LiteLLM-compatible key</td></tr>
+        <tr><td><strong>MCP server</strong></td><td class="mono">pip install -e . &middot; eda-init</td><td>&mdash;</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top: 36px; font: italic 400 22px/1.4 var(--font-serif); color: var(--paper-muted);">
+      All five paths coexist in the same clone. Flip a backend string to switch.
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 08 &middot; demo</span></div>
+  </section>
+
+  <!-- 40 Safety story -->
+  <section data-label="40 Safety" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 8 &middot; demo</span><span class="rule"></span><span>40 / 42</span></div>
+    <h2 class="slide-title">Safety &mdash; notebooks default to rehearse</h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div class="stack-md">
+        <ul class="bullets">
+          <li>Every <span class="mono">RUN_*</span> flag defaults to <span class="mono">False</span>.</li>
+          <li>Opening a notebook runs <strong>no Docker, no LLM, no cost</strong>.</li>
+          <li>Each flip is a deliberate decision. A teaching session can step through the whole story without committing to a paid run.</li>
+          <li>Identical policy on both analog and digital notebooks.</li>
+        </ul>
+      </div>
+      <div class="card thick" style="border-left-color: var(--accent);">
+        <div class="label" style="color: var(--accent);">Budget guard</div>
+        <div style="font: 400 24px/1.5 var(--font-serif); margin-top: 8px;">
+          <span class="mono">ProjectManager(max_budget_usd=1.00)</span> is the hard cap for <span class="mono">cc_cli</span> runs. Exceed it and the flow stops cleanly with a surfaced verdict.
+        </div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 08 &middot; demo</span></div>
+  </section>
+
+  <!-- 41 Starter commands cheatsheet -->
+  <section data-label="41 Cheatsheet" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 8 &middot; demo</span><span class="rule"></span><span>41 / 42</span></div>
+    <h2 class="slide-title">Starter commands &mdash; cheat sheet</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 40px;">
+      <div class="code-block"><span class="c-com"># From the repo root, with venv activated + eda-init already run:</span>
+
+<span class="c-com"># Claude Code &middot; interactive</span>
+/agents gf180-docker-digital
+
+<span class="c-com"># OpenCode &middot; interactive, Gemini Flash via OpenRouter</span>
+opencode --agent gf180-docker-digital \
+  -m openrouter/google/gemini-3-flash-preview
+
+<span class="c-com"># OpenCode &middot; headless, Z.AI GLM-5.1</span>
+opencode run --agent gf180-docker-digital \
+  -m zai-coding-plan/glm-5.1 \
+  <span class="c-str">"Harden counter under ./counter_project/"</span>
+
+<span class="c-com"># Python &middot; greedy knob search via OpenCode backend</span>
+python examples/10_digital_autoresearch.py \
+  --backend opencode \
+  --opencode-model openrouter/google/gemini-3-flash-preview \
+  --design counter_project --budget <span class="c-num">5</span></div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 08 &middot; demo</span></div>
+  </section>
+
+  <!-- 42 End -->
+  <section data-label="42 End" class="end-card">
+    <div class="end-inner">
+      <div class="sec-num" style="color: var(--pdk-m3);">Digital &middot; thank you</div>
+      <h2 class="sec-title">The digital loop<br>is infrastructure.</h2>
+      <div class="sec-rule" style="background: var(--pdk-m3);"></div>
+      <p class="sec-sub" style="color: var(--fg-3);">
+        LibreLane is the flow engine. ProjectManager is the hierarchy. GenericDesign is the entry.<br>
+        Three CLI runtimes. Four backends. One codebase.<br>
+        <span class="mono" style="color: var(--hi-yellow); font-style: normal;">github.com/Mauricio-xx/eda-agents</span> &middot; sibling deck: <span class="mono" style="color: var(--fg-2);">analog.html</span>
+      </p>
+    </div>
+    <div class="end-brand"><img src="assets/logo-wordmark.svg" alt="OpenSilicon Labs"></div>
+  </section>
+
+</deck-stage>
+</body>
+</html>

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" fill="none">
+  <title>OpenSilicon Labs — mark</title>
+  
+  <rect x="24" y="24" width="208" height="208" rx="10" stroke="#DDDDDD" stroke-width="2"></rect>
+  
+  <g fill="#FFE14B">
+    <rect x="16" y="16" width="10" height="10"></rect>
+    <rect x="230" y="16" width="10" height="10"></rect>
+    <rect x="16" y="230" width="10" height="10"></rect>
+    <rect x="230" y="230" width="10" height="10"></rect>
+  </g>
+  
+  <rect x="118" y="48" width="20" height="160" fill="#FC6255" opacity="0.95"></rect>
+  
+  <rect x="48" y="112" width="160" height="32" fill="#83C167" opacity="0.85"></rect>
+  
+  <rect x="176" y="64" width="10" height="128" fill="#58C4DD"></rect>
+  
+  <rect x="64" y="70" width="128" height="8" fill="#4A7BD9"></rect>
+  
+  <rect x="64" y="178" width="128" height="8" fill="#9A72AC"></rect>
+  
+  <g fill="#FFE14B">
+    <circle cx="128" cy="74" r="4"></circle>
+    <circle cx="128" cy="128" r="5"></circle>
+    <circle cx="128" cy="182" r="4"></circle>
+    <circle cx="181" cy="128" r="4"></circle>
+  </g>
+  
+  <circle cx="128" cy="128" r="10" fill="none" stroke="#FFE14B" stroke-width="1.5" opacity="0.6"></circle>
+</svg>

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 96" width="520" height="96" fill="none">
+  <title>OpenSilicon Labs — wordmark (paper)</title>
+  <g transform="translate(8,12)">
+    <rect x="4" y="4" width="64" height="64" rx="4" stroke="#1A1A1A" stroke-width="1.5"></rect>
+    <rect x="34" y="12" width="8" height="48" fill="#FC6255"></rect>
+    <rect x="12" y="32" width="48" height="10" fill="#83C167"></rect>
+    <rect x="54" y="18" width="4" height="36" fill="#58C4DD"></rect>
+    <rect x="20" y="22" width="36" height="3" fill="#4A7BD9"></rect>
+    <rect x="20" y="52" width="36" height="3" fill="#9A72AC"></rect>
+    <circle cx="38" cy="37" r="2.5" fill="#E8C11C"></circle>
+    <circle cx="38" cy="23.5" r="1.8" fill="#E8C11C"></circle>
+    <circle cx="38" cy="53.5" r="1.8" fill="#E8C11C"></circle>
+    <circle cx="56" cy="37" r="1.8" fill="#E8C11C"></circle>
+  </g>
+  <g font-family="STIX Two Text, Charter, Georgia, serif" fill="#1A1A1A">
+    <text x="96" y="50" font-size="32" font-weight="600" letter-spacing="-0.5">OpenSilicon</text>
+    <text x="96" y="74" font-size="14" font-family="JetBrains Mono, monospace" letter-spacing="4" fill="#6B6358">LABS · /dev/silicon</text>
+  </g>
+</svg>

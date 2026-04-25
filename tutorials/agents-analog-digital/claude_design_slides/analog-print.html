@@ -1,0 +1,1738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>The Analog Loop — eda-agents (gm/ID + SPICE)</title>
+<link rel="stylesheet" href="styles/tokens.css">
+<link rel="stylesheet" href="styles/deck.css">
+<script src="deck-stage.js" defer></script>
+<script type="application/json" id="speaker-notes">
+[
+  "Title slide. Greet the audience. 'This is the deep dive on the analog loop — the gm/ID methodology, three agents, five topologies, one greedy SPICE-scored search. Companion deck to digital.html.'",
+  "Audience calibration. This deck is for someone who has seen the combined-overview deck and wants to drive a real analog block. Eight parts, target ~45 minutes. Dense material lives in the speaker notes.",
+  "Read the agenda. Each part 4-6 minutes; the middle section on the three agents and the autoresearch loop is load-bearing.",
+  "Section divider — Part 1. 'Before we look at any agent, let's agree on what the analog problem actually is. If you know gm/ID already, skim.'",
+  "Why analog is hard. Tiny nets (one amplifier = 10-20 transistors), parameter continuum (W, L, bias, mirror ratios), PVT corners multiply the eval count, topology choice is discrete and architectural. Unlike digital, you cannot 'just rerun the flow' — each change requires thinking about small-signal behaviour first.",
+  "The gm/ID methodology in one slide. For each transistor technology + PDK, precompute a lookup table of transconductance/current ratio vs gate overdrive. A designer picks gm/ID per device (high value = strong inversion, area; low value = weak inversion, power) and reads back W/L and I_D. Collapses the sizing problem onto a one-dimensional slider per device.",
+  "What an analog-agent loop needs. Propose: pick a topology and a sizing vector. Simulate: ngspice at one or more corners. Score: weighted FoM (gain, GBW, PM, power, area). Log: persist the trace. Iterate: propose again conditioned on what we just learned. This is the whole game — everything else is plumbing.",
+  "Cost asymmetry — analog side. One SPICE eval on ten transistors: seconds. LLM cost per proposal: cents at a cheap model. Budget per run: 20-50 evaluations over a few minutes. This is why analog autoresearch can afford greedy-refinement search where digital cannot.",
+  "Section divider — Part 2. 'Three agents. Each a thin slice on top of the same CircuitTopology + SpiceRunner + AutoresearchRunner infrastructure.'",
+  "analog-topology-recommender. Reads a natural-language spec ('60 dB gain, 10 MHz GBW, rail-to-rail input') and returns a single JSON object: topology name, one-line rationale, starter specs, confidence. Registered in .claude/agents/analog-topology-recommender.md and .opencode/agent/ with the same spec. Refuses to invent a topology — if nothing matches, it says 'custom' with confidence < 1 rather than lying.",
+  "Example output of the topology recommender. Spec: 'Rail-to-rail OTA, 10 MHz GBW, 60 dB gain.' Returns: topology=miller_ota, rationale='Miller compensation gives a predictable -20 dB/dec roll-off at the frequencies you asked for; folded cascode would give more headroom but costs an extra bias.', starter_specs={gbw: 10e6, pm: 60, cl: 1e-12}, confidence=0.82. The caller feeds this directly into the sizing advisor.",
+  "analog-sizing-advisor. Takes the chosen topology + spec + gm/ID LUTs. Proposes a starting vector (W, L, bias, mirror ratios) that satisfies first-order constraints before any SPICE call is made. Then hands off to AutoresearchRunner for greedy refinement. This is what turns a blind random-search problem into a well-conditioned local-optimisation one.",
+  "gm/ID output from the sizing advisor. For a Miller OTA: M1 (input pair) gm/ID = 15 (weak inversion, good noise), M5 (tail) gm/ID = 10 (moderate inversion, headroom), Cc = 2 pF (Miller cap sized for PM = 60). These numbers are derivable from the spec — no SPICE yet. First ngspice call confirms or corrects.",
+  "gf180-docker-analog. Once the sizing is frozen, this agent drives the layout + DRC + LVS chain on GF180MCU inside hpretl/iic-osic-tools. Via docker exec: gLayout to place devices, Magic for DRC, Netgen for LVS. Owns iteration inside the container; the user approves each call from the host.",
+  "The docker driver pattern. The agent never touches the container's state directly — it runs single commands via docker exec, reads the log, decides the next step. A DRC hit triggers flow.drc_fixer (an MCP skill) which proposes spacing or width fixes, not a blanket retry. This is the same pattern the digital tutorial uses.",
+  "Section divider — Part 3. 'Everything above is a thin veneer over one abstract class. If you can implement CircuitTopology for your block, you inherit the agents.'",
+  "The CircuitTopology ABC. Six methods. design_space() returns a dict of Parameter ranges. params_to_sizing(params) maps a concrete vector to transistor dimensions. generate_netlist(sizing, work_dir) writes an ngspice .cir. compute_fom(spice_result, sizing) returns a scalar. check_validity(spice_result) returns the list of failed specs. Plus a couple of prompt-metadata methods the harness reads.",
+  "Topology-agnostic harness. Prompts, tool specs, and validity logic are all derived from these metadata methods at runtime — no hardcoded names. Add a new topology, and every existing agent (topology recommender, sizing advisor, autoresearch runner) works against it with zero glue code.",
+  "Adding a new topology. Around 200 lines per topology in src/eda_agents/topologies/. Half of that is the netlist template, a quarter is design_space, a quarter is FoM weighting. Runtime registration is a class import — no editing of a registry JSON, no rebuild.",
+  "Section divider — Part 4. 'What ships today. Five topologies; all five reachable from the same three agents via the runtime registry.'",
+  "Miller OTA on IHP SG13G2. Two-stage compensated OTA, NMOS input pair, Miller capacitor between stages. Design space: W/L of five transistors + bias current + Miller cap. Spec: GBW 10 MHz, PM 60 deg, Adc 60 dB. ~200 lines at src/eda_agents/topologies/ota_miller.py.",
+  "AnalogAcademy OTA on IHP SG13G2. PMOS-input variant from the IHP AnalogAcademy course material. Same shape as Miller OTA but different input polarity and bias scheme. Good reference for porting a textbook example into the eda-agents registry.",
+  "GF180 OTA on GF180MCU. PMOS-input two-stage OTA targeting the GF180 BSIM4 models. Wafer-space fork of the PDK is not needed for a bare block. Design space is the same shape as the IHP OTAs — only the device models and voltage domain (3.3 V vs 1.2 V) differ.",
+  "Comparator + SAR ADC. StrongArm dynamic comparator (transistor-level); SAR ADC 8b either transistor-level or behavioural. The SAR ADC is a SystemTopology — it composes multiple CircuitTopologies (comparator + DAC + logic) and drives them from a single FoM that reads ADC static + dynamic linearity measurements.",
+  "Section divider — Part 5. 'The loop that turns a sized topology into a trace.'",
+  "The greedy loop, six nodes. Propose (LLM reads program.md + last 20 rows of results.tsv), Map (params to netlist), Evaluate (ngspice), Score (FoM), Log (append to results.tsv), Program (update program.md). Back to Propose. This is the Karpathy autoresearch pattern specialised to analog.",
+  "program.md + results.tsv are the only persistence layer. program.md is a narrative log — Goal, FoM formula, Design space, Target specs, Strategy, Learned insights, Current best design with measurements. Human-readable so you can tail it mid-run; the LLM re-reads it on the next turn instead of replaying the whole prompt history so context stays small. results.tsv is the numeric history — one row per SPICE evaluation with eval_num, every parameter, every measurement, the FoM, and a validity flag. Plot convergence, resume from row N, diff two runs. Delete them and the run starts over; keep them and it resumes where it left off.",
+  "Budget sizing. Tens of evaluations (20-50 for a well-seeded Miller OTA). A cheap model (Gemini Flash, GLM-4.5-Flash) brings the per-proposal cost to fractions of a cent; total LLM budget for a typical run is well under a dollar. The wall-clock dominated by the SPICE inner loop — a few seconds per eval on a modern laptop.",
+  "Resumable runs. Crash, kill, rebase — the runner reads program.md + the tail of results.tsv and continues. No hidden pickle state. This matters because analog runs are cheap but long (tens of minutes for corner validation), and you will interrupt them.",
+  "Corner validation after convergence. analog.corner_validator re-runs the winning sizing across PVT (fast-fast, slow-slow, 4 voltage corners, 3 temps). If the winner fails a corner, the runner backs off to the previous candidate and continues — you do not accept a design that only passes at nominal.",
+  "Section divider — Part 6. 'Skills are how the agents talk to each other without hardcoding.'",
+  "The analog.* skill namespace. Ten skills: explorer, corner_validator, orchestrator, adc_metrics, gmid_sizing, behavioral_primitives, sar_adc_design, miller_ota_design, idea_to_topology, custom_composition. Each is a prompt template registered in src/eda_agents/skills/analog.py; the MCP server renders them on demand.",
+  "Runtime discovery. list_skills() enumerates at runtime; render_skill(name) returns the filled prompt. Agents do not know skill names at build time — they list, pick, and render. Adding a new skill is a single decorator-registered module, not a registry edit.",
+  "MCP registration — both clients. Claude Code reads ~/.config/claude-code/mcp.json; OpenCode reads opencode.json at the repo root. 'eda-init' bootstraps both. The same eda-mcp stdio server serves every client — skills, LUTs, tool runners, topology registry.",
+  "Section divider — Part 7. 'Three CLI runtimes. Pick the one that matches your subscription and your workflow.'",
+  "Claude Code — /agents analog-sizing-advisor. Interactive, subscription-based on Anthropic. Uses .claude/agents/*.md as the roster and the stdio MCP server for skills. 'claude --print' is the headless entry point used by the cc_cli backend in Python.",
+  "OpenCode — opencode --agent analog-sizing-advisor. Interactive TUI. Multi-provider: Anthropic, OpenAI, Gemini (via OpenRouter or Google), Ollama for local, Z.AI coding plan, Cursor + Windsurf subscriptions. The same five agents ship under .opencode/agent/*.md. 'opencode run --format json' is the headless entry point used by the opencode backend in Python.",
+  "ADK / Python — AutoresearchRunner directly. No CLI. Import the runner, the topology, and the model string; call .run(work_dir). This is the path used by examples/07_autoresearch_circuit.py and by CI. Same skills, same FoM, same results.tsv — just no human-in-the-loop.",
+  "Section divider — Part 8. 'Two notebooks, runnable from your clone. Keep the slides open alongside — this is where the abstract becomes concrete.'",
+  "Demo 1 — agents_miller_ota.ipynb. Five steps: env check, instantiate MillerOTATopology, one SPICE eval at default params (sanity), AutoresearchRunner with budget=6 (2-3 min), read program.md + results.tsv. Good for 'the loop works on my machine in under ten minutes'. First cell runs pip install -e . from the cloned repo.",
+  "Demo 2 — agents_analog_topology_to_sizing.ipynb. The chained-agents flow: feed a natural-language spec into analog-topology-recommender, feed its JSON output into analog-sizing-advisor, feed that sizing into AutoresearchRunner, then pass the winner through analog.corner_validator. Eight steps, ~15 minutes, demonstrates the full methodology top to bottom.",
+  "Closing. The analog agents are infrastructure. gm/ID is the methodology. CircuitTopology is the contract. AutoresearchRunner is the loop. Skills over MCP is the glue. Every line is in the repo; nothing is hidden. Read the code; invite questions on adding a new topology or a new PDK."
+]
+</script>
+<style>
+  .agent-card {
+    background: var(--paper-surface);
+    border: 1px solid var(--paper-border);
+    border-radius: var(--radius-3);
+    padding: 24px 28px;
+    border-left: 4px solid var(--pdk-diff-n);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .agent-card .ac-name { font: 500 26px/1.1 var(--font-mono); color: var(--paper-ink); }
+  .agent-card .ac-desc { font: 400 22px/1.4 var(--font-serif); color: var(--paper-muted); }
+  .agent-card .ac-chip {
+    font: 500 14px/1 var(--font-mono); letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--pdk-diff-n);
+  }
+
+  .pdk-row { display: flex; align-items: center; gap: 12px; margin: 6px 0; }
+  .pdk-row img { width: 26px; height: 26px; }
+  .pdk-row span {
+    font: 500 16px/1 var(--font-mono); letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--paper-muted);
+  }
+
+  .title-brand-corner { position: absolute; top: 56px; right: var(--sp-x); display: flex; align-items: center; gap: 14px; }
+  .title-brand-corner img { height: 42px; display: block; }
+
+  .section-divider { position: relative; }
+  .section-divider .sec-brand {
+    position: absolute; bottom: 56px; left: var(--sp-x);
+    display: flex; align-items: center; gap: 14px;
+  }
+  .section-divider .sec-brand img { height: 28px; opacity: 0.72; display: block; }
+
+  .end-card { position: relative; }
+  .end-card .end-brand {
+    position: absolute; bottom: 56px; right: var(--sp-x);
+    display: flex; align-items: center; gap: 14px; opacity: 0.8;
+  }
+  .end-card .end-brand img { height: 36px; display: block; }
+
+  .skill-col { display: flex; flex-direction: column; gap: 8px; }
+  .skill-col h4 {
+    font: 500 22px/1 var(--font-mono); letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 14px 0;
+  }
+  .skill-col ul { list-style: none; padding: 0; margin: 0; }
+  .skill-col li { font: 400 22px/1.5 var(--font-mono); color: var(--paper-ink); padding: 4px 0; }
+
+  .gmid-tile {
+    background: var(--paper-surface); border: 1px solid var(--paper-border);
+    border-radius: var(--radius-2); padding: 18px 22px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .gmid-tile .gmt-label {
+    font: 500 16px/1 var(--font-mono); letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--paper-muted);
+  }
+  .gmid-tile .gmt-val {
+    font: 500 34px/1.1 var(--font-mono); color: var(--paper-ink);
+  }
+  .gmid-tile .gmt-sub {
+    font: italic 400 18px/1.4 var(--font-serif); color: var(--paper-muted);
+  }
+
+  .backend-row {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 28px; margin-top: 36px;
+  }
+  .backend-card {
+    background: var(--paper-surface); border: 1px solid var(--paper-border);
+    border-radius: var(--radius-3); padding: 24px 28px;
+    border-top: 4px solid var(--accent);
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .backend-card.bc-cc  { border-top-color: var(--pdk-m3); }
+  .backend-card.bc-oc  { border-top-color: var(--hi-pink); }
+  .backend-card.bc-adk { border-top-color: var(--pdk-diff-n); }
+  .backend-card .bc-name {
+    font: 600 30px/1.1 var(--font-mono); color: var(--paper-ink);
+  }
+  .backend-card .bc-sub {
+    font: italic 400 22px/1.4 var(--font-serif); color: var(--paper-muted);
+  }
+</style>
+</head>
+<body>
+
+<deck-stage width="1920" height="1080">
+
+  <!-- 01 Title -->
+  <section data-label="01 Title" class="slide-paper slide-title-page" style="justify-content: center; padding: 0 var(--sp-x);">
+    <div class="title-brand-corner">
+      <img src="assets/logo-mark.svg" alt="OpenSilicon Labs mark" style="height: 56px;">
+    </div>
+    <div class="label" style="letter-spacing:0.22em; font-size:20px; margin-bottom: 32px; color: var(--pdk-diff-n); font-weight: 700;">
+      eda-agents &middot; deep dive
+    </div>
+    <h1 style="font: 600 104px/1.02 var(--font-serif); letter-spacing:-0.025em; margin:0; color: var(--paper-ink); max-width: 1620px;">
+      The <span style="color: var(--pdk-diff-n);">Analog</span> Loop
+    </h1>
+    <p style="font: 400 40px/1.3 var(--font-serif); color: var(--paper-muted); margin: 36px 0 0 0; max-width: 1400px;">
+      gm/ID + SPICE + autoresearch, end to end. Three agents, five topologies, one greedy loop.
+    </p>
+    <div style="width: 240px; height: 3px; background: var(--pdk-diff-n); margin: 56px 0;"></div>
+    <div style="display:flex; align-items:baseline; gap: 56px;">
+      <div>
+        <div class="label" style="margin-bottom:8px;">Presenter</div>
+        <div style="font: 500 28px/1.2 var(--font-sans); color: var(--paper-ink);">Mauricio Montanares</div>
+        <div style="font: 400 22px/1.3 var(--font-serif); color: var(--paper-muted); margin-top:4px;">Scientist, IHP</div>
+      </div>
+      <div>
+        <div class="label" style="margin-bottom:8px;">Date</div>
+        <div style="font: 400 22px/1.3 var(--font-mono); color: var(--paper-ink);">2026&middot;04&middot;23</div>
+      </div>
+      <div>
+        <div class="label" style="margin-bottom:8px;">Deck</div>
+        <div style="font: 400 22px/1.3 var(--font-mono); color: var(--paper-ink);">42 slides &middot; 8 parts</div>
+      </div>
+      <div>
+        <div class="label" style="margin-bottom:8px;">Sibling</div>
+        <div style="font: 400 22px/1.3 var(--font-mono); color: var(--paper-ink);">digital.html</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 02 Objectives -->
+  <section data-label="02 Objectives" class="slide-paper">
+    <div class="slide-eyebrow"><span>Objectives</span><span class="rule"></span><span>2 / 42</span></div>
+    <h2 class="slide-title">What you will learn</h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 72px;">
+      <div class="stack-md">
+        <ul class="bullets">
+          <li>The <strong>gm/ID methodology</strong> that underpins every analog decision eda-agents makes.</li>
+          <li>The three analog agents in detail, plus the <strong>CircuitTopology</strong> contract that lets you add your own.</li>
+          <li>The shared <strong>autoresearch loop</strong> — program.md, results.tsv, corner validation.</li>
+          <li>Three CLI runtimes: Claude Code, <strong>OpenCode</strong>, and direct-Python.</li>
+        </ul>
+      </div>
+      <div class="card" style="align-self:start; margin-top: 12px;">
+        <div class="label">Paired notebooks</div>
+        <ul style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:18px; font: 400 26px/1.4 var(--font-serif);">
+          <li><span class="mono" style="color: var(--pdk-diff-n);">demo/agents_miller_ota.ipynb</span><br><span class="muted">~3 min, 6 SPICE evals, AutoresearchRunner only.</span></li>
+          <li><span class="mono" style="color: var(--pdk-diff-n);">demo/agents_analog_topology_to_sizing.ipynb</span><br><span class="muted">~15 min; chains recommender &rarr; advisor &rarr; autoresearch &rarr; corners.</span></li>
+        </ul>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Analog &middot; objectives</span></div>
+  </section>
+
+  <!-- 03 Agenda -->
+  <section data-label="03 Agenda" class="slide-paper">
+    <div class="slide-eyebrow"><span>Agenda</span><span class="rule"></span><span>3 / 42</span></div>
+    <h2 class="slide-title">Eight parts, five-ish minutes each</h2>
+    <div class="title-rule"></div>
+    <ol style="list-style:none; padding:0; margin: 56px 0 0 0; display:grid; grid-template-columns: 1fr 1fr; gap: 28px 96px; font: 400 28px/1.3 var(--font-serif);">
+      <li style="display:flex; gap:28px; align-items: baseline;"><span style="font: 500 22px/1 var(--font-mono); color: var(--pdk-diff-n);">01</span><span>The <strong>analog design problem</strong></span></li>
+      <li style="display:flex; gap:28px; align-items: baseline;"><span style="font: 500 22px/1 var(--font-mono); color: var(--pdk-diff-n);">02</span><span>The <strong>three analog agents</strong></span></li>
+      <li style="display:flex; gap:28px; align-items: baseline;"><span style="font: 500 22px/1 var(--font-mono); color: var(--pdk-diff-n);">03</span><span>CircuitTopology <strong>architecture</strong></span></li>
+      <li style="display:flex; gap:28px; align-items: baseline;"><span style="font: 500 22px/1 var(--font-mono); color: var(--pdk-diff-n);">04</span><span>Topology <strong>registry</strong></span></li>
+      <li style="display:flex; gap:28px; align-items: baseline;"><span style="font: 500 22px/1 var(--font-mono); color: var(--pdk-diff-n);">05</span><span><strong>AutoresearchRunner</strong> — the loop</span></li>
+      <li style="display:flex; gap:28px; align-items: baseline;"><span style="font: 500 22px/1 var(--font-mono); color: var(--pdk-diff-n);">06</span><span>Skills + <strong>MCP</strong></span></li>
+      <li style="display:flex; gap:28px; align-items: baseline;"><span style="font: 500 22px/1 var(--font-mono); color: var(--pdk-diff-n);">07</span><span>Three <strong>CLI runtimes</strong></span></li>
+      <li style="display:flex; gap:28px; align-items: baseline;"><span style="font: 500 22px/1 var(--font-mono); color: var(--pdk-diff-n);">08</span><span><strong>Demo</strong> walkthroughs + close</span></li>
+    </ol>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Analog &middot; agenda</span></div>
+  </section>
+
+  <!-- 04 Part 1 divider -->
+  <section data-label="04 Part 1" class="section-divider">
+    <div class="sec-num">Part 01</div>
+    <h2 class="sec-title">The analog design<br>problem</h2>
+    <div class="sec-rule" style="background: var(--pdk-diff-n);"></div>
+    <p class="sec-sub">Tiny nets, PVT corners, topology choice. Why analog autoresearch looks nothing like hyperparameter search.</p>
+    <div class="sec-brand"><img src="assets/logo-wordmark.svg" alt="OpenSilicon Labs"></div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 01 &middot; problem</span></div>
+  </section>
+
+  <!-- 05 Why analog is hard -->
+  <section data-label="05 Why analog" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 1 &middot; problem</span><span class="rule"></span><span>5 / 42</span></div>
+    <h2 class="slide-title">Why analog sizing is not a grid search</h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <ul class="bullets">
+        <li><strong>Tiny nets.</strong> A typical block is 10&ndash;30 transistors &mdash; far fewer degrees of freedom than a digital flow, but each one matters.</li>
+        <li><strong>Continuous parameters.</strong> <em>W</em>, <em>L</em>, bias, mirror ratios. Snap-to-grid is still a continuum.</li>
+        <li><strong>PVT corners.</strong> Fast/slow process, &plusmn;10% voltage, temperature sweeps. Nominal is a sanity check, not a sign-off.</li>
+        <li><strong>Topology choice is architectural.</strong> Miller vs folded cascode vs telescopic is a design decision, not a knob.</li>
+      </ul>
+      <div class="card thick" style="border-left-color: var(--pdk-diff-n);">
+        <div class="label" style="color: var(--pdk-diff-n);">Consequence</div>
+        <div style="font: 400 26px/1.5 var(--font-serif); margin-top: 8px;">
+          You cannot random-search this. Every evaluation must start from a <strong>good</strong> point. That is what gm/ID is for, and what the <span class="mono">analog-sizing-advisor</span> does with it.
+        </div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 01 &middot; problem</span></div>
+  </section>
+
+  <!-- 06 gm/ID cheat sheet -->
+  <section data-label="06 gm/ID" class="slide-stage-grid">
+    <div class="slide-eyebrow"><span>Part 1 &middot; problem</span><span class="rule"></span><span>6 / 42</span></div>
+    <h2 class="slide-title">gm/ID &mdash; the one-slide methodology</h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div class="stack-md">
+        <p class="lead">Precompute, per technology + per device, a lookup table of <em>g</em><sub>m</sub>/<em>I</em><sub>D</sub> (transconductance efficiency) vs <em>V</em><sub>GS</sub>&nbsp;&minus;&nbsp;<em>V</em><sub>th</sub> (overdrive).</p>
+        <ul class="bullets tight">
+          <li><strong>High <em>g</em><sub>m</sub>/<em>I</em><sub>D</sub></strong> &rarr; weak inversion, large <em>W</em>, low noise, area cost.</li>
+          <li><strong>Low <em>g</em><sub>m</sub>/<em>I</em><sub>D</sub></strong> &rarr; strong inversion, small <em>W</em>, fast, power cost.</li>
+          <li>Pick per device; read back <em>W</em>/<em>L</em> and <em>I</em><sub>D</sub> from the table.</li>
+          <li>Collapses the sizing problem to <strong>one 1-D slider per device</strong>.</li>
+        </ul>
+      </div>
+      <div style="display: flex; align-items: center; justify-content: center;">
+        <!--
+          Plot coordinates:
+            X: V_ov in [0, 0.3] V mapped to x in [80, 620] (540 px wide, 180 px per zone)
+            Y: gm/ID in [0, 25] mapped to y in [470, 90] (380 px tall, 76 px per 5 units)
+          Zone boundaries: WEAK|MODERATE at V_ov=0.1 (x=260), MODERATE|STRONG at V_ov=0.2 (x=440)
+          Stated gm/ID anchors at design-sheet values 15 / 10 / 8 placed at:
+            M1: (224, 242) - V_ov ≈ 0.08, gm/ID = 15
+            M5: (350, 318) - V_ov = 0.15,  gm/ID = 10
+            M6: (476, 348) - V_ov ≈ 0.22, gm/ID = 8
+        -->
+        <svg viewBox="0 0 680 560" width="100%" style="max-width: 680px;">
+          <!-- background panel -->
+          <rect x="0" y="0" width="680" height="560" rx="10" fill="#171F28" stroke="#2A3440" stroke-width="1"/>
+          <!-- title -->
+          <text x="340" y="36" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="20" font-weight="500" fill="#DDDDDD">gm/ID vs V_ov</text>
+          <text x="340" y="58" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" fill="#888888">per-device LUT &middot; one curve per technology + device type</text>
+
+          <!-- region bands (visible, three equal-width zones of 180 px) -->
+          <rect x="80"  y="90" width="180" height="380" fill="#83C167" fill-opacity="0.18"/>
+          <rect x="260" y="90" width="180" height="380" fill="#FFE14B" fill-opacity="0.13"/>
+          <rect x="440" y="90" width="180" height="380" fill="#FC6255" fill-opacity="0.18"/>
+
+          <!-- zone divider lines (solid, contrasting) -->
+          <line x1="260" y1="90" x2="260" y2="470" stroke="#CCCCCC" stroke-opacity="0.3" stroke-width="1.2" stroke-dasharray="5 4"/>
+          <line x1="440" y1="90" x2="440" y2="470" stroke="#CCCCCC" stroke-opacity="0.3" stroke-width="1.2" stroke-dasharray="5 4"/>
+
+          <!-- horizontal gridlines at gm/ID = 5, 10, 15, 20 -->
+          <g stroke="#364656" stroke-width="0.6">
+            <line x1="80" y1="166" x2="620" y2="166"/>
+            <line x1="80" y1="242" x2="620" y2="242"/>
+            <line x1="80" y1="318" x2="620" y2="318"/>
+            <line x1="80" y1="394" x2="620" y2="394"/>
+          </g>
+
+          <!-- plot frame -->
+          <rect x="80" y="90" width="540" height="380" fill="none" stroke="#546678" stroke-width="1.4"/>
+
+          <!-- zone labels (bold, with darker fill behind for contrast) -->
+          <text x="170" y="116" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" font-weight="700" fill="#B7E09C" letter-spacing="0.12em">WEAK INV</text>
+          <text x="350" y="116" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" font-weight="700" fill="#FFE887" letter-spacing="0.12em">MODERATE</text>
+          <text x="530" y="116" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" font-weight="700" fill="#FFA59D" letter-spacing="0.12em">STRONG INV</text>
+
+          <!-- gm/ID curve: calibrated so stated values (15, 10, 8) land on the curve -->
+          <path d="M 80,108 C 140,118 180,200 224,242 C 278,292 322,314 350,318 C 408,325 448,338 476,348 C 540,378 590,408 620,422"
+                fill="none" stroke="#58C4DD" stroke-width="3" stroke-linecap="round"/>
+
+          <!-- M1 input pair (gm/ID = 15, V_ov ≈ 0.08) in WEAK zone -->
+          <circle cx="224" cy="242" r="8" fill="#FFE14B" stroke="#171F28" stroke-width="2.5"/>
+          <line x1="232" y1="238" x2="278" y2="202" stroke="#FFE14B" stroke-width="1.3"/>
+          <text x="284" y="200" font-family="Ubuntu Mono, monospace" font-size="14" font-weight="600" fill="#FFFFFF">M1 input pair</text>
+          <text x="284" y="218" font-family="Ubuntu Mono, monospace" font-size="12" fill="#B7E09C">gm/ID = 15 &middot; low noise</text>
+
+          <!-- M5 tail (gm/ID = 10, V_ov = 0.15) in MODERATE zone -->
+          <circle cx="350" cy="318" r="8" fill="#FFE14B" stroke="#171F28" stroke-width="2.5"/>
+          <line x1="358" y1="314" x2="406" y2="282" stroke="#FFE14B" stroke-width="1.3"/>
+          <text x="412" y="280" font-family="Ubuntu Mono, monospace" font-size="14" font-weight="600" fill="#FFFFFF">M5 tail</text>
+          <text x="412" y="298" font-family="Ubuntu Mono, monospace" font-size="12" fill="#FFE887">gm/ID = 10 &middot; headroom</text>
+
+          <!-- M6 output (gm/ID = 8, V_ov ≈ 0.22) in STRONG zone, label placed BELOW so it doesn't cross the curve -->
+          <circle cx="476" cy="348" r="8" fill="#FFE14B" stroke="#171F28" stroke-width="2.5"/>
+          <line x1="480" y1="356" x2="508" y2="406" stroke="#FFE14B" stroke-width="1.3"/>
+          <text x="514" y="408" font-family="Ubuntu Mono, monospace" font-size="14" font-weight="600" fill="#FFFFFF">M6 output</text>
+          <text x="514" y="426" font-family="Ubuntu Mono, monospace" font-size="12" fill="#FFA59D">gm/ID = 8 &middot; drive</text>
+
+          <!-- y-axis ticks + labels -->
+          <g font-family="Ubuntu Mono, monospace" font-size="12" fill="#BBBBBB" text-anchor="end">
+            <text x="72" y="94">25</text>
+            <text x="72" y="170">20</text>
+            <text x="72" y="246">15</text>
+            <text x="72" y="322">10</text>
+            <text x="72" y="398">5</text>
+            <text x="72" y="474">0</text>
+          </g>
+
+          <!-- x-axis ticks -->
+          <g font-family="Ubuntu Mono, monospace" font-size="12" fill="#BBBBBB" text-anchor="middle">
+            <text x="80"  y="488">0.0</text>
+            <text x="260" y="488">0.1</text>
+            <text x="440" y="488">0.2</text>
+            <text x="620" y="488">0.3 V</text>
+          </g>
+
+          <!-- axis titles -->
+          <text x="350" y="510" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="15" fill="#DDDDDD">V_ov = V_GS &minus; V_th</text>
+          <text x="30" y="280" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="15" fill="#DDDDDD" transform="rotate(-90 30 280)">g_m / I_D &nbsp; (V&#8315;&sup1;)</text>
+
+          <!-- footer note -->
+          <text x="340" y="540" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#888888" letter-spacing="0.08em">IHP SG13G2 &middot; NMOS &middot; L = 0.5 um &middot; schematic curve, not measured data</text>
+        </svg>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 01 &middot; problem</span></div>
+  </section>
+
+  <!-- 07 What an analog agent loop needs -->
+  <section data-label="07 Loop needs" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 1 &middot; problem</span><span class="rule"></span><span>7 / 42</span></div>
+    <h2 class="slide-title">What an analog agent loop needs</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 56px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 20px;">
+      <div class="card" style="border-top: 4px solid var(--pdk-diff-n); padding: 22px 24px;">
+        <div class="label" style="color: var(--pdk-diff-n);">01 Propose</div>
+        <div style="font: 400 20px/1.4 var(--font-serif); margin-top: 8px;">Pick a topology + a sizing vector. Gets better with context.</div>
+      </div>
+      <div class="card" style="border-top: 4px solid var(--pdk-diff-n); padding: 22px 24px;">
+        <div class="label" style="color: var(--pdk-diff-n);">02 Simulate</div>
+        <div style="font: 400 20px/1.4 var(--font-serif); margin-top: 8px;">ngspice at nominal. Corners come later, post-convergence.</div>
+      </div>
+      <div class="card" style="border-top: 4px solid var(--pdk-diff-n); padding: 22px 24px;">
+        <div class="label" style="color: var(--pdk-diff-n);">03 Score</div>
+        <div style="font: 400 20px/1.4 var(--font-serif); margin-top: 8px;">Weighted FoM: gain, GBW, PM, power, area.</div>
+      </div>
+      <div class="card" style="border-top: 4px solid var(--pdk-diff-n); padding: 22px 24px;">
+        <div class="label" style="color: var(--pdk-diff-n);">04 Log</div>
+        <div style="font: 400 20px/1.4 var(--font-serif); margin-top: 8px;">program.md + results.tsv. Human-readable and resumable.</div>
+      </div>
+      <div class="card" style="border-top: 4px solid var(--pdk-diff-n); padding: 22px 24px;">
+        <div class="label" style="color: var(--pdk-diff-n);">05 Iterate</div>
+        <div style="font: 400 20px/1.4 var(--font-serif); margin-top: 8px;">Propose again conditioned on what we just learned.</div>
+      </div>
+    </div>
+    <div class="card thick" style="margin-top: 56px; border-left-color: var(--accent);">
+      <div class="label" style="color: var(--accent);">Plumbing, not magic</div>
+      <div style="font: 400 26px/1.5 var(--font-serif); margin-top: 8px;">
+        Everything else in eda-agents on the analog side &mdash; skills, MCP tools, topology classes, LUT readers &mdash; is infrastructure for these five steps.
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 01 &middot; problem</span></div>
+  </section>
+
+  <!-- 08 Cost asymmetry (analog specific) -->
+  <section data-label="08 Cost" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 1 &middot; problem</span><span class="rule"></span><span>8 / 42</span></div>
+    <h2 class="slide-title">Cost asymmetry favours greedy refinement</h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 56px;">
+      <div class="card thick" style="border-left-color: var(--pdk-diff-n);">
+        <div class="label" style="color: var(--pdk-diff-n);">Per SPICE evaluation</div>
+        <div style="font: 500 64px/1 var(--font-mono); color: var(--paper-ink); margin: 12px 0 8px 0;">~ <span style="color: var(--accent);">seconds</span></div>
+        <div style="font: 400 22px/1.4 var(--font-serif); color: var(--paper-muted);">ngspice on 10&ndash;30 transistors. AC + DC analysis. Measurements parsed inline.</div>
+      </div>
+      <div class="card thick" style="border-left-color: var(--pdk-diff-n);">
+        <div class="label" style="color: var(--pdk-diff-n);">Per LLM proposal</div>
+        <div style="font: 500 64px/1 var(--font-mono); color: var(--paper-ink); margin: 12px 0 8px 0;">~ <span style="color: var(--accent);">cents</span></div>
+        <div style="font: 400 22px/1.4 var(--font-serif); color: var(--paper-muted);">Gemini Flash or GLM-4.5-Flash at typical context. Full run budget well under $1.</div>
+      </div>
+    </div>
+    <div class="card" style="margin-top: 40px; background: var(--paper-surface); border-left: 4px solid var(--accent);">
+      <div class="label" style="color: var(--accent);">Consequence for search</div>
+      <div style="font: 400 26px/1.5 var(--font-serif); color: var(--paper-ink); margin-top: 10px;">
+        You can afford 20&ndash;50 SPICE evaluations per run. You <em>cannot</em> afford random exploration. Every proposal must be <strong>informed</strong> by the current best and the learned insights from prior evaluations &mdash; which is exactly what greedy refinement from a gm/ID seed gives you.
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 01 &middot; problem</span></div>
+  </section>
+
+  <!-- 09 Part 2 divider -->
+  <section data-label="09 Part 2" class="section-divider">
+    <div class="sec-num">Part 02</div>
+    <h2 class="sec-title">The three analog<br>agents</h2>
+    <div class="sec-rule" style="background: var(--pdk-diff-n);"></div>
+    <p class="sec-sub">Each a thin slice on top of the same CircuitTopology + SpiceRunner + AutoresearchRunner.</p>
+    <div class="sec-brand"><img src="assets/logo-wordmark.svg" alt="OpenSilicon Labs"></div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 02 &middot; agents</span></div>
+  </section>
+
+  <!-- 10 topology-recommender capability -->
+  <section data-label="10 Recommender cap" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 2 &middot; agents</span><span class="rule"></span><span>10 / 42</span></div>
+    <h2 class="slide-title"><span class="code">analog-topology-recommender</span></h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 56px;">
+      <div class="stack-md">
+        <div class="pdk-row">
+          <img src="assets/icons/pdk/diff.svg" alt="">
+          <img src="assets/icons/pdk/poly.svg" alt="">
+          <span style="color: var(--pdk-diff-n);">Analog agent &middot; host-side</span>
+        </div>
+        <ul class="bullets">
+          <li><strong>Input:</strong> one-line natural-language spec.</li>
+          <li><strong>Output:</strong> single JSON object &mdash; topology, rationale, starter_specs, confidence.</li>
+          <li><strong>Refuses to invent.</strong> If nothing matches, returns <span class="mono">custom</span> with confidence &lt; 1, not a fabricated option.</li>
+          <li>Registered under <span class="mono">.claude/agents/</span> and <span class="mono">.opencode/agent/</span> &mdash; same spec, two runtimes.</li>
+        </ul>
+      </div>
+      <div>
+        <div class="label">Skills it leans on</div>
+        <div class="code-block sm" style="margin-top: 10px;"><span class="c-key">analog.idea_to_topology</span>  <span class="c-com"># NL spec -> topology name</span>
+<span class="c-key">describe_topology</span>          <span class="c-com"># MCP tool: registry lookup</span></div>
+        <div class="label" style="margin-top: 24px;">Typical invocation</div>
+        <div class="code-block sm" style="margin-top: 10px;"><span class="c-com"># Claude Code</span>
+/agents analog-topology-recommender
+
+<span class="c-com"># OpenCode, headless</span>
+opencode run --agent analog-topology-recommender \
+  <span class="c-str">"60 dB gain, 10 MHz GBW, rail-to-rail OTA"</span></div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 02 &middot; agents</span></div>
+  </section>
+
+  <!-- 11 Recommender output -->
+  <section data-label="11 Recommender out" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 2 &middot; agents</span><span class="rule"></span><span>11 / 42</span></div>
+    <h2 class="slide-title">Recommender output &mdash; JSON only</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 56px;">
+      <div class="label">Spec &rarr; output</div>
+      <div class="code-block" style="margin-top: 12px;"><span class="c-com"># Input</span>
+spec: <span class="c-str">"Rail-to-rail OTA, 10 MHz GBW, 60 dB gain, load 1 pF, IHP SG13G2"</span>
+
+<span class="c-com"># Output (the JSON the agent is contractually required to emit)</span>
+{
+  <span class="c-key">"topology"</span>: <span class="c-str">"miller_ota"</span>,
+  <span class="c-key">"rationale"</span>: <span class="c-str">"Miller compensation gives a predictable -20 dB/dec roll-off at the "</span>
+               <span class="c-str">"frequencies asked for. Folded cascode would give more headroom "</span>
+               <span class="c-str">"at the cost of an extra bias leg."</span>,
+  <span class="c-key">"starter_specs"</span>: {
+    <span class="c-key">"gbw_hz"</span>: <span class="c-num">10.0e6</span>,
+    <span class="c-key">"pm_deg"</span>:  <span class="c-num">60</span>,
+    <span class="c-key">"cl_f"</span>:    <span class="c-num">1.0e-12</span>,
+    <span class="c-key">"pdk"</span>:     <span class="c-str">"ihp_sg13g2"</span>
+  },
+  <span class="c-key">"confidence"</span>: <span class="c-num">0.82</span>
+}</div>
+    </div>
+    <div class="card thick" style="margin-top: 36px; border-left-color: var(--pdk-diff-n);">
+      <div class="label" style="color: var(--pdk-diff-n);">Caller contract</div>
+      <div style="font: 400 24px/1.5 var(--font-serif); color: var(--paper-ink); margin-top: 6px;">
+        The next agent (<span class="mono">analog-sizing-advisor</span>) consumes this JSON verbatim &mdash; no free-form prose expected, no markdown tables, no &ldquo;I would recommend&rdquo;. The contract is <em>machine-readable</em> by design.
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 02 &middot; agents</span></div>
+  </section>
+
+  <!-- 12 sizing-advisor capability -->
+  <section data-label="12 Advisor cap" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 2 &middot; agents</span><span class="rule"></span><span>12 / 42</span></div>
+    <h2 class="slide-title"><span class="code">analog-sizing-advisor</span></h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 56px;">
+      <div class="stack-md">
+        <div class="pdk-row">
+          <img src="assets/icons/pdk/diff.svg" alt="">
+          <img src="assets/icons/pdk/poly.svg" alt="">
+          <span style="color: var(--pdk-diff-n);">Analog agent &middot; gm/ID-driven</span>
+        </div>
+        <ul class="bullets">
+          <li><strong>Input:</strong> chosen topology + target specs + gm/ID LUTs.</li>
+          <li><strong>Output:</strong> starting sizing vector that satisfies first-order constraints <em>before</em> any SPICE call.</li>
+          <li>Hands off to <span class="mono">AutoresearchRunner</span> for greedy refinement.</li>
+          <li>Turns blind random-search into well-conditioned local optimisation.</li>
+        </ul>
+      </div>
+      <div>
+        <div class="label">Skills it leans on</div>
+        <div class="code-block sm" style="margin-top: 10px;"><span class="c-key">analog.gmid_sizing</span>    <span class="c-com"># gm/ID cheat sheet</span>
+<span class="c-key">describe_topology</span>      <span class="c-com"># design space / defaults</span>
+<span class="c-key">evaluate_topology</span>      <span class="c-com"># one SPICE eval on demand</span>
+<span class="c-key">run_autoresearch</span>       <span class="c-com"># hand off to the greedy loop</span></div>
+        <div class="label" style="margin-top: 24px;">LUT sources</div>
+        <div style="font: 400 22px/1.4 var(--font-mono); margin-top: 6px; color: var(--paper-ink);">
+          IHP SG13G2 &middot; <span class="muted">$EDA_AGENTS_IHP_LUT_DIR (external clone)</span><br>
+          GF180MCU &middot; <span class="muted">auto-download, ~/.cache/eda-agents/gmid_luts/</span>
+        </div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 02 &middot; agents</span></div>
+  </section>
+
+  <!-- 13 Advisor gm/ID output -->
+  <section data-label="13 Advisor out" class="slide-stage-grid">
+    <div class="slide-eyebrow"><span>Part 2 &middot; agents</span><span class="rule"></span><span>13 / 42</span></div>
+    <h2 class="slide-title">Advisor output &mdash; first-order sized, no SPICE yet</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 48px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px;">
+      <div class="code-block"><span class="c-com"># Starting sizing vector for a Miller OTA</span>
+<span class="c-key">M1_M2</span>:  <span class="c-com"># input pair</span>
+  <span class="c-key">W</span>: <span class="c-num">18e-6</span>  <span class="c-key">L</span>: <span class="c-num">0.5e-6</span>
+  <span class="c-key">gm_ID</span>: <span class="c-num">15</span>   <span class="c-com"># low noise</span>
+<span class="c-key">M3_M4</span>:  <span class="c-com"># active load</span>
+  <span class="c-key">W</span>: <span class="c-num">4e-6</span>   <span class="c-key">L</span>: <span class="c-num">0.5e-6</span>
+<span class="c-key">M5</span>:     <span class="c-com"># tail</span>
+  <span class="c-key">W</span>: <span class="c-num">8e-6</span>   <span class="c-key">L</span>: <span class="c-num">1.0e-6</span>
+  <span class="c-key">gm_ID</span>: <span class="c-num">10</span>   <span class="c-com"># headroom</span>
+<span class="c-key">M6</span>:     <span class="c-com"># output stage</span>
+  <span class="c-key">W</span>: <span class="c-num">40e-6</span>  <span class="c-key">L</span>: <span class="c-num">0.5e-6</span>
+  <span class="c-key">gm_ID</span>: <span class="c-num">8</span>    <span class="c-com"># drive strength</span>
+<span class="c-key">ibias</span>: <span class="c-num">40e-6</span>
+<span class="c-key">Cc</span>:    <span class="c-num">2.0e-12</span></div>
+      <div class="stack-md">
+        <div class="card" style="background: var(--stage-panel); color: var(--fg-1); border-color: var(--stage-border);">
+          <div class="label" style="color: var(--fg-3);">What just happened</div>
+          <ul class="bullets tight" style="margin-top: 10px; color: var(--fg-2);">
+            <li>gm/ID per transistor was picked from the spec (noise &rarr; high, headroom &rarr; mid, drive &rarr; low).</li>
+            <li>LUT returned <em>W</em>/<em>L</em> and <em>I</em><sub>D</sub> for each.</li>
+            <li>Miller cap sized for target PM = 60&deg; using the textbook formula.</li>
+            <li>Ready to hand to the autoresearch runner &mdash; no wasted SPICE on random starting points.</li>
+          </ul>
+        </div>
+        <div class="card thick" style="background: var(--stage-panel); color: var(--fg-1); border-color: var(--stage-border); border-left-color: var(--hi-yellow);">
+          <div class="label" style="color: var(--hi-yellow);">First SPICE call confirms</div>
+          <div style="font: 400 22px/1.4 var(--font-serif); margin-top: 6px; color: var(--fg-2);">
+            Measures Adc, GBW, PM, power at nominal. If these are within ~20% of the starter specs, greedy refinement takes over. If not, the advisor revises (usually a gm/ID +/- 2 step).
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 02 &middot; agents</span></div>
+  </section>
+
+  <!-- 14 gf180-docker-analog capability -->
+  <section data-label="14 GF180 analog" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 2 &middot; agents</span><span class="rule"></span><span>14 / 42</span></div>
+    <h2 class="slide-title"><span class="code">gf180-docker-analog</span></h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 56px;">
+      <div class="stack-md">
+        <div class="pdk-row">
+          <img src="assets/icons/pdk/m1.svg" alt="">
+          <img src="assets/icons/pdk/m3.svg" alt="">
+          <img src="assets/icons/pdk/drc-error.svg" alt="">
+          <span style="color: var(--hi-orange);">Signoff agent &middot; docker-driven</span>
+        </div>
+        <ul class="bullets">
+          <li><strong>Input:</strong> frozen sizing + topology class + target PDK.</li>
+          <li><strong>Output:</strong> DRC-clean, LVS-clean layout on GF180MCU inside <span class="mono">hpretl/iic-osic-tools</span>.</li>
+          <li>Uses <span class="mono">gLayout</span> for parametric placement, <span class="mono">Magic</span> for DRC, <span class="mono">Netgen</span> for LVS.</li>
+          <li>Never touches container state directly &mdash; every action is a <span class="mono">docker&nbsp;exec</span> call.</li>
+        </ul>
+      </div>
+      <div>
+        <div class="label">Skills it leans on</div>
+        <div class="code-block sm" style="margin-top: 10px;"><span class="c-key">flow.analog_signoff_gf180_docker</span>
+<span class="c-key">flow.drc_checker</span>
+<span class="c-key">flow.drc_fixer</span>
+<span class="c-key">flow.lvs_checker</span></div>
+        <div class="label" style="margin-top: 24px;">Invocation</div>
+        <div class="code-block sm" style="margin-top: 10px;"><span class="c-com"># Claude Code</span>
+/agents gf180-docker-analog
+
+<span class="c-com"># OpenCode, headless (e.g. CI)</span>
+opencode run --agent gf180-docker-analog \
+  <span class="c-str">"Signoff the Miller OTA at ./layout/miller_ota.gds"</span></div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 02 &middot; agents</span></div>
+  </section>
+
+  <!-- 15 docker driver pattern -->
+  <section data-label="15 Docker pattern" class="slide-stage-grid">
+    <div class="slide-eyebrow"><span>Part 2 &middot; agents</span><span class="rule"></span><span>15 / 42</span></div>
+    <h2 class="slide-title">The docker-driver pattern</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 48px;">
+      <svg viewBox="0 0 1640 440" width="100%" style="max-width: 1640px;">
+        <defs>
+          <marker id="arrD" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#FFE14B"/>
+          </marker>
+        </defs>
+        <g font-family="Ubuntu Sans, Ubuntu, sans-serif" fill="#FFFFFF">
+          <g transform="translate(40,170)">
+            <rect width="280" height="100" rx="6" fill="#171F28" stroke="#83C167" stroke-width="2"/>
+            <text x="140" y="44" text-anchor="middle" font-size="22" font-weight="500">agent</text>
+            <text x="140" y="72" text-anchor="middle" font-size="15" fill="#BBBBBB" font-family="Ubuntu Mono, monospace">gf180-docker-analog</text>
+          </g>
+          <g transform="translate(420,130)">
+            <rect width="320" height="60" rx="6" fill="#171F28" stroke="#FFE14B" stroke-width="2"/>
+            <text x="160" y="38" text-anchor="middle" font-size="16" fill="#FFE14B" font-family="Ubuntu Mono, monospace">docker exec ... magic -dnull</text>
+          </g>
+          <g transform="translate(420,210)">
+            <rect width="320" height="60" rx="6" fill="#171F28" stroke="#FFE14B" stroke-width="2"/>
+            <text x="160" y="38" text-anchor="middle" font-size="16" fill="#FFE14B" font-family="Ubuntu Mono, monospace">docker exec ... netgen -batch</text>
+          </g>
+          <g transform="translate(420,290)">
+            <rect width="320" height="60" rx="6" fill="#171F28" stroke="#FFE14B" stroke-width="2"/>
+            <text x="160" y="38" text-anchor="middle" font-size="16" fill="#FFE14B" font-family="Ubuntu Mono, monospace">docker exec ... klayout -b</text>
+          </g>
+          <g transform="translate(840,140)">
+            <rect width="340" height="200" rx="8" fill="#171F28" stroke="#58C4DD" stroke-width="2"/>
+            <text x="170" y="44" text-anchor="middle" font-size="22" font-weight="500">container</text>
+            <text x="170" y="76" text-anchor="middle" font-size="16" fill="#BBBBBB" font-family="Ubuntu Mono, monospace">hpretl/iic-osic-tools</text>
+            <text x="170" y="118" text-anchor="middle" font-size="15" fill="#FC6255" font-family="Ubuntu Mono, monospace">magic &middot; netgen &middot; klayout</text>
+            <text x="170" y="148" text-anchor="middle" font-size="15" fill="#FC6255" font-family="Ubuntu Mono, monospace">gLayout &middot; GF180 PDK</text>
+            <text x="170" y="184" text-anchor="middle" font-size="14" fill="#888888" font-family="Ubuntu Mono, monospace">bind-mount: ~/eda/designs</text>
+          </g>
+          <g transform="translate(1280,170)">
+            <rect width="320" height="100" rx="6" fill="#171F28" stroke="#83C167" stroke-width="2"/>
+            <text x="160" y="44" text-anchor="middle" font-size="22" font-weight="500">host log</text>
+            <text x="160" y="72" text-anchor="middle" font-size="15" fill="#BBBBBB" font-family="Ubuntu Mono, monospace">DRC / LVS verdict</text>
+          </g>
+          <line x1="320" y1="220" x2="420" y2="160" stroke="#FFE14B" stroke-width="2" marker-end="url(#arrD)"/>
+          <line x1="320" y1="220" x2="420" y2="240" stroke="#FFE14B" stroke-width="2" marker-end="url(#arrD)"/>
+          <line x1="320" y1="220" x2="420" y2="320" stroke="#FFE14B" stroke-width="2" marker-end="url(#arrD)"/>
+          <line x1="740" y1="160" x2="840" y2="200" stroke="#FFE14B" stroke-width="2" marker-end="url(#arrD)"/>
+          <line x1="740" y1="240" x2="840" y2="240" stroke="#FFE14B" stroke-width="2" marker-end="url(#arrD)"/>
+          <line x1="740" y1="320" x2="840" y2="280" stroke="#FFE14B" stroke-width="2" marker-end="url(#arrD)"/>
+          <line x1="1180" y1="240" x2="1280" y2="220" stroke="#83C167" stroke-width="2" marker-end="url(#arrD)"/>
+        </g>
+      </svg>
+    </div>
+    <div style="margin-top: 36px; font: italic 400 24px/1.4 var(--font-serif); color: var(--fg-3); align-self: center; text-align: center; max-width: 1500px;">
+      A DRC hit triggers <span class="mono" style="color: var(--fg-2); font-style: normal;">flow.drc_fixer</span> (not a blanket retry). The fix lands in the same repository where you ran the agent &mdash; container is disposable, artifacts are yours.
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 02 &middot; agents</span></div>
+  </section>
+
+  <!-- 16 Part 3 divider -->
+  <section data-label="16 Part 3" class="section-divider">
+    <div class="sec-num">Part 03</div>
+    <h2 class="sec-title">CircuitTopology<br>architecture</h2>
+    <div class="sec-rule" style="background: var(--pdk-diff-n);"></div>
+    <p class="sec-sub">One abstract class, six methods, zero hardcoded topology names in the harness.</p>
+    <div class="sec-brand"><img src="assets/logo-wordmark.svg" alt="OpenSilicon Labs"></div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 03 &middot; architecture</span></div>
+  </section>
+
+  <!-- 17 CircuitTopology ABC -->
+  <section data-label="17 CT ABC" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 3 &middot; architecture</span><span class="rule"></span><span>17 / 42</span></div>
+    <h2 class="slide-title">The <span class="code">CircuitTopology</span> contract</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 48px;">
+      <div class="code-block"><span class="c-key">class</span> <span class="c-fn">CircuitTopology</span>(ABC):
+    <span class="c-com"># what the search space looks like</span>
+    <span class="c-key">def</span> <span class="c-fn">design_space</span>(<span class="c-key">self</span>) -&gt; <span class="c-fn">dict</span>[<span class="c-fn">str</span>, Parameter]: ...
+    <span class="c-key">def</span> <span class="c-fn">default_params</span>(<span class="c-key">self</span>) -&gt; <span class="c-fn">dict</span>[<span class="c-fn">str</span>, Any]: ...
+
+    <span class="c-com"># params -&gt; concrete sizing -&gt; ngspice deck</span>
+    <span class="c-key">def</span> <span class="c-fn">params_to_sizing</span>(<span class="c-key">self</span>, params) -&gt; Sizing: ...
+    <span class="c-key">def</span> <span class="c-fn">generate_netlist</span>(<span class="c-key">self</span>, sizing, work_dir) -&gt; Path: ...
+
+    <span class="c-com"># SPICE result -&gt; score + validity</span>
+    <span class="c-key">def</span> <span class="c-fn">compute_fom</span>(<span class="c-key">self</span>, spice_result, sizing) -&gt; <span class="c-fn">float</span>: ...
+    <span class="c-key">def</span> <span class="c-fn">check_validity</span>(<span class="c-key">self</span>, spice_result) -&gt; <span class="c-fn">list</span>[<span class="c-fn">str</span>]: ...
+
+    <span class="c-com"># metadata the harness reads</span>
+    <span class="c-key">def</span> <span class="c-fn">topology_name</span>(<span class="c-key">self</span>) -&gt; <span class="c-fn">str</span>: ...
+    <span class="c-key">def</span> <span class="c-fn">specs_description</span>(<span class="c-key">self</span>) -&gt; <span class="c-fn">str</span>: ...</div>
+    </div>
+    <div style="margin-top: 40px; font: italic 400 22px/1.4 var(--font-serif); color: var(--paper-muted);">
+      Source: <span class="mono" style="color: var(--paper-ink);">src/eda_agents/core/topology.py</span>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 03 &middot; architecture</span></div>
+  </section>
+
+  <!-- 18 Harness derives from metadata -->
+  <section data-label="18 Metadata" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 3 &middot; architecture</span><span class="rule"></span><span>18 / 42</span></div>
+    <h2 class="slide-title">The harness derives everything from metadata</h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div class="stack-md">
+        <ul class="bullets">
+          <li><strong>Prompts:</strong> built at runtime from <span class="mono">specs_description()</span> + <span class="mono">design_space()</span>. No hardcoded names.</li>
+          <li><strong>Tool specs:</strong> the MCP <span class="mono">describe_topology</span> / <span class="mono">evaluate_topology</span> tools dispatch on a class lookup.</li>
+          <li><strong>Validity logic:</strong> <span class="mono">check_validity()</span> is the single source of truth for "did this sizing meet spec".</li>
+          <li><strong>FoM:</strong> each topology owns its weighting &mdash; one class, one FoM, no global constants.</li>
+        </ul>
+      </div>
+      <div class="card thick" style="border-left-color: var(--accent);">
+        <div class="label" style="color: var(--accent);">What this buys you</div>
+        <div style="font: 400 24px/1.5 var(--font-serif); margin-top: 8px;">
+          Add a new topology tomorrow &mdash; every existing agent (recommender, sizing advisor, autoresearch) works against it with <strong>zero</strong> glue code. The harness is topology-agnostic by construction, not by promise.
+        </div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 03 &middot; architecture</span></div>
+  </section>
+
+  <!-- 19 Adding a new topology -->
+  <section data-label="19 Add topology" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 3 &middot; architecture</span><span class="rule"></span><span>19 / 42</span></div>
+    <h2 class="slide-title">Adding your own topology</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 48px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px;">
+      <div>
+        <div class="label">File structure</div>
+        <div class="code-block sm" style="margin-top: 10px;">src/eda_agents/topologies/
+  my_block.py               <span class="c-com"># ~200 lines total</span>
+    ├ netlist_template.cir  <span class="c-com"># ~100 lines</span>
+    ├ design_space(...)     <span class="c-com"># ~50 lines</span>
+    ├ compute_fom(...)      <span class="c-com"># ~30 lines</span>
+    └ check_validity(...)   <span class="c-com"># ~20 lines</span></div>
+      </div>
+      <div>
+        <div class="label">Runtime registration</div>
+        <div class="code-block sm" style="margin-top: 10px;"><span class="c-key">from</span> eda_agents.topologies.my_block <span class="c-key">import</span> MyTopology
+
+topo = MyTopology()
+runner = AutoresearchRunner(topology=topo, budget=<span class="c-num">20</span>)
+<span class="c-key">await</span> runner.run(work_dir)</div>
+        <div style="font: italic 400 22px/1.4 var(--font-serif); color: var(--paper-muted); margin-top: 16px;">
+          No registry JSON to edit. No rebuild. Import and go.
+        </div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 03 &middot; architecture</span></div>
+  </section>
+
+  <!-- 20 Part 4 divider -->
+  <section data-label="20 Part 4" class="section-divider">
+    <div class="sec-num">Part 04</div>
+    <h2 class="sec-title">Topology registry</h2>
+    <div class="sec-rule" style="background: var(--pdk-diff-n);"></div>
+    <p class="sec-sub">Five topologies ship today. All five reachable from the same three agents.</p>
+    <div class="sec-brand"><img src="assets/logo-wordmark.svg" alt="OpenSilicon Labs"></div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 04 &middot; registry</span></div>
+  </section>
+
+  <!-- 21 Miller OTA -->
+  <section data-label="21 Miller" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 4 &middot; registry</span><span class="rule"></span><span>21 / 42</span></div>
+    <h2 class="slide-title">Miller OTA &mdash; <span class="code">ota_miller</span></h2>
+    <div class="title-rule"></div>
+    <div class="row-2 row-2-wide-left" style="margin-top: 36px; gap: 56px;">
+      <div>
+        <!-- Miller OTA schematic: proper MOS symbols, two stages, Miller compensation. -->
+        <svg viewBox="0 0 900 640" width="100%" style="max-width: 900px;">
+          <defs>
+            <!-- NMOS symbol: filled channel body + parallel gate plate. Pins: drain(40,0), source(40,80), gate(4,40). -->
+            <!-- Type identification via colour (green) and absence of gate bubble. -->
+            <symbol id="nmos" viewBox="0 0 80 80">
+              <!-- drain stub -->
+              <line x1="40" y1="0"  x2="40" y2="20" stroke="#1A1A1A" stroke-width="1.5"/>
+              <!-- channel body -->
+              <rect x="36" y="20" width="8" height="40" fill="#E8F5E8" stroke="#4FB04B" stroke-width="2.5"/>
+              <!-- gate plate: parallel vertical line offset to left of channel -->
+              <line x1="30" y1="22" x2="30" y2="58" stroke="#1A1A1A" stroke-width="2.5"/>
+              <!-- gate lead from outside -->
+              <line x1="4"  y1="40" x2="30" y2="40" stroke="#1A1A1A" stroke-width="1.5"/>
+              <!-- source stub -->
+              <line x1="40" y1="60" x2="40" y2="80" stroke="#1A1A1A" stroke-width="1.5"/>
+            </symbol>
+
+            <!-- PMOS symbol: filled channel body + parallel gate plate + bubble on gate. Pins: source(40,0), drain(40,80), gate(4,40). -->
+            <symbol id="pmos" viewBox="0 0 80 80">
+              <!-- source stub (tied to VDD in use) -->
+              <line x1="40" y1="0"  x2="40" y2="20" stroke="#1A1A1A" stroke-width="1.5"/>
+              <!-- channel body -->
+              <rect x="36" y="20" width="8" height="40" fill="#FFE8E6" stroke="#FC6255" stroke-width="2.5"/>
+              <!-- gate plate -->
+              <line x1="30" y1="22" x2="30" y2="58" stroke="#1A1A1A" stroke-width="2.5"/>
+              <!-- gate lead with bubble -->
+              <line x1="4"  y1="40" x2="22" y2="40" stroke="#1A1A1A" stroke-width="1.5"/>
+              <circle cx="26" cy="40" r="3" fill="#FAFAF7" stroke="#1A1A1A" stroke-width="1.5"/>
+              <line x1="28" y1="40" x2="30" y2="40" stroke="#1A1A1A" stroke-width="1.5"/>
+              <!-- drain stub -->
+              <line x1="40" y1="60" x2="40" y2="80" stroke="#1A1A1A" stroke-width="1.5"/>
+            </symbol>
+          </defs>
+
+          <!-- VDD rail -->
+          <line x1="40" y1="50" x2="860" y2="50" stroke="#1A1A1A" stroke-width="2.5"/>
+          <text x="40" y="36" font-family="Ubuntu Mono, monospace" font-size="14" font-weight="600" fill="#2d7a2a">VDD</text>
+          <text x="860" y="36" text-anchor="end" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">1.2 V</text>
+
+          <!-- VSS rail -->
+          <line x1="40" y1="590" x2="860" y2="590" stroke="#1A1A1A" stroke-width="2.5"/>
+          <text x="40" y="614" font-family="Ubuntu Mono, monospace" font-size="14" font-weight="600" fill="#2d7a2a">VSS</text>
+
+          <!-- ============ STAGE 1 boundary (dashed) ============ -->
+          <rect x="120" y="75" width="440" height="440" rx="10" fill="none" stroke="#C8BFA9" stroke-width="1.2" stroke-dasharray="5 4"/>
+          <text x="130" y="94" font-family="Ubuntu Mono, monospace" font-size="11" letter-spacing="0.1em" fill="#8A7F66">STAGE 1 &middot; DIFF PAIR + MIRROR</text>
+
+          <!-- ============ STAGE 2 boundary (dashed) ============ -->
+          <rect x="600" y="75" width="220" height="440" rx="10" fill="none" stroke="#C8BFA9" stroke-width="1.2" stroke-dasharray="5 4"/>
+          <text x="610" y="94" font-family="Ubuntu Mono, monospace" font-size="11" letter-spacing="0.1em" fill="#8A7F66">STAGE 2 &middot; DRIVER</text>
+
+          <!-- ============ M3 PMOS (diode-connected, left mirror) at (220, 110) ============ -->
+          <use href="#pmos" x="180" y="110" width="80" height="80"/>
+          <!-- VDD source -->
+          <line x1="220" y1="50" x2="220" y2="114" stroke="#1A1A1A" stroke-width="1.5"/>
+          <!-- Drain extends down, through V_A1 node, to M1 drain stub -->
+          <line x1="220" y1="186" x2="220" y2="294" stroke="#1A1A1A" stroke-width="1.5"/>
+          <!-- Diode-connect: M3 gate tied to M3 drain -->
+          <line x1="184" y1="150" x2="160" y2="150" stroke="#1A1A1A" stroke-width="1.5"/>
+          <line x1="160" y1="150" x2="160" y2="220" stroke="#1A1A1A" stroke-width="1.5"/>
+          <line x1="160" y1="220" x2="220" y2="220" stroke="#1A1A1A" stroke-width="1.5"/>
+          <circle cx="220" cy="220" r="3" fill="#1A1A1A"/>
+          <text x="180" y="238" text-anchor="end" font-family="Ubuntu Mono, monospace" font-size="13" font-weight="600" fill="#1A1A1A">M3</text>
+          <text x="180" y="254" text-anchor="end" font-family="Ubuntu Mono, monospace" font-size="10" fill="#6B6358">W=4&mu; L=0.5&mu;</text>
+
+          <!-- ============ M4 PMOS (mirror output) at (460, 110) ============ -->
+          <use href="#pmos" x="420" y="110" width="80" height="80"/>
+          <line x1="460" y1="50" x2="460" y2="114" stroke="#1A1A1A" stroke-width="1.5"/>
+          <!-- Drain extends down, through V_A node, to M2 drain stub -->
+          <line x1="460" y1="186" x2="460" y2="294" stroke="#1A1A1A" stroke-width="1.5"/>
+          <text x="500" y="138" font-family="Ubuntu Mono, monospace" font-size="13" font-weight="600" fill="#1A1A1A">M4</text>
+          <text x="500" y="154" font-family="Ubuntu Mono, monospace" font-size="10" fill="#6B6358">W=4&mu; L=0.5&mu;</text>
+
+          <!-- Mirror gate-to-gate wire (from M3 diode-connect to M4 gate) -->
+          <line x1="160" y1="150" x2="424" y2="150" stroke="#1A1A1A" stroke-width="1.5"/>
+
+          <!-- ============ M1 NMOS input (V-) at (220, 290) ============ -->
+          <use href="#nmos" x="180" y="290" width="80" height="80"/>
+          <!-- Drain already connected to M3 drain via the wire above -->
+          <!-- Source continues down to tail node -->
+          <line x1="220" y1="366" x2="220" y2="440" stroke="#1A1A1A" stroke-width="1.5"/>
+          <!-- V- input -->
+          <line x1="60" y1="330" x2="184" y2="330" stroke="#1A1A1A" stroke-width="1.5"/>
+          <text x="56" y="334" text-anchor="end" font-family="Ubuntu Mono, monospace" font-size="14" font-weight="600" fill="#1A1A1A">V&minus;</text>
+          <text x="180" y="358" text-anchor="end" font-family="Ubuntu Mono, monospace" font-size="13" font-weight="600" fill="#1A1A1A">M1</text>
+          <text x="180" y="374" text-anchor="end" font-family="Ubuntu Mono, monospace" font-size="10" fill="#6B6358">W=18&mu; L=0.5&mu;</text>
+
+          <!-- ============ M2 NMOS input (V+) at (460, 290) ============ -->
+          <use href="#nmos" x="420" y="290" width="80" height="80"/>
+          <line x1="460" y1="366" x2="460" y2="440" stroke="#1A1A1A" stroke-width="1.5"/>
+          <!-- V+ input -->
+          <line x1="424" y1="330" x2="540" y2="330" stroke="#1A1A1A" stroke-width="1.5"/>
+          <text x="546" y="334" font-family="Ubuntu Mono, monospace" font-size="14" font-weight="600" fill="#1A1A1A">V+</text>
+          <text x="500" y="308" font-family="Ubuntu Mono, monospace" font-size="13" font-weight="600" fill="#1A1A1A">M2</text>
+          <text x="500" y="324" font-family="Ubuntu Mono, monospace" font-size="10" fill="#6B6358">W=18&mu; L=0.5&mu;</text>
+
+          <!-- V_A node (Stage-1 output = M4 drain = M2 drain) -->
+          <circle cx="460" cy="260" r="4" fill="#1A1A1A"/>
+          <text x="478" y="256" font-family="Ubuntu Mono, monospace" font-size="12" font-weight="600" fill="#4A7BD9">V_A</text>
+          <!-- Also a node marker where M1 drain meets M3 drain -->
+          <circle cx="220" cy="260" r="4" fill="#1A1A1A"/>
+
+          <!-- ============ Tail node (M1 + M2 sources meet M5 drain) ============ -->
+          <line x1="220" y1="440" x2="460" y2="440" stroke="#1A1A1A" stroke-width="1.5"/>
+          <circle cx="340" cy="440" r="4" fill="#1A1A1A"/>
+
+          <!-- ============ M5 NMOS tail at (340, 450) ============ -->
+          <use href="#nmos" x="300" y="450" width="80" height="80"/>
+          <line x1="340" y1="440" x2="340" y2="454" stroke="#1A1A1A" stroke-width="1.5"/>
+          <line x1="340" y1="526" x2="340" y2="590" stroke="#1A1A1A" stroke-width="1.5"/>
+          <text x="388" y="478" font-family="Ubuntu Mono, monospace" font-size="13" font-weight="600" fill="#1A1A1A">M5</text>
+          <text x="388" y="494" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">tail &middot; W=8&mu; L=1&mu;</text>
+          <text x="388" y="510" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">I = 40 &mu;A</text>
+          <!-- Vbias dashed lead -->
+          <line x1="210" y1="490" x2="304" y2="490" stroke="#6B6358" stroke-width="1" stroke-dasharray="4 3"/>
+          <text x="206" y="494" text-anchor="end" font-family="Ubuntu Mono, monospace" font-size="12" fill="#6B6358">V<tspan baseline-shift="sub" font-size="9">bias1</tspan></text>
+
+          <!-- ============ M7 PMOS (Stage-2 current source) at (720, 110) ============ -->
+          <use href="#pmos" x="680" y="110" width="80" height="80"/>
+          <line x1="720" y1="50" x2="720" y2="114" stroke="#1A1A1A" stroke-width="1.5"/>
+          <!-- Drain extends down to V_out -->
+          <line x1="720" y1="186" x2="720" y2="370" stroke="#1A1A1A" stroke-width="1.5"/>
+          <text x="770" y="138" font-family="Ubuntu Mono, monospace" font-size="13" font-weight="600" fill="#1A1A1A">M7</text>
+          <text x="770" y="154" font-family="Ubuntu Mono, monospace" font-size="10" fill="#6B6358">bias mirror</text>
+          <!-- Vbias2 dashed lead to M7 gate -->
+          <line x1="630" y1="150" x2="684" y2="150" stroke="#6B6358" stroke-width="1" stroke-dasharray="4 3"/>
+          <text x="626" y="154" text-anchor="end" font-family="Ubuntu Mono, monospace" font-size="12" fill="#6B6358">V<tspan baseline-shift="sub" font-size="9">bias2</tspan></text>
+
+          <!-- ============ M6 NMOS (Stage-2 driver) at (720, 410) ============ -->
+          <use href="#nmos" x="680" y="410" width="80" height="80"/>
+          <!-- Drain to V_out: vertical wire from V_out (720,370) down to M6 drain pin (720,410) -->
+          <line x1="720" y1="370" x2="720" y2="410" stroke="#1A1A1A" stroke-width="1.5"/>
+          <!-- Source to VSS -->
+          <line x1="720" y1="490" x2="720" y2="590" stroke="#1A1A1A" stroke-width="1.5"/>
+          <text x="770" y="438" font-family="Ubuntu Mono, monospace" font-size="13" font-weight="600" fill="#1A1A1A">M6</text>
+          <text x="770" y="454" font-family="Ubuntu Mono, monospace" font-size="10" fill="#6B6358">W=40&mu; L=0.5&mu;</text>
+
+          <!-- M6 gate driven by V_A (Stage-1 output). Route: right from V_A clear of M2, down through the Cc/M7 gap, right to M6 gate. -->
+          <line x1="460" y1="260" x2="640" y2="260" stroke="#1A1A1A" stroke-width="1.5"/>
+          <line x1="640" y1="260" x2="640" y2="450" stroke="#1A1A1A" stroke-width="1.5"/>
+          <line x1="640" y1="450" x2="684" y2="450" stroke="#1A1A1A" stroke-width="1.5"/>
+
+          <!-- ============ Miller cap Cc between V_A and V_out ============ -->
+          <!-- Route: V_A (460, 260) -> right and up through cap plates -> V_out (720, 370) -->
+          <!-- Cap plates horizontal at y=228, x=558-614 -->
+          <line x1="460" y1="260" x2="460" y2="230" stroke="#4A7BD9" stroke-width="1.5"/>
+          <line x1="460" y1="230" x2="560" y2="230" stroke="#4A7BD9" stroke-width="1.5"/>
+          <line x1="560" y1="214" x2="560" y2="246" stroke="#4A7BD9" stroke-width="3"/>
+          <line x1="572" y1="214" x2="572" y2="246" stroke="#4A7BD9" stroke-width="3"/>
+          <line x1="572" y1="230" x2="720" y2="230" stroke="#4A7BD9" stroke-width="1.5"/>
+          <line x1="720" y1="230" x2="720" y2="370" stroke="#4A7BD9" stroke-width="1.5"/>
+          <text x="566" y="206" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" font-weight="600" fill="#4A7BD9">Cc</text>
+          <text x="566" y="272" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#4A7BD9">2.1 pF</text>
+
+          <!-- ============ V_out node + C_L load ============ -->
+          <circle cx="720" cy="370" r="5" fill="#1A1A1A"/>
+          <line x1="720" y1="370" x2="830" y2="370" stroke="#1A1A1A" stroke-width="1.5"/>
+          <text x="720" y="358" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="14" font-weight="700" fill="#1A1A1A">V_out</text>
+          <!-- C_L load cap: plates at y=420 -->
+          <line x1="830" y1="370" x2="830" y2="404" stroke="#1A1A1A" stroke-width="1.5"/>
+          <line x1="816" y1="404" x2="844" y2="404" stroke="#1A1A1A" stroke-width="2.5"/>
+          <line x1="820" y1="412" x2="840" y2="412" stroke="#1A1A1A" stroke-width="2.5"/>
+          <line x1="830" y1="412" x2="830" y2="590" stroke="#1A1A1A" stroke-width="1.5"/>
+          <text x="854" y="408" font-family="Ubuntu Mono, monospace" font-size="12" font-weight="600" fill="#1A1A1A">C_L</text>
+          <text x="854" y="422" font-family="Ubuntu Mono, monospace" font-size="10" fill="#6B6358">1 pF</text>
+
+          <!-- Legend -->
+          <g transform="translate(60, 540)">
+            <line x1="0" y1="0" x2="18" y2="0" stroke="#FC6255" stroke-width="3.5"/>
+            <text x="24" y="4" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">PMOS</text>
+            <line x1="72" y1="0" x2="90" y2="0" stroke="#4FB04B" stroke-width="3.5"/>
+            <text x="96" y="4" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">NMOS</text>
+          </g>
+        </svg>
+      </div>
+      <div class="stack-md">
+        <ul class="bullets tight">
+          <li><strong>PDK:</strong> IHP SG13G2 (130 nm, <em>V</em><sub>DD</sub> = 1.2 V).</li>
+          <li><strong>Topology:</strong> two-stage compensated OTA, NMOS input pair, Miller cap between stages.</li>
+          <li><strong>Design space:</strong> 5 transistor W/L + bias + Miller cap.</li>
+          <li><strong>Target specs:</strong> GBW 10 MHz, PM 60&deg;, A<sub>dc</sub> 60 dB, C<sub>L</sub> 1 pF.</li>
+        </ul>
+        <div>
+          <div class="label">design_space() &middot; excerpt</div>
+          <div class="code-block sm" style="margin-top: 10px;">{
+  <span class="c-key">"M1_W"</span>: (<span class="c-num">1e-6</span>, <span class="c-num">50e-6</span>, <span class="c-str">"log"</span>),
+  <span class="c-key">"M5_W"</span>: (<span class="c-num">1e-6</span>, <span class="c-num">20e-6</span>),
+  <span class="c-key">"ibias"</span>:(<span class="c-num">10e-6</span>, <span class="c-num">100e-6</span>),
+  <span class="c-key">"Cc"</span>:   (<span class="c-num">0.5e-12</span>, <span class="c-num">5e-12</span>)
+}</div>
+        </div>
+        <div style="font: italic 400 20px/1.4 var(--font-serif); color: var(--paper-muted);">
+          Source: <span class="mono" style="color: var(--paper-ink);">src/eda_agents/topologies/ota_miller.py</span>
+        </div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 04 &middot; registry</span></div>
+  </section>
+
+  <!-- 22 AnalogAcademy OTA -->
+  <section data-label="22 AA OTA" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 4 &middot; registry</span><span class="rule"></span><span>22 / 42</span></div>
+    <h2 class="slide-title">AnalogAcademy OTA &mdash; <span class="code">ota_analogacademy</span></h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div class="stack-md">
+        <ul class="bullets tight">
+          <li><strong>PDK:</strong> IHP SG13G2.</li>
+          <li><strong>Topology:</strong> PMOS-input variant from the IHP AnalogAcademy course.</li>
+          <li>Same shape as Miller OTA; different input polarity and bias scheme.</li>
+          <li>Useful reference for porting a textbook example into the eda-agents registry.</li>
+        </ul>
+      </div>
+      <div class="card thick" style="border-left-color: var(--pdk-diff-n);">
+        <div class="label" style="color: var(--pdk-diff-n);">Why this ships</div>
+        <div style="font: 400 24px/1.4 var(--font-serif); margin-top: 8px;">
+          The Academy course is the canonical analog-design teaching material for SG13G2. Having its OTA in the registry lets students reproduce the lab exercises with AI-driven sizing &mdash; same spec, same schematic, much less grid-search pain.
+        </div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 04 &middot; registry</span></div>
+  </section>
+
+  <!-- 23 GF180 OTA -->
+  <section data-label="23 GF180 OTA" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 4 &middot; registry</span><span class="rule"></span><span>23 / 42</span></div>
+    <h2 class="slide-title">GF180 OTA &mdash; <span class="code">ota_gf180</span></h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div class="stack-md">
+        <ul class="bullets tight">
+          <li><strong>PDK:</strong> GF180MCU (180 nm, <em>V</em><sub>DD</sub> = 3.3 V).</li>
+          <li><strong>Topology:</strong> PMOS-input two-stage OTA targeting the GF180 BSIM4 models.</li>
+          <li>Wafer-space PDK fork is <em>not</em> needed for a bare analog block.</li>
+          <li>Design space shape mirrors the IHP OTAs &mdash; only the device models + voltage domain differ.</li>
+        </ul>
+      </div>
+      <div>
+        <div class="label">PDK-specific plumbing</div>
+        <div class="code-block sm" style="margin-top: 10px;"><span class="c-com"># netlist_lib_lines() returns the right lib directives</span>
+.lib <span class="c-str">'$PDK_ROOT/gf180mcuD/libs.tech/ngspice/</span>
+     <span class="c-str">sm141064_mim.ngspice'</span> mim
+
+<span class="c-com"># BSIM4 via built-in ngspice, no OSDI required</span>
+.model nfet_03v3 nmos (level=14 ...)</div>
+        <div style="font: italic 400 20px/1.4 var(--font-serif); color: var(--paper-muted); margin-top: 14px;">
+          Source: <span class="mono" style="color: var(--paper-ink);">src/eda_agents/topologies/ota_gf180.py</span> and <span class="mono" style="color: var(--paper-ink);">src/eda_agents/core/pdk.py</span>
+        </div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 04 &middot; registry</span></div>
+  </section>
+
+  <!-- 24 Comparator + SAR ADC -->
+  <section data-label="24 Comparator SAR" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 4 &middot; registry</span><span class="rule"></span><span>24 / 42</span></div>
+    <h2 class="slide-title">Dynamic comparator + SAR ADC</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 36px; display: flex; align-items: center; justify-content: center;">
+      <!-- SAR ADC top-level block diagram (SystemTopology composition) -->
+      <svg viewBox="0 0 1400 340" width="100%" style="max-width: 1400px;">
+        <defs>
+          <marker id="arrSAR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#1A1A1A"/>
+          </marker>
+        </defs>
+
+        <!-- Vin input -->
+        <text x="30" y="174" font-family="Ubuntu Mono, monospace" font-size="16" fill="#1A1A1A">V_in</text>
+        <line x1="75" y1="170" x2="150" y2="170" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arrSAR)"/>
+
+        <!-- S/H -->
+        <rect x="150" y="130" width="150" height="80" rx="6" fill="#FFFFFF" stroke="#4FB04B" stroke-width="2.5"/>
+        <text x="225" y="168" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="18" font-weight="500" fill="#1A1A1A">S/H</text>
+        <text x="225" y="190" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" fill="#6B6358">bootstrap sw.</text>
+
+        <line x1="300" y1="170" x2="380" y2="170" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arrSAR)"/>
+
+        <!-- Comparator (StrongArm) -->
+        <rect x="380" y="110" width="220" height="120" rx="6" fill="#FFFFFF" stroke="#FC6255" stroke-width="3"/>
+        <text x="490" y="150" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="19" font-weight="500" fill="#1A1A1A">comparator</text>
+        <text x="490" y="176" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" fill="#CF5044">comparator_strongarm</text>
+        <text x="490" y="202" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">regen pair + tail + switches</text>
+
+        <line x1="600" y1="170" x2="680" y2="170" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arrSAR)"/>
+
+        <!-- SAR Logic -->
+        <rect x="680" y="110" width="220" height="120" rx="6" fill="#FFFFFF" stroke="#4A7BD9" stroke-width="3"/>
+        <text x="790" y="150" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="19" font-weight="500" fill="#1A1A1A">SAR logic</text>
+        <text x="790" y="176" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" fill="#4A7BD9">bit-by-bit decision</text>
+        <text x="790" y="202" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">shift + register output</text>
+
+        <!-- output word -->
+        <line x1="900" y1="170" x2="1000" y2="170" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arrSAR)"/>
+        <rect x="1000" y="130" width="200" height="80" rx="6" fill="#FFFFFF" stroke="#FF862F" stroke-width="2"/>
+        <text x="1100" y="160" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="17" font-weight="500" fill="#1A1A1A">output word</text>
+        <text x="1100" y="186" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" fill="#FF862F">D[7:0] &middot; 8 bit</text>
+
+        <!-- DAC (capacitive) feedback from SAR logic -->
+        <line x1="790" y1="230" x2="790" y2="270" stroke="#1A1A1A" stroke-width="2"/>
+        <line x1="790" y1="270" x2="490" y2="270" stroke="#1A1A1A" stroke-width="2"/>
+        <rect x="400" y="250" width="180" height="60" rx="6" fill="#FFFFFF" stroke="#9A72AC" stroke-width="2.5"/>
+        <text x="490" y="278" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="16" font-weight="500" fill="#1A1A1A">CDAC</text>
+        <text x="490" y="298" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#9A72AC">split-cap / binary-weighted</text>
+        <line x1="490" y1="250" x2="490" y2="230" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arrSAR)"/>
+
+        <!-- SystemTopology envelope -->
+        <rect x="140" y="90" width="780" height="240" rx="10" fill="none" stroke="#6B6358" stroke-width="1.5" stroke-dasharray="6 4"/>
+        <text x="145" y="82" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.08em" fill="#6B6358">SYSTEMTOPOLOGY &middot; sar_adc_8bit</text>
+
+        <!-- FoM callout -->
+        <g transform="translate(1220, 90)">
+          <rect x="0" y="0" width="170" height="240" rx="8" fill="#FFFFFF" stroke="#FFE14B" stroke-width="2.5"/>
+          <text x="85" y="26" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" letter-spacing="0.08em" fill="#9a7d00">FoM</text>
+          <line x1="20" y1="40" x2="150" y2="40" stroke="#E6E4DC" stroke-width="1"/>
+          <text x="20" y="66" font-family="Ubuntu Mono, monospace" font-size="13" fill="#1A1A1A">static:</text>
+          <text x="26" y="86" font-family="Ubuntu Mono, monospace" font-size="12" fill="#6B6358">DNL</text>
+          <text x="26" y="104" font-family="Ubuntu Mono, monospace" font-size="12" fill="#6B6358">INL</text>
+          <text x="20" y="134" font-family="Ubuntu Mono, monospace" font-size="13" fill="#1A1A1A">dynamic:</text>
+          <text x="26" y="154" font-family="Ubuntu Mono, monospace" font-size="12" fill="#6B6358">SNDR</text>
+          <text x="26" y="172" font-family="Ubuntu Mono, monospace" font-size="12" fill="#6B6358">ENOB</text>
+          <text x="20" y="202" font-family="Ubuntu Mono, monospace" font-size="13" fill="#1A1A1A">power:</text>
+          <text x="26" y="222" font-family="Ubuntu Mono, monospace" font-size="12" fill="#6B6358">FoM_W</text>
+        </g>
+      </svg>
+    </div>
+    <div style="margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px;">
+      <div>
+        <div class="label" style="color: var(--pdk-poly);"><span class="mono">comparator_strongarm</span></div>
+        <div style="font: 400 22px/1.5 var(--font-serif); margin-top: 6px;">
+          Standalone CircuitTopology. Regen pair + tail + switches. FoM: offset, decision time, kickback. IHP + GF180.
+        </div>
+      </div>
+      <div>
+        <div class="label" style="color: var(--pdk-m3);"><span class="mono">sar_adc_8bit</span> &middot; SystemTopology</div>
+        <div style="font: 400 22px/1.5 var(--font-serif); margin-top: 6px;">
+          Composes comparator + CDAC + logic. One FoM over static (DNL/INL) + dynamic (SNDR/ENOB). Transistor &amp; behavioural variants.
+        </div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 04 &middot; registry</span></div>
+  </section>
+
+  <!-- 25 Part 5 divider -->
+  <section data-label="25 Part 5" class="section-divider">
+    <div class="sec-num">Part 05</div>
+    <h2 class="sec-title">AutoresearchRunner<br>&mdash; the loop</h2>
+    <div class="sec-rule" style="background: var(--pdk-diff-n);"></div>
+    <p class="sec-sub">Six nodes. Two persistence files. Tens of evaluations. Cents of LLM cost.</p>
+    <div class="sec-brand"><img src="assets/logo-wordmark.svg" alt="OpenSilicon Labs"></div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 05 &middot; loop</span></div>
+  </section>
+
+  <!-- 26 The greedy loop -->
+  <section data-label="26 Greedy loop" class="slide-stage-grid">
+    <div class="slide-eyebrow"><span>Part 5 &middot; loop</span><span class="rule"></span><span>26 / 42</span></div>
+    <h2 class="slide-title">Six nodes, one cycle</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 20px; flex: 1; display: flex; align-items: center; justify-content: center;">
+      <svg viewBox="0 0 1200 540" width="100%" style="max-width: 1240px;">
+        <defs>
+          <marker id="arrL" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#FFE14B"/>
+          </marker>
+        </defs>
+        <g font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="20" fill="#FFFFFF">
+          <g transform="translate(460,10)"><rect width="280" height="90" rx="6" fill="#171F28" stroke="#FFE14B" stroke-width="2"/><text x="140" y="38" text-anchor="middle" font-weight="500">Propose</text><text x="140" y="66" text-anchor="middle" font-size="15" fill="#BBBBBB" font-family="Ubuntu Mono, monospace">LLM &middot; reads program.md</text></g>
+          <g transform="translate(860,140)"><rect width="300" height="90" rx="6" fill="#171F28" stroke="#58C4DD" stroke-width="2"/><text x="150" y="38" text-anchor="middle" font-weight="500">Map params</text><text x="150" y="66" text-anchor="middle" font-size="15" fill="#BBBBBB" font-family="Ubuntu Mono, monospace">&rarr; sizing &rarr; netlist</text></g>
+          <g transform="translate(860,330)"><rect width="300" height="90" rx="6" fill="#171F28" stroke="#FC6255" stroke-width="2"/><text x="150" y="38" text-anchor="middle" font-weight="500">Evaluate</text><text x="150" y="66" text-anchor="middle" font-size="15" fill="#BBBBBB" font-family="Ubuntu Mono, monospace">ngspice &middot; ~seconds</text></g>
+          <g transform="translate(460,440)"><rect width="280" height="90" rx="6" fill="#171F28" stroke="#83C167" stroke-width="2"/><text x="140" y="38" text-anchor="middle" font-weight="500">Score FoM</text><text x="140" y="66" text-anchor="middle" font-size="15" fill="#BBBBBB" font-family="Ubuntu Mono, monospace">weighted sum</text></g>
+          <g transform="translate(40,330)"><rect width="300" height="90" rx="6" fill="#171F28" stroke="#FFE14B" stroke-width="2"/><text x="150" y="38" text-anchor="middle" font-weight="500">Log to</text><text x="150" y="66" text-anchor="middle" font-size="15" fill="#BBBBBB" font-family="Ubuntu Mono, monospace">results.tsv</text></g>
+          <g transform="translate(40,140)"><rect width="300" height="90" rx="6" fill="#171F28" stroke="#FFE14B" stroke-width="2"/><text x="150" y="38" text-anchor="middle" font-weight="500">Append to</text><text x="150" y="66" text-anchor="middle" font-size="15" fill="#BBBBBB" font-family="Ubuntu Mono, monospace">program.md</text></g>
+        </g>
+        <line x1="740" y1="55" x2="900" y2="148" stroke="#FFE14B" stroke-width="2.5" marker-end="url(#arrL)"/>
+        <line x1="1010" y1="230" x2="1010" y2="325" stroke="#FFE14B" stroke-width="2.5" marker-end="url(#arrL)"/>
+        <line x1="860" y1="420" x2="740" y2="475" stroke="#FFE14B" stroke-width="2.5" marker-end="url(#arrL)"/>
+        <line x1="460" y1="475" x2="340" y2="420" stroke="#FFE14B" stroke-width="2.5" marker-end="url(#arrL)"/>
+        <line x1="190" y1="325" x2="190" y2="230" stroke="#FFE14B" stroke-width="2.5" marker-end="url(#arrL)"/>
+        <line x1="340" y1="148" x2="460" y2="55" stroke="#FFE14B" stroke-width="2.5" marker-end="url(#arrL)"/>
+      </svg>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 05 &middot; loop</span></div>
+  </section>
+
+  <!-- 27 program.md / results.tsv anatomy -->
+  <section data-label="27 Persistence" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 5 &middot; loop</span><span class="rule"></span><span>27 / 42</span></div>
+    <h2 class="slide-title"><span class="code">program.md</span> + <span class="code">results.tsv</span></h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 40px;">
+      <div>
+        <div class="label">narrative brain &middot; program.md</div>
+        <div class="code-block sm" style="margin-top: 10px;"><span class="c-com"># Goal</span>
+Miller OTA on IHP SG13G2,
+GBW &ge; 10 MHz, PM &ge; 60&deg;.
+
+<span class="c-com"># FoM</span>
+0.5&middot;GBW + 0.3&middot;PM &minus; 0.2&middot;power
+
+<span class="c-com"># Current best (eval 07)</span>
+<span class="c-key">params</span>: {M1.W: 18&micro;, ibias: 42&micro;A, Cc: 2.1pF}
+<span class="c-key">FoM</span>: <span class="c-num">0.71</span>
+
+<span class="c-com"># Learned insights</span>
+- Cc &lt; 2 pF ruins PM.
+- Tail &gt; 50 &micro;A loses gain faster than GBW improves.</div>
+      </div>
+      <div>
+        <div class="label">numeric history &middot; results.tsv</div>
+        <div class="code-block sm" style="margin-top: 10px;">eval  GBW_MHz  PM_deg  P_mW  FoM   status
+ 01    6.2     72.1    0.18  0.41  valid
+ 02    8.7     68.4    0.22  0.55  valid
+ 03   11.4     55.3    0.29  0.47  PM fail
+ 04   10.1     63.8    0.24  0.62  valid
+ 05   12.6     61.2    0.31  0.68  valid
+ 06   10.8     65.4    0.26  0.69  valid
+ 07   11.2     64.1    0.27  <span class="c-op">0.71</span>  best</div>
+      </div>
+    </div>
+    <div style="margin-top: 28px; font: italic 400 22px/1.4 var(--font-serif); color: var(--paper-muted); max-width: 1600px;">
+      These are the <em>only</em> persistence files. No pickle. No hidden state. Delete them and the run restarts.
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 05 &middot; loop</span></div>
+  </section>
+
+  <!-- 28 Budget sizing -->
+  <section data-label="28 Budget" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 5 &middot; loop</span><span class="rule"></span><span>28 / 42</span></div>
+    <h2 class="slide-title">Budget sizing &mdash; how many evaluations?</h2>
+    <div class="title-rule"></div>
+    <table class="data" style="margin-top: 48px;">
+      <thead>
+        <tr><th>Scenario</th><th style="text-align:right;">Budget</th><th style="text-align:right;">Wall time</th><th style="text-align:right;">LLM cost</th><th>Use for</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="mono">rehearse</td><td class="num">0</td><td class="num">&lt; 5 s</td><td class="num">$0.00</td><td>dry-run &mdash; verify PDK + env</td></tr>
+        <tr><td class="mono">demo</td><td class="num">6</td><td class="num">~ 3 min</td><td class="num">&lt; $0.05</td><td>Miller OTA teaching notebook</td></tr>
+        <tr><td class="mono">default</td><td class="num">20</td><td class="num">~ 10 min</td><td class="num">~ $0.15</td><td>standard refinement run</td></tr>
+        <tr><td class="mono">hunt</td><td class="num">50</td><td class="num">~ 25 min</td><td class="num">~ $0.40</td><td>tough spec, need exploration</td></tr>
+        <tr><td class="mono">corners</td><td class="num">+ 16</td><td class="num">+ 8 min</td><td class="num">$0.00</td><td>PVT sweep post-convergence</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top: 36px; font: italic 400 22px/1.4 var(--font-serif); color: var(--paper-muted); max-width: 1700px;">
+      Wall time dominated by the inner SPICE loop &mdash; tens of transistors, seconds per run. LLM cost is <em>trivial</em> at these scales; the budget knob is about search breadth, not dollars.
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 05 &middot; loop</span></div>
+  </section>
+
+  <!-- 29 Resumable runs -->
+  <section data-label="29 Resume" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 5 &middot; loop</span><span class="rule"></span><span>29 / 42</span></div>
+    <h2 class="slide-title">Resumable runs &mdash; crash, kill, rebase</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 36px; display: flex; align-items: center; justify-content: center;">
+      <!-- Timeline showing eval 1..7, crash, resume, eval 8..10 - program.md + results.tsv persist across the break -->
+      <svg viewBox="0 0 1500 360" width="100%" style="max-width: 1500px;">
+        <defs>
+          <marker id="arrT" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#1A1A1A"/>
+          </marker>
+        </defs>
+        <!-- session 1 bar -->
+        <rect x="50" y="70" width="620" height="60" rx="6" fill="#F7FAFC" stroke="#4FB04B" stroke-width="2"/>
+        <text x="60" y="60" font-family="Ubuntu Mono, monospace" font-size="12" letter-spacing="0.08em" fill="#2d7a2a">SESSION 1 &middot; PID 42</text>
+        <!-- 7 evals in session 1 -->
+        <g font-family="Ubuntu Mono, monospace" font-size="13" fill="#1A1A1A">
+          <circle cx="100" cy="100" r="14" fill="#FFFFFF" stroke="#4FB04B" stroke-width="2"/><text x="100" y="105" text-anchor="middle">1</text>
+          <circle cx="170" cy="100" r="14" fill="#FFFFFF" stroke="#4FB04B" stroke-width="2"/><text x="170" y="105" text-anchor="middle">2</text>
+          <circle cx="240" cy="100" r="14" fill="#FFFFFF" stroke="#4FB04B" stroke-width="2"/><text x="240" y="105" text-anchor="middle">3</text>
+          <circle cx="310" cy="100" r="14" fill="#FFFFFF" stroke="#4FB04B" stroke-width="2"/><text x="310" y="105" text-anchor="middle">4</text>
+          <circle cx="380" cy="100" r="14" fill="#FFFFFF" stroke="#4FB04B" stroke-width="2"/><text x="380" y="105" text-anchor="middle">5</text>
+          <circle cx="450" cy="100" r="14" fill="#FFFFFF" stroke="#4FB04B" stroke-width="2"/><text x="450" y="105" text-anchor="middle">6</text>
+          <circle cx="520" cy="100" r="14" fill="#FFFFFF" stroke="#4FB04B" stroke-width="2"/><text x="520" y="105" text-anchor="middle">7</text>
+        </g>
+        <!-- crash marker -->
+        <g transform="translate(620, 100)">
+          <polygon points="-14,0 -7,-12 7,-12 14,0 7,12 -7,12" fill="#FC6255" stroke="#CF5044" stroke-width="1.5"/>
+          <text x="0" y="4" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" font-weight="700" fill="#FFFFFF">X</text>
+          <text x="0" y="-24" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" fill="#CF5044" font-weight="600">CRASH</text>
+        </g>
+        <!-- gap -->
+        <g transform="translate(700, 100)">
+          <line x1="0" y1="0" x2="60" y2="0" stroke="#6B6358" stroke-width="1" stroke-dasharray="4 4"/>
+          <text x="30" y="-18" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" fill="#6B6358">(kernel restart, laptop sleep, rebase...)</text>
+        </g>
+
+        <!-- session 2 bar -->
+        <rect x="780" y="70" width="460" height="60" rx="6" fill="#F7FAFC" stroke="#4A7BD9" stroke-width="2"/>
+        <text x="790" y="60" font-family="Ubuntu Mono, monospace" font-size="12" letter-spacing="0.08em" fill="#4A7BD9">SESSION 2 &middot; PID 87 &middot; resume</text>
+        <g font-family="Ubuntu Mono, monospace" font-size="13" fill="#1A1A1A">
+          <circle cx="830" cy="100" r="14" fill="#FFFFFF" stroke="#4A7BD9" stroke-width="2"/><text x="830" y="105" text-anchor="middle">8</text>
+          <circle cx="900" cy="100" r="14" fill="#FFFFFF" stroke="#4A7BD9" stroke-width="2"/><text x="900" y="105" text-anchor="middle">9</text>
+          <circle cx="970" cy="100" r="14" fill="#FFFFFF" stroke="#4A7BD9" stroke-width="2"/><text x="970" y="105" text-anchor="middle">10</text>
+          <!-- done marker -->
+          <g transform="translate(1180, 100)">
+            <rect x="-34" y="-16" width="68" height="32" rx="4" fill="#FFFFFF" stroke="#FF862F" stroke-width="2"/>
+            <text x="0" y="5" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" font-weight="600" fill="#FF862F">done</text>
+          </g>
+        </g>
+
+        <!-- persistence band -->
+        <rect x="50" y="190" width="1190" height="110" rx="6" fill="#FAFAF7" stroke="#E6E4DC" stroke-width="1.5"/>
+        <text x="62" y="180" font-family="Ubuntu Mono, monospace" font-size="12" letter-spacing="0.08em" fill="#6B6358">PERSISTENCE &middot; READ/APPENDED ACROSS THE CRASH</text>
+
+        <!-- program.md line — label placed to the RIGHT of the band so it is never clipped -->
+        <line x1="180" y1="215" x2="1220" y2="215" stroke="#FFE14B" stroke-width="2.5"/>
+        <text x="1230" y="219" font-family="Ubuntu Mono, monospace" font-size="12" fill="#9a7d00">program.md</text>
+        <!-- small ticks marking updates -->
+        <g fill="#FFE14B">
+          <circle cx="200" cy="215" r="4"/><circle cx="260" cy="215" r="4"/><circle cx="320" cy="215" r="4"/><circle cx="380" cy="215" r="4"/>
+          <circle cx="440" cy="215" r="4"/><circle cx="500" cy="215" r="4"/><circle cx="560" cy="215" r="4"/>
+          <circle cx="830" cy="215" r="4"/><circle cx="900" cy="215" r="4"/><circle cx="970" cy="215" r="4"/>
+        </g>
+
+        <!-- results.tsv line -->
+        <line x1="180" y1="270" x2="1220" y2="270" stroke="#4A7BD9" stroke-width="2.5"/>
+        <text x="1230" y="274" font-family="Ubuntu Mono, monospace" font-size="12" fill="#4A7BD9">results.tsv</text>
+        <g fill="#4A7BD9">
+          <circle cx="200" cy="270" r="4"/><circle cx="260" cy="270" r="4"/><circle cx="320" cy="270" r="4"/><circle cx="380" cy="270" r="4"/>
+          <circle cx="440" cy="270" r="4"/><circle cx="500" cy="270" r="4"/><circle cx="560" cy="270" r="4"/>
+          <circle cx="830" cy="270" r="4"/><circle cx="900" cy="270" r="4"/><circle cx="970" cy="270" r="4"/>
+        </g>
+
+        <!-- resume arrow from persistence to session 2 -->
+        <path d="M 700,270 C 760,270 760,130 820,130" fill="none" stroke="#4A7BD9" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrT)"/>
+        <text x="735" y="205" font-family="Ubuntu Mono, monospace" font-size="12" fill="#4A7BD9">re-read</text>
+
+        <!-- time axis -->
+        <line x1="50" y1="340" x2="1240" y2="340" stroke="#6B6358" stroke-width="1"/>
+        <text x="645" y="334" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="14" fill="#6B6358">wall time &rarr;</text>
+      </svg>
+    </div>
+    <div style="margin-top: 16px; font: italic 400 22px/1.4 var(--font-serif); color: var(--paper-muted);">
+      No pickle, no hidden state. Two files on disk. The repo tree is the whole state.
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 05 &middot; loop</span></div>
+  </section>
+
+  <!-- 30 Corner validator -->
+  <section data-label="30 Corners" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 5 &middot; loop</span><span class="rule"></span><span>30 / 42</span></div>
+    <h2 class="slide-title"><span class="code">analog.corner_validator</span> &mdash; after the loop converges</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 48px;">
+      <div class="label">Default corner sweep</div>
+      <table class="data" style="margin-top: 16px;">
+        <thead>
+          <tr><th>Axis</th><th>Points</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Process</strong></td><td class="mono">tt, ff, ss, fs, sf</td><td>five SPICE decks per candidate</td></tr>
+          <tr><td><strong>Voltage</strong></td><td class="mono">&minus;10%, nom, +10%</td><td>three V<sub>DD</sub> points</td></tr>
+          <tr><td><strong>Temperature</strong></td><td class="mono">&minus;40&deg;C, 27&deg;C, 85&deg;C</td><td>industrial range by default</td></tr>
+          <tr><td><strong>Load</strong></td><td class="mono">C<sub>L</sub>/2, C<sub>L</sub>, 2&middot;C<sub>L</sub></td><td>verifies PM margin under real loads</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card thick" style="margin-top: 40px; border-left-color: var(--accent);">
+      <div class="label" style="color: var(--accent);">On failure</div>
+      <div style="font: 400 24px/1.5 var(--font-serif); margin-top: 8px;">
+        If the winner fails any corner, the validator does <em>not</em> accept it. The runner backs off to the previous candidate (row <em>n</em>&nbsp;&minus;&nbsp;1 in <span class="mono">results.tsv</span>) and re-validates. You never ship a nominal-only-passing design.
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 05 &middot; loop</span></div>
+  </section>
+
+  <!-- 31 Part 6 divider -->
+  <section data-label="31 Part 6" class="section-divider">
+    <div class="sec-num">Part 06</div>
+    <h2 class="sec-title">Skills over MCP</h2>
+    <div class="sec-rule" style="background: var(--pdk-diff-n);"></div>
+    <p class="sec-sub">Ten analog skills. Runtime discovery. One stdio server. Two clients.</p>
+    <div class="sec-brand"><img src="assets/logo-wordmark.svg" alt="OpenSilicon Labs"></div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 06 &middot; skills</span></div>
+  </section>
+
+  <!-- 32 analog.* namespace -->
+  <section data-label="32 Skills" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 6 &middot; skills</span><span class="rule"></span><span>32 / 42</span></div>
+    <h2 class="slide-title">The <span class="code">analog.*</span> namespace</h2>
+    <div class="title-rule"></div>
+    <div style="margin-top: 48px; display: grid; grid-template-columns: 1fr 1fr; gap: 56px;">
+      <div class="skill-col">
+        <h4 style="color: var(--pdk-diff-n);">workhorse</h4>
+        <ul>
+          <li>analog.gmid_sizing</li>
+          <li>analog.explorer</li>
+          <li>analog.corner_validator</li>
+          <li>analog.orchestrator</li>
+          <li>analog.idea_to_topology</li>
+        </ul>
+      </div>
+      <div class="skill-col">
+        <h4 style="color: var(--pdk-diff-n);">topology-specific</h4>
+        <ul>
+          <li>analog.miller_ota_design</li>
+          <li>analog.sar_adc_design</li>
+          <li>analog.adc_metrics</li>
+          <li>analog.behavioral_primitives</li>
+          <li>analog.custom_composition</li>
+        </ul>
+      </div>
+    </div>
+    <div style="margin-top: 40px; font: italic 400 22px/1.4 var(--font-serif); color: var(--paper-muted);">
+      Source: <span class="mono" style="color: var(--paper-ink);">src/eda_agents/skills/analog.py</span>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 06 &middot; skills</span></div>
+  </section>
+
+  <!-- 33 Runtime discovery -->
+  <section data-label="33 Discovery" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 6 &middot; skills</span><span class="rule"></span><span>33 / 42</span></div>
+    <h2 class="slide-title">Runtime discovery &mdash; agents find skills, not the other way around</h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div>
+        <div class="label">MCP tools for discovery</div>
+        <div class="code-block sm" style="margin-top: 10px;"><span class="c-com"># Enumerate everything the server exposes</span>
+list_skills() -&gt; [<span class="c-str">"analog.gmid_sizing"</span>, <span class="c-str">"analog.explorer"</span>, ...]
+
+<span class="c-com"># Fetch the rendered prompt for one</span>
+render_skill(<span class="c-str">"analog.gmid_sizing"</span>) -&gt; <span class="c-str">"# Skill: gm/ID..."</span>
+
+<span class="c-com"># Topology-aware variants</span>
+describe_topology(<span class="c-str">"miller_ota"</span>) -&gt; {<span class="c-key">design_space</span>, <span class="c-key">specs</span>, ...}</div>
+      </div>
+      <div class="card thick" style="border-left-color: var(--accent);">
+        <div class="label" style="color: var(--accent);">Why this shape</div>
+        <div style="font: 400 24px/1.5 var(--font-serif); margin-top: 8px;">
+          Agents are not built against a static skill list. They discover at runtime. Adding a new skill (or retiring one) does not require editing any agent's prompt.
+        </div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 06 &middot; skills</span></div>
+  </section>
+
+  <!-- 34 MCP registration for both clients -->
+  <section data-label="34 MCP" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 6 &middot; skills</span><span class="rule"></span><span>34 / 42</span></div>
+    <h2 class="slide-title">MCP registration &mdash; one server, two clients</h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div>
+        <div class="label">Claude Code &middot; <span class="mono">~/.config/claude-code/mcp.json</span></div>
+        <div class="code-block sm" style="margin-top: 10px;">{
+  <span class="c-key">"mcpServers"</span>: {
+    <span class="c-key">"eda-agents"</span>: {
+      <span class="c-key">"type"</span>: <span class="c-str">"stdio"</span>,
+      <span class="c-key">"command"</span>: <span class="c-str">"eda-mcp"</span>
+    }
+  }
+}</div>
+      </div>
+      <div>
+        <div class="label">OpenCode &middot; <span class="mono">./opencode.json</span> at repo root</div>
+        <div class="code-block sm" style="margin-top: 10px;">{
+  <span class="c-key">"$schema"</span>: <span class="c-str">"https://opencode.ai/config.json"</span>,
+  <span class="c-key">"mcp"</span>: {
+    <span class="c-key">"eda-agents"</span>: {
+      <span class="c-key">"type"</span>: <span class="c-str">"local"</span>,
+      <span class="c-key">"command"</span>: [<span class="c-str">".venv/bin/python"</span>,
+                  <span class="c-str">"-m"</span>, <span class="c-str">"eda_agents.mcp"</span>]
+    }
+  }
+}</div>
+      </div>
+    </div>
+    <div class="card thick" style="margin-top: 40px; border-left-color: var(--accent);">
+      <div class="label" style="color: var(--accent);">Bootstrap</div>
+      <div style="font: 400 24px/1.5 var(--font-serif); margin-top: 8px;">
+        <span class="mono">eda-init</span> writes both files. Run it once after you clone the repo and activate the venv. Same <span class="mono">eda-mcp</span> stdio server serves both clients &mdash; write a skill once, use it everywhere.
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 06 &middot; skills</span></div>
+  </section>
+
+  <!-- 35 Part 7 divider -->
+  <section data-label="35 Part 7" class="section-divider">
+    <div class="sec-num">Part 07</div>
+    <h2 class="sec-title">Three CLI runtimes</h2>
+    <div class="sec-rule" style="background: var(--pdk-diff-n);"></div>
+    <p class="sec-sub">Pick by subscription. Same agents, same skills, same results under the hood.</p>
+    <div class="sec-brand"><img src="assets/logo-wordmark.svg" alt="OpenSilicon Labs"></div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 07 &middot; runtimes</span></div>
+  </section>
+
+  <!-- 36 Claude Code -->
+  <section data-label="36 Claude Code" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 7 &middot; runtimes</span><span class="rule"></span><span>36 / 42</span></div>
+    <h2 class="slide-title">Claude Code &mdash; <span class="code">claude --print</span></h2>
+    <div class="title-rule"></div>
+    <div class="backend-row">
+      <div class="backend-card bc-cc">
+        <div class="bc-name">claude</div>
+        <div class="bc-sub">Anthropic subscription</div>
+      </div>
+      <div class="backend-card bc-cc">
+        <div class="bc-name">interactive</div>
+        <div class="bc-sub">/agents slash command in the Claude Code session</div>
+      </div>
+      <div class="backend-card bc-cc">
+        <div class="bc-name">headless</div>
+        <div class="bc-sub">claude --print --output-format json, via ClaudeCodeHarness in Python</div>
+      </div>
+    </div>
+    <div style="margin-top: 40px;">
+      <div class="label">Interactive call</div>
+      <div class="code-block sm" style="margin-top: 10px;">/agents analog-sizing-advisor
+<span class="c-com"># pastes a focused prompt into your session, loads MCP skills,</span>
+<span class="c-com"># and gives you the tool rails for this agent.</span></div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 07 &middot; runtimes</span></div>
+  </section>
+
+  <!-- 37 OpenCode -->
+  <section data-label="37 OpenCode" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 7 &middot; runtimes</span><span class="rule"></span><span>37 / 42</span></div>
+    <h2 class="slide-title">OpenCode &mdash; <span class="code">opencode run</span></h2>
+    <div class="title-rule"></div>
+    <div class="backend-row">
+      <div class="backend-card bc-oc">
+        <div class="bc-name">opencode</div>
+        <div class="bc-sub">multi-provider: Anthropic, OpenAI, Gemini, OpenRouter, Ollama, Z.AI, Cursor, Windsurf</div>
+      </div>
+      <div class="backend-card bc-oc">
+        <div class="bc-name">interactive</div>
+        <div class="bc-sub">opencode --agent &lt;name&gt; &mdash; TUI with the same 5-agent roster under .opencode/agent/</div>
+      </div>
+      <div class="backend-card bc-oc">
+        <div class="bc-name">headless</div>
+        <div class="bc-sub">opencode run --format json, via OpenCodeHarness in Python</div>
+      </div>
+    </div>
+    <div class="row-2" style="margin-top: 32px;">
+      <div style="display: flex; align-items: center; justify-content: center;">
+        <!-- OpenCode multi-provider fan-out -->
+        <svg viewBox="0 0 720 520" width="100%" style="max-width: 720px;">
+          <!-- center hub -->
+          <g transform="translate(260, 210)">
+            <rect x="0" y="0" width="200" height="90" rx="8" fill="#FFFFFF" stroke="#D147BD" stroke-width="3"/>
+            <text x="100" y="40" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="19" font-weight="600" fill="#1A1A1A">opencode</text>
+            <text x="100" y="66" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" fill="#D147BD">run --format json</text>
+          </g>
+          <!-- your agent tag (on top) -->
+          <g transform="translate(270, 120)">
+            <rect x="0" y="0" width="180" height="54" rx="4" fill="#FAFAF7" stroke="#6B6358" stroke-width="1.5" stroke-dasharray="4 3"/>
+            <text x="90" y="22" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="11" letter-spacing="0.08em" fill="#6B6358">YOUR AGENT</text>
+            <text x="90" y="42" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" fill="#1A1A1A">.opencode/agent/*.md</text>
+          </g>
+          <line x1="360" y1="174" x2="360" y2="210" stroke="#6B6358" stroke-width="1.5"/>
+
+          <!-- provider spokes -->
+          <!-- Anthropic (top-left) -->
+          <g transform="translate(40, 50)">
+            <rect x="0" y="0" width="200" height="60" rx="6" fill="#FFFFFF" stroke="#FC6255" stroke-width="2"/>
+            <text x="100" y="26" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="14" font-weight="500" fill="#1A1A1A">anthropic/</text>
+            <text x="100" y="46" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" fill="#CF5044">claude-sonnet-4-6</text>
+          </g>
+          <line x1="240" y1="90" x2="275" y2="210" stroke="#FC6255" stroke-width="1.5"/>
+
+          <!-- OpenAI (top-right) -->
+          <g transform="translate(480, 50)">
+            <rect x="0" y="0" width="200" height="60" rx="6" fill="#FFFFFF" stroke="#4FB04B" stroke-width="2"/>
+            <text x="100" y="26" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="14" font-weight="500" fill="#1A1A1A">openai/</text>
+            <text x="100" y="46" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" fill="#2d7a2a">gpt-5-mini</text>
+          </g>
+          <line x1="480" y1="90" x2="445" y2="210" stroke="#4FB04B" stroke-width="1.5"/>
+
+          <!-- OpenRouter (left) -->
+          <g transform="translate(0, 180)">
+            <rect x="0" y="0" width="200" height="60" rx="6" fill="#FFFFFF" stroke="#4A7BD9" stroke-width="2"/>
+            <text x="100" y="26" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="14" font-weight="500" fill="#1A1A1A">openrouter/</text>
+            <text x="100" y="46" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" fill="#4A7BD9">google/gemini-3-flash</text>
+          </g>
+          <line x1="200" y1="228" x2="260" y2="245" stroke="#4A7BD9" stroke-width="1.5"/>
+
+          <!-- Z.AI (right) -->
+          <g transform="translate(520, 180)">
+            <rect x="0" y="0" width="200" height="60" rx="6" fill="#FFFFFF" stroke="#9A72AC" stroke-width="2"/>
+            <text x="100" y="26" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="14" font-weight="500" fill="#1A1A1A">zai-coding-plan/</text>
+            <text x="100" y="46" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" fill="#9A72AC">glm-5.1</text>
+          </g>
+          <line x1="520" y1="228" x2="460" y2="245" stroke="#9A72AC" stroke-width="1.5"/>
+
+          <!-- Ollama (bottom-left) -->
+          <g transform="translate(60, 350)">
+            <rect x="0" y="0" width="200" height="60" rx="6" fill="#FFFFFF" stroke="#29ABCA" stroke-width="2"/>
+            <text x="100" y="26" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="14" font-weight="500" fill="#1A1A1A">ollama/</text>
+            <text x="100" y="46" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" fill="#29ABCA">llama3.1 &middot; local</text>
+          </g>
+          <line x1="260" y1="380" x2="290" y2="300" stroke="#29ABCA" stroke-width="1.5"/>
+
+          <!-- Google direct (bottom-right) -->
+          <g transform="translate(460, 350)">
+            <rect x="0" y="0" width="200" height="60" rx="6" fill="#FFFFFF" stroke="#FF862F" stroke-width="2"/>
+            <text x="100" y="26" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="14" font-weight="500" fill="#1A1A1A">google/</text>
+            <text x="100" y="46" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="12" fill="#FF862F">gemini-2.5-pro</text>
+          </g>
+          <line x1="460" y1="380" x2="430" y2="300" stroke="#FF862F" stroke-width="1.5"/>
+
+          <!-- -m caption -->
+          <text x="360" y="462" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" fill="#6B6358">-m &lt;provider&gt;/&lt;model&gt;</text>
+          <text x="360" y="484" text-anchor="middle" font-family="Ubuntu Sans, Ubuntu, sans-serif" font-size="14" font-style="italic" fill="#6B6358">one CLI &middot; five+ providers &middot; same agent roster</text>
+        </svg>
+      </div>
+      <div class="stack-md">
+        <div>
+          <div class="label">Install once</div>
+          <div class="code-block sm" style="margin-top: 10px;">npm install -g opencode-ai
+eda-init                       <span class="c-com"># writes opencode.json</span></div>
+        </div>
+        <div>
+          <div class="label">Pick any provider at call time</div>
+          <div class="code-block sm" style="margin-top: 10px;"><span class="c-com"># Gemini Flash via OpenRouter (cheap)</span>
+opencode run --agent analog-sizing-advisor \
+  -m openrouter/google/gemini-3-flash-preview \
+  <span class="c-str">"Size a Miller OTA for 10 MHz GBW."</span>
+
+<span class="c-com"># Z.AI coding plan (GLM-5.1)</span>
+opencode run --agent analog-sizing-advisor \
+  -m zai-coding-plan/glm-5.1 <span class="c-str">"..."</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 07 &middot; runtimes</span></div>
+  </section>
+
+  <!-- 38 Python / ADK -->
+  <section data-label="38 Python" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 7 &middot; runtimes</span><span class="rule"></span><span>38 / 42</span></div>
+    <h2 class="slide-title">Direct Python &mdash; <span class="code">AutoresearchRunner</span></h2>
+    <div class="title-rule"></div>
+    <div class="backend-row">
+      <div class="backend-card bc-adk">
+        <div class="bc-name">python</div>
+        <div class="bc-sub">no CLI, no TUI &mdash; import, construct, await</div>
+      </div>
+      <div class="backend-card bc-adk">
+        <div class="bc-name">deterministic</div>
+        <div class="bc-sub">CI-friendly, no user in the loop, same skills + FoM</div>
+      </div>
+      <div class="backend-card bc-adk">
+        <div class="bc-name">model choice</div>
+        <div class="bc-sub">LiteLLM string (openrouter/..., zai/..., anthropic/...)</div>
+      </div>
+    </div>
+    <div style="margin-top: 36px;">
+      <div class="label">Reference &middot; examples/07_autoresearch_circuit.py</div>
+      <div class="code-block sm" style="margin-top: 10px;"><span class="c-key">from</span> eda_agents.topologies.ota_miller <span class="c-key">import</span> MillerOTATopology
+<span class="c-key">from</span> eda_agents.agents.autoresearch_runner <span class="c-key">import</span> AutoresearchRunner
+
+topo = MillerOTATopology()
+runner = AutoresearchRunner(
+    topology=topo,
+    model=<span class="c-str">"zai/GLM-4.5-Flash"</span>,
+    budget=<span class="c-num">20</span>,
+)
+result = <span class="c-key">await</span> runner.run(Path(<span class="c-str">"autoresearch_miller"</span>))
+<span class="c-key">print</span>(result.summary)</div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 07 &middot; runtimes</span></div>
+  </section>
+
+  <!-- 39 Part 8 divider -->
+  <section data-label="39 Part 8" class="section-divider">
+    <div class="sec-num">Part 08</div>
+    <h2 class="sec-title">Demos &middot; run it<br>yourself</h2>
+    <div class="sec-rule" style="background: var(--pdk-diff-n);"></div>
+    <p class="sec-sub">Two notebooks. Safe defaults. Same repo.</p>
+    <div class="sec-brand"><img src="assets/logo-wordmark.svg" alt="OpenSilicon Labs"></div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 08 &middot; demo</span></div>
+  </section>
+
+  <!-- 40 Miller OTA notebook -->
+  <section data-label="40 Miller nb" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 8 &middot; demo</span><span class="rule"></span><span>40 / 42</span></div>
+    <h2 class="slide-title">Demo 1 &mdash; <span class="code">agents_miller_ota.ipynb</span></h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div>
+        <div class="label">Five steps</div>
+        <ol style="font: 400 26px/1.5 var(--font-serif); margin-top: 14px; padding-left: 28px;">
+          <li>Editable install &mdash; <span class="mono">pip install -e .</span></li>
+          <li>Environment check &mdash; ngspice, PDK_ROOT, LUTs, API key</li>
+          <li>Instantiate <span class="mono">MillerOTATopology</span></li>
+          <li>One SPICE eval at default params (sanity)</li>
+          <li><span class="mono">AutoresearchRunner(budget=6)</span> &mdash; 2&ndash;3 min</li>
+        </ol>
+      </div>
+      <div class="card thick" style="border-left-color: var(--pdk-diff-n);">
+        <div class="label" style="color: var(--pdk-diff-n);">Safe by default</div>
+        <div style="font: 400 24px/1.5 var(--font-serif); margin-top: 8px;">
+          Every <span class="mono">RUN_*</span> flag defaults to <span class="mono">False</span>. Opening the notebook is a no-op &mdash; it prints what it <em>would</em> do. Flip <span class="mono">RUN_AUTORESEARCH=True</span> when your environment check came out clean.
+        </div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 08 &middot; demo</span></div>
+  </section>
+
+  <!-- 41 Analog topology-to-sizing notebook -->
+  <section data-label="41 Chain nb" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 8 &middot; demo</span><span class="rule"></span><span>41 / 42</span></div>
+    <h2 class="slide-title">Demo 2 &mdash; <span class="code">agents_analog_topology_to_sizing.ipynb</span></h2>
+    <div class="title-rule"></div>
+    <div class="row-2" style="margin-top: 48px;">
+      <div>
+        <div class="label">The full chain</div>
+        <ol style="font: 400 24px/1.5 var(--font-serif); margin-top: 14px; padding-left: 28px;">
+          <li>Editable install + env check.</li>
+          <li>Send a natural-language spec to <span class="mono">analog-topology-recommender</span>.</li>
+          <li>Feed its JSON into <span class="mono">analog-sizing-advisor</span>.</li>
+          <li>Hand the starter sizing to <span class="mono">AutoresearchRunner</span>.</li>
+          <li>Pass the winner through <span class="mono">analog.corner_validator</span>.</li>
+          <li>Tail <span class="mono">program.md</span> and inspect the PVT verdict.</li>
+        </ol>
+      </div>
+      <div>
+        <div class="label">What you see at the end</div>
+        <div class="code-block sm" style="margin-top: 10px;"><span class="c-com"># Chained result</span>
+<span class="c-key">recommender</span>  &rarr; miller_ota @ conf=0.82
+<span class="c-key">advisor</span>       &rarr; W=18&micro;, L=0.5&micro;, ibias=40&micro;A
+<span class="c-key">autoresearch</span>  &rarr; best FoM 0.71 @ eval 7/12
+<span class="c-key">corners</span>       &rarr; pass at 12/15 points
+               &rarr; back off to eval 6, retry
+<span class="c-key">final</span>         &rarr; accepted eval 6, FoM 0.69</div>
+      </div>
+    </div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares &middot; IHP</span><span>Part 08 &middot; demo</span></div>
+  </section>
+
+  <!-- 42 End -->
+  <section data-label="42 End" class="end-card">
+    <div class="end-inner">
+      <div class="sec-num" style="color: var(--pdk-diff-n);">Analog &middot; thank you</div>
+      <h2 class="sec-title">The analog loop<br>is infrastructure.</h2>
+      <div class="sec-rule" style="background: var(--pdk-diff-n);"></div>
+      <p class="sec-sub" style="color: var(--fg-3);">
+        gm/ID is the methodology. CircuitTopology is the contract. AutoresearchRunner is the loop.<br>
+        <span class="mono" style="color: var(--hi-yellow); font-style: normal;">github.com/Mauricio-xx/eda-agents</span> &middot; sibling deck: <span class="mono" style="color: var(--fg-2);">digital.html</span>
+      </p>
+    </div>
+    <div class="end-brand"><img src="assets/logo-wordmark.svg" alt="OpenSilicon Labs"></div>
+  </section>
+
+</deck-stage>
+<script>
+  window.addEventListener('load', () => { setTimeout(() => window.print(), 800); });
+</script>
+</body>
+</html>
