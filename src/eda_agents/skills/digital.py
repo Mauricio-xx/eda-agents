@@ -453,6 +453,85 @@ GATE-LEVEL-SAFE CONSTRAINTS (NON-NEGOTIABLE):
   * NEVER put `initial` blocks in the cocotb file. All stimulus runs
     inside `@cocotb.test()` coroutines.
 
+GATE-LEVEL SIM SPECIFICS (POST-SYNTH / POST-PNR + STDCELL MODELS):
+
+  Two extra rules apply when the same testbench drives a netlist
+  (`.nl.v` / `.pnl.v`) compiled together with stdcell + primitives
+  verilog instead of the user RTL. Both have bitten the chipathon
+  multi-macro example (commit `de63a84`) and are easy to overlook
+  because the RTL pass is silent about them.
+
+  1. PROVIDE AN EXPLICIT `timescale FOR THE WHOLE COMPILATION.
+
+     iverilog defaults to 1s/1s precision when no source carries a
+     `timescale directive. The GF180 stdcell + primitives verilog
+     models shipped by the wafer-space PDK fork are timescale-free,
+     and so are the LibreLane post-synth netlists. Compiling them
+     alone drops iverilog to 1s/1s; cocotb's `Clock(dut.clk, 10,
+     unit="ns")` then trips with:
+
+         Bad period: Unable to accurately represent 10(ns) with the
+         simulator precision of 1e0
+
+     Fix — ship a single-line `tb/timescale.v` and prepend it to
+     `VERILOG_SOURCES` so it parses BEFORE any other module:
+
+         // tb/timescale.v
+         `timescale 1ns/1ps
+
+     Then in the GL-sim Makefile target:
+
+         VERILOG_SOURCES = tb/timescale.v \
+                           $(PDK_VLOG)/primitives.v \
+                           $(PDK_VLOG)/gf180mcu_fd_sc_mcu7t5v0.v \
+                           ../build/<design>/nl/<design>.nl.v
+
+     Position matters — `tb/timescale.v` MUST be first. iverilog
+     applies the most-recently-parsed `timescale to subsequent
+     modules; any module compiled before `tb/timescale.v` inherits
+     the 1s/1s default. RTL sims usually escape this trap because
+     the user RTL carries its own `timescale at the top.
+
+  2. BACK-TO-BACK STIMULUS LOOPS NEED `Timer(1, unit="ns")`, NOT
+     `ReadOnly()`.
+
+     The canonical "drive at edge, sample after `ReadOnly()`" cycle
+     in the PYTHON TESTBENCH CONTRACT works for stateless or
+     two-clock-per-vector tests. Pipelined DUTs that need ONE
+     stimulus per cycle (queue-and-check pattern) cannot use
+     `ReadOnly()` because the next loop iteration must write
+     `dut.<input>.value = ...` before the next edge — and writes
+     during ReadOnly are silently dropped (see READONLY IS
+     READ-ONLY below).
+
+     The escape hatch is a tiny `Timer` after the edge to let
+     non-blocking assignments settle WITHOUT entering ReadOnly:
+
+         for i, vec in enumerate(VECTORS):
+             dut.op_in.value = vec.op
+             dut.a_in.value  = vec.a
+             dut.b_in.value  = vec.b
+             await RisingEdge(dut.clk)        # DUT samples inputs
+             await Timer(1, unit="ns")        # non-blocking settle
+             expected_queue.append(reference(vec))
+             # now safe to read result of input from N cycles ago,
+             # AND the next iteration can write to dut.* immediately.
+             if i >= PIPELINE_LATENCY:
+                 got = int(dut.result_out.value)
+                 assert got == expected_queue[i - PIPELINE_LATENCY], ...
+
+     Symptom of forgetting the `Timer(1, unit="ns")`: the first
+     iteration that should pass reports `got=0` for a known-non-zero
+     reference. Root cause: iverilog reports the pre-edge value of
+     a registered output because the non-blocking assignment has not
+     scheduled yet at the moment of `int(dut.x.value)`. Adding 1 ns
+     of simulated time allows the active region to drain.
+
+     This is iverilog-specific scheduling behaviour; SDF-annotated
+     post-PnR runs amplify it because every register has a non-zero
+     CLK->Q delay and the signal genuinely is not at the new value
+     at the instant of the edge.
+
 READONLY IS READ-ONLY (MOST COMMON COCOTB FOOTGUN):
 
   The ReadOnly phase exists so you can safely SAMPLE output signals
@@ -501,6 +580,18 @@ TROUBLESHOOTING:
     Clock is a stimulus tool; use the SAME number as the
     LibreLane config's CLOCK_PERIOD (ns). Mismatches cause SDF
     annotation warnings + timing-closure confusion.
+  * `Bad period: Unable to accurately represent 10(ns) with the
+    simulator precision of 1e0`: iverilog defaulted to 1s/1s
+    because no source carried a `timescale. Add `tb/timescale.v`
+    (`timescale 1ns/1ps) and put it FIRST in `VERILOG_SOURCES`.
+    See "GATE-LEVEL SIM SPECIFICS" above.
+  * GL sim tight loop: registered output reads back the pre-edge
+    value (e.g. iter 1 gets `got=0` for a known-non-zero
+    expectation). Add `await Timer(1, unit="ns")` after
+    `await RisingEdge(dut.clk)` so non-blocking assignments
+    settle before sampling — `await ReadOnly()` would block the
+    next iteration's input writes. See "GATE-LEVEL SIM
+    SPECIFICS" above.
 
 WHAT NOT TO DO:
 

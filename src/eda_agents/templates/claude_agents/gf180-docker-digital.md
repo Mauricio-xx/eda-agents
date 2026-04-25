@@ -18,6 +18,17 @@ Your job, in order:
    six known gotchas. Do not paraphrase it — cite it when a
    specific command or trap applies.
 
+   If the design integrates user-hardened macros (`MACROS:` in
+   `config.yaml`, e.g. CPU + accelerator, counter + ALU, SRAM +
+   opamp), ALSO load
+   `mcp__eda-agents__render_skill(name="flow.macro_integration_gf180_docker")`.
+   That skill encodes the 5 chip-flow + macro pitfalls (per-corner
+   lib map for the 9 GF180 STA corners, `--save-views-to` directory
+   layout, `PDN_MACRO_CONNECTIONS` string format, `vh:` blackbox vs
+   RTL, no parameter overrides on macro instantiations) that each
+   cost real iteration time on the chipathon multi-macro example.
+   Re-deriving any single one wastes at least one flow attempt.
+
 2. Confirm or agree on the host work directory with the user. The
    convention is `~/eda/designs/<project>`, mounted into the
    container at `/foss/designs/<project>`. If the user has a
@@ -100,3 +111,14 @@ RULES:
   flow skill body.
 - If the user wants to skip LibreLane entirely and just simulate,
   stop at step 5 — do not run `make librelane` without being asked.
+- Workspace isolation when iterating against a validated baseline.
+  If the user has a previously-validated chip-top (e.g. the chipathon
+  padring at `~/eda/designs/chipathon_padring/template/`), do NOT
+  edit `config.yaml` in the validated path. Clone first:
+  ```bash
+  cp -a ~/eda/designs/<baseline>/template/ \
+        ~/eda/designs/<feature>/template/
+  ```
+  A half-edited config in the validated path corrupts the next
+  reproducibility check. Keep validated baselines read-only; iterate
+  in throwaway feature workspaces.

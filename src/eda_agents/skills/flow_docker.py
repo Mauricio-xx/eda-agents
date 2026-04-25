@@ -22,6 +22,10 @@ def _analog_signoff_gf180_docker_prompt() -> str:
     return _load_markdown_bundle("gf180_docker", ["common", "analog_signoff"])
 
 
+def _macro_integration_gf180_docker_prompt() -> str:
+    return _load_markdown_bundle("gf180_docker", ["common", "macro_integration"])
+
+
 register_skill(
     Skill(
         name="flow.rtl2gds_gf180_docker",
@@ -46,5 +50,22 @@ register_skill(
             "Signature: ()."
         ),
         prompt_fn=_analog_signoff_gf180_docker_prompt,
+    )
+)
+
+
+register_skill(
+    Skill(
+        name="flow.macro_integration_gf180_docker",
+        description=(
+            "Integrate pre-hardened macros into a LibreLane v3 Chip-flow "
+            "design on GF180MCU. Covers --save-views-to layout, the 9 GF180 "
+            "STA corner keys, PDN_MACRO_CONNECTIONS string format, vh: "
+            "blackbox wiring, no parameter overrides on macro instantiations, "
+            "and post-flow STA / GL-sim cross-checks. Compose with "
+            "flow.rtl2gds_gf180_docker (bare-block context) and "
+            "digital.cocotb_testbench (GL sim). Signature: ()."
+        ),
+        prompt_fn=_macro_integration_gf180_docker_prompt,
     )
 )

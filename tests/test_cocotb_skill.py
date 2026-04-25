@@ -136,6 +136,48 @@ class TestCocotbSkillBody:
         assert "stdcell" in lowered
         assert "verilog" in lowered
 
+    def test_documents_gl_sim_timescale_requirement(self, body):
+        # Added 2026-04-25 after the chipathon ex04 GL sim tripped on
+        # iverilog's 1s/1s default precision when no source carried a
+        # `timescale directive. The skill must teach the agent to ship
+        # tb/timescale.v and prepend it to VERILOG_SOURCES.
+        assert "GATE-LEVEL SIM SPECIFICS" in body
+        assert "tb/timescale.v" in body
+        # The exact failure message the agent will hit if they skip it.
+        assert "Bad period" in body
+        assert "1e0" in body
+        # The fix must show the right `timescale.
+        assert "1ns/1ps" in body
+        # And must spell out that timescale.v MUST come first.
+        lowered = body.lower()
+        assert "first" in lowered and "verilog_sources" in lowered
+
+    def test_documents_pipelined_timer_escape_hatch(self, body):
+        # Added 2026-04-25 after the chipathon ex04 alu_macro GL sim
+        # required Timer(1, unit="ns") after RisingEdge to read post-
+        # edge values; ReadOnly() would have blocked the next loop
+        # iteration's input writes (back-to-back stimulus pattern).
+        # The skill must distinguish this case from the canonical
+        # ReadOnly pattern.
+        assert "Timer(1, unit=\"ns\")" in body or 'Timer(1, unit="ns")' in body
+        # Why ReadOnly is wrong here.
+        assert "ReadOnly" in body
+        # Symptom call-out so the agent recognises it from a log.
+        assert "pre-edge value" in body
+        # Mention the iverilog scheduling root cause so the agent
+        # doesn't think it's a TB authoring bug.
+        lowered = body.lower()
+        assert "non-blocking" in lowered
+
+    def test_troubleshooting_covers_gl_sim_pitfalls(self, body):
+        # The TROUBLESHOOTING section (zero-budget reference) must list
+        # both new GL gotchas so the agent finds them when grep-ing
+        # the prompt for an error string.
+        # Bad period error -> timescale fix.
+        assert "Bad period" in body
+        # Pipelined sampling -> Timer(1, unit="ns") escape hatch.
+        assert "tight loop" in body or "tight-loop" in body
+
 
 class TestCocotbSkillThroughMcp:
     """The skill must be renderable via the MCP render_skill tool."""
