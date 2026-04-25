@@ -423,3 +423,8 @@ bench/results/gap_closure_llm_proof/**/*.dat
 # S12-B Gap 5 live bench for 4-bit current-steering DAC.
 !bench/results/s12b_custom_composition_live_i4dac/
 !bench/results/s12b_custom_composition_live_i4dac/**
+
+# Claude Code scheduled-task lock file. Per-process local state
+# (sessionId + pid + timestamp); never deliverable.
+.claude/scheduled_tasks.lock
+**/.claude/scheduled_tasks.lock
