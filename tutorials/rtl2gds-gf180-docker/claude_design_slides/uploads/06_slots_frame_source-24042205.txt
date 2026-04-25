@@ -1,0 +1,38 @@
+\begin{frame}{Slots: a wafer-space convention, not a LibreLane one}
+  A \term{slot} is a pre-reserved rectangle on wafer-space's MPW
+  shuttle. Three are standard: \cmd{1x1} ($\sim$3.9$\times$5.1\,mm),
+  \cmd{1x0p5}, \cmd{0p5x0p5}. Each \cmd{slot\_*.yaml} sets
+  \cmd{DIE\_AREA}, \cmd{CORE\_AREA}, and the pad lists; everything
+  else stays in \cmd{config.yaml}.
+  \vspace{0.4em}
+
+  \textbf{Not taping out with wafer-space?} Three paths:
+  \begin{enumerate}\footnotesize
+    \item \textbf{Other shuttle} (IHP MPW, TinyTapeout, \ldots) -- use
+          that programme's template; its own die sizes replace slots.
+    \item \textbf{Custom tape-out with padring} -- drop \cmd{slots/}.
+          Move \cmd{FP\_SIZING}, \cmd{DIE\_AREA}, \cmd{CORE\_AREA} and
+          the \cmd{PAD\_*} lists into \cmd{config.yaml}. Pick any die
+          size that fits your logic.
+    \item \textbf{Bare macro (no padring)} -- switch to
+          \cmd{meta.flow: Classic}. No pads, no slots, no sealring,
+          no wafer-space PDK fork. That is what the counter notebook does.
+  \end{enumerate}
+  \note{%
+    Key message: \emph{slot} is not LibreLane vocabulary and it is not
+    a GF180 requirement. It exists because wafer-space's MPW shuttle
+    organises projects as fixed-size rectangles on a shared wafer, and
+    each project reclaims one such rectangle.\par
+    The template's split into \cmd{slots/slot\_NxM.yaml} +
+    \cmd{config.yaml} is a \emph{convenience} for targeting several
+    die sizes with the same design. For any other tape-out path you
+    can flatten the two files into one.\par
+    Implication for this deck: every metric we quote (10\,\% core
+    utilisation, 58 pads, 251k total instances) is a consequence of
+    choosing \cmd{slot\_1x1}. A smaller slot would mean fewer pads and
+    tighter core; a custom die would mean whatever you set.\par
+    Option 3 (\cmd{Classic} flow) is the fastest RTL-to-GDS path --
+    1-2 min for the counter vs 35-45 min for the full chip. Reach for
+    it whenever you do not need a padring; reach for the full-chip
+    template only when you are actually going to bond the die.}
+\end{frame}
