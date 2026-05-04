@@ -35,24 +35,24 @@ Ep 02 must have run first so the padring fork is staged at `/foss/designs/chipat
 
 | Time | Section | Pane | Action |
 |---|---|---|---|
-| 00:00 | Pre-roll: `mini_decks/ep03_intro.html` | -- | 6 slides (cover + Multi-macro + Signoff overview + Antenna + metrics + Pitfalls) |
+| 00:00 | Pre-roll: `mini_decks/ep03_intro.html` | -- | 5 slides (cover + Multi-macro + Signoff overview + PDK choice + metrics) |
 | 03:30 | Walk into the staging tree | Pane 1 | `cd /foss/designs/multimacro_demo && ls -R rtl/ tb/ librelane/` |
 | 05:30 | RTL verification (cocotb, ~15 s) | Pane 2 | `cd /foss/designs/multimacro_demo/tb && make clean && make test-counter && make test-alu` |
 | 07:00 | Read the cocotb tests | Pane 1 | `cat tb/test_counter.py`; `cat tb/test_alu.py` |
-| 08:30 | Activate PDK + harden counter macro -- Classic flow, ~1.5-3 min | Pane 2 | `cd /foss/designs/multimacro_demo && source sak-pdk-script.sh gf180mcuD gf180mcu_fd_sc_mcu7t5v0 && librelane librelane/counter_macro.yaml --pdk gf180mcuD --pdk-root /foss/designs/chipathon_padring/template/gf180mcu --manual-pdk --save-views-to build/counter` |
+| 08:30 | Activate PDK + harden counter macro -- Classic flow, ~1.5-3 min | Pane 2 | `cd /foss/designs/multimacro_demo && source sak-pdk-script.sh gf180mcuD gf180mcu_fd_sc_mcu7t5v0 && librelane librelane/counter_macro.yaml --pdk gf180mcuD --pdk-root /foss/designs/multimacro_chipathon/template/gf180mcu --manual-pdk --save-views-to build/counter` |
 | 08:30 | Live tail of the counter hardening | Pane 3 | `cd /foss/designs/multimacro_demo && tail -f $(ls -td build/counter/runs/*/ \| head -1)flow.log` |
 | 11:30 | Counter macro done -- four artifacts | Pane 1 | `ls build/counter/{gds,lef,nl,lib}/` |
-| 12:30 | Harden alu_macro -- Classic flow, ~1.5-3 min | Pane 2 | `librelane librelane/alu_macro.yaml --pdk gf180mcuD --pdk-root /foss/designs/chipathon_padring/template/gf180mcu --manual-pdk --save-views-to build/alu_macro` |
+| 12:30 | Harden alu_macro -- Classic flow, ~1.5-3 min | Pane 2 | `librelane librelane/alu_macro.yaml --pdk gf180mcuD --pdk-root /foss/designs/multimacro_chipathon/template/gf180mcu --manual-pdk --save-views-to build/alu_macro` |
 | 12:30 | Live tail of the ALU hardening | Pane 3 | `tail -f $(ls -td build/alu_macro/runs/*/ \| head -1)flow.log` |
 | 15:30 | Post-synth GL sim of both macros (~15 s) | Pane 2 | `cd /foss/designs/multimacro_demo/tb && make test-counter-gl && make test-alu-gl` |
-| 17:00 | Patch the padring fork's `chip_core.sv` | Pane 2 | `cp /foss/designs/multimacro_demo/rtl/chip_core_multi.sv /foss/designs/chipathon_padring/template/src/chip_core.sv` |
+| 17:00 | Patch the padring fork's `chip_core.sv` | Pane 2 | `cp /foss/designs/multimacro_demo/rtl/chip_core_multi.sv /foss/designs/multimacro_chipathon/template/src/chip_core.sv` |
 | 18:30 | Show the chip-top patch -- `MACROS:` + `PDN_MACRO_CONNECTIONS:` | Pane 1 | `cat /foss/designs/multimacro_demo/librelane/chip_top_multi_patch.yaml` |
-| 19:30 | Kick off chip-top flow (`SLOT=workshop make librelane`) | Pane 2 | `cd /foss/designs/chipathon_padring/template && make librelane SLOT=workshop PDK=gf180mcuD PDK_ROOT=/foss/designs/chipathon_padring/template/gf180mcu` |
-| 19:30 | Live tail for ~3 min | Pane 3 | `cd /foss/designs/chipathon_padring/template && tail -f $(ls -td librelane/runs/*/ \| head -1)flow.log` |
+| 19:30 | Kick off chip-top flow (`SLOT=workshop make librelane`) | Pane 2 | `cd /foss/designs/multimacro_chipathon/template && make librelane SLOT=workshop PDK=gf180mcuD PDK_ROOT=/foss/designs/multimacro_chipathon/template/gf180mcu` |
+| 19:30 | Live tail for ~3 min | Pane 3 | `cd /foss/designs/multimacro_chipathon/template && tail -f $(ls -td librelane/runs/*/ \| head -1)flow.log` |
 | 22:30 | **Cut to time-lapse** -- chip-flow stages (4-8x speed) | -- | voice-over OpenROAD + Magic DRC + KLayout DRC stages |
-| 24:00 | **Cut to pre-recorded artifacts** | -- | screen-record from `/foss/designs/prerecorded/ep04_multimacro.log` |
-| 25:00 | Read the chip-top `metrics.csv` -- ~84,631 instances, all-zero signoff | Pane 1 | `awk -F, '$1 ~ /error__count\|violation__count\|drc_error\|antenna__viol\|lvs_.*__count\|instance__count/' /foss/designs/prerecorded/ep04_metrics.csv` |
-| 26:30 | Open the chip-top GDS in KLayout -- both macros visible | Pane 3 | `klayout -n gf180mcu -e /foss/designs/prerecorded/ep04_multimacro.gds &` |
+| 24:00 | **Cut to pre-recorded artifacts** | -- | screen-record from `/foss/designs/prerecorded/ep03_multimacro.log` |
+| 25:00 | Read the chip-top `metrics.csv` -- ~84,631 instances, all-zero signoff | Pane 1 | `awk -F, '$1 ~ /error__count\|violation__count\|drc_error\|antenna__viol\|lvs_.*__count\|instance__count/' /foss/designs/prerecorded/ep03_metrics.csv` |
+| 26:30 | Open the chip-top GDS in KLayout -- both macros visible | Pane 3 | `klayout -n gf180mcu -e /foss/designs/prerecorded/ep03_multimacro.gds &` |
 | 28:00 | Recap -- the multi-macro pattern, signoff zeros, ~80-90 min wall-clock | Pane 1 | flip to the master deck's "Multi-macro pattern" slide |
 | 29:00 | Closing -- "where to go next: more macros, your own slot, tape-out" | -- | -- |
 | 30:00 | Out | -- | -- |
@@ -70,23 +70,23 @@ The cocotb pre-PnR and GL sim are short (~15 s each) and unique to this episode 
 
 | File (in bind-mount) | What it is | Size approx |
 |---|---|---|
-| `~/eda/designs/prerecorded/ep04_multimacro.log` | Full chip-flow `flow.log` from a clean ~80 min run | ~6 MB |
-| `~/eda/designs/prerecorded/ep04_multimacro.gds` | Final chip-top GDS | ~50 MB |
-| `~/eda/designs/prerecorded/ep04_metrics.csv` | Chip-top `final/metrics.csv` | ~10 kB |
-| `~/eda/designs/prerecorded/ep04_layout_render.png` | KLayout PNG export of the chip-top layout | ~2 MB |
-| `~/eda/designs/prerecorded/ep04_cocotb_gl_output.txt` | cocotb GL sim transcript | ~10 kB |
+| `~/eda/designs/prerecorded/ep03_multimacro.log` | Full chip-flow `flow.log` from a clean ~80 min run | ~6 MB |
+| `~/eda/designs/prerecorded/ep03_multimacro.gds` | Final chip-top GDS | ~50 MB |
+| `~/eda/designs/prerecorded/ep03_metrics.csv` | Chip-top `final/metrics.csv` | ~10 kB |
+| `~/eda/designs/prerecorded/ep03_layout_render.png` | KLayout PNG export of the chip-top layout | ~2 MB |
+| `~/eda/designs/prerecorded/ep03_cocotb_gl_output.txt` | cocotb GL sim transcript | ~10 kB |
 
 Generate before recording (one-time, ~80-90 min, off-camera):
 
 ```bash
 docker exec -it "$GF180" bash -l
 source sak-pdk-script.sh gf180mcuD gf180mcu_fd_sc_mcu7t5v0
-cd /foss/designs/chipathon_padring/template
-make librelane SLOT=workshop PDK=gf180mcuD PDK_ROOT=/foss/designs/chipathon_padring/template/gf180mcu
+cd /foss/designs/multimacro_chipathon/template
+make librelane SLOT=workshop PDK=gf180mcuD PDK_ROOT=/foss/designs/multimacro_chipathon/template/gf180mcu
 LATEST=$(ls -td librelane/runs/*/ | head -1)
-cp "$LATEST/flow.log"                  /foss/designs/prerecorded/ep04_multimacro.log
-cp "$LATEST/final/gds/chip_top.gds"    /foss/designs/prerecorded/ep04_multimacro.gds
-cp "$LATEST/final/metrics.csv"         /foss/designs/prerecorded/ep04_metrics.csv
+cp "$LATEST/flow.log"                  /foss/designs/prerecorded/ep03_multimacro.log
+cp "$LATEST/final/gds/chip_top.gds"    /foss/designs/prerecorded/ep03_multimacro.gds
+cp "$LATEST/final/metrics.csv"         /foss/designs/prerecorded/ep03_metrics.csv
 ```
 
 ## Exact commands
@@ -118,7 +118,7 @@ cd /foss/designs/multimacro_demo
 source sak-pdk-script.sh gf180mcuD gf180mcu_fd_sc_mcu7t5v0
 librelane librelane/counter_macro.yaml \
   --pdk gf180mcuD \
-  --pdk-root /foss/designs/chipathon_padring/template/gf180mcu \
+  --pdk-root /foss/designs/multimacro_chipathon/template/gf180mcu \
   --manual-pdk \
   --save-views-to build/counter
 ```
@@ -127,7 +127,7 @@ librelane librelane/counter_macro.yaml \
 ```bash
 librelane librelane/alu_macro.yaml \
   --pdk gf180mcuD \
-  --pdk-root /foss/designs/chipathon_padring/template/gf180mcu \
+  --pdk-root /foss/designs/multimacro_chipathon/template/gf180mcu \
   --manual-pdk \
   --save-views-to build/alu_macro
 ```
@@ -142,38 +142,38 @@ make test-alu-gl
 **Pane 2, 17:00 (patch the padring fork's chip_core.sv -- inside the container, both paths are in the bind-mount)**:
 ```bash
 cp /foss/designs/multimacro_demo/rtl/chip_core_multi.sv \
-   /foss/designs/chipathon_padring/template/src/chip_core.sv
+   /foss/designs/multimacro_chipathon/template/src/chip_core.sv
 ```
 
 **Pane 1, 18:30 (show the chip-top patch)**:
 ```bash
 cat /foss/designs/multimacro_demo/librelane/chip_top_multi_patch.yaml
 ```
-(Hand-merge into `chipathon_padring/template/librelane/config.yaml` off-camera, or run the upstream notebook's `patch_top()` cell.)
+(Hand-merge into `multimacro_chipathon/template/librelane/config.yaml` off-camera, or run the upstream notebook's `patch_top()` cell.)
 
 **Pane 2, 19:30 (chip-top flow)**:
 ```bash
-cd /foss/designs/chipathon_padring/template
+cd /foss/designs/multimacro_chipathon/template
 make librelane SLOT=workshop \
   PDK=gf180mcuD \
-  PDK_ROOT=/foss/designs/chipathon_padring/template/gf180mcu
+  PDK_ROOT=/foss/designs/multimacro_chipathon/template/gf180mcu
 ```
 
 **Pane 3, 19:30 (chip-top live tail)**:
 ```bash
-cd /foss/designs/chipathon_padring/template
+cd /foss/designs/multimacro_chipathon/template
 tail -f $(ls -td librelane/runs/*/ | head -1)flow.log
 ```
 
 **Pane 1, 25:00 (chip-top signoff sanity on pre-recorded)**:
 ```bash
 awk -F, '$1 ~ /error__count|violation__count|drc_error|antenna__viol|lvs_.*__count|instance__count/' \
-  /foss/designs/prerecorded/ep04_metrics.csv
+  /foss/designs/prerecorded/ep03_metrics.csv
 ```
 
 **Pane 3, 26:30 (open chip-top GDS, backgrounded)**:
 ```bash
-klayout -n gf180mcu -e /foss/designs/prerecorded/ep04_multimacro.gds &
+klayout -n gf180mcu -e /foss/designs/prerecorded/ep03_multimacro.gds &
 ```
 
 ## Honest scope (lines on camera)
@@ -182,7 +182,7 @@ klayout -n gf180mcu -e /foss/designs/prerecorded/ep04_multimacro.gds &
 - Min 05:30: *"cocotb runs on the RTL, before any synthesis. It is the single best safety net you can put in front of LibreLane: a synth bug can bake into a 90-minute flow you only catch at signoff."*
 - Min 08:30: *"Each macro hardens with `librelane librelane/<macro>.yaml --save-views-to build/<macro>`. The `--save-views-to` flag is what makes the four signoff views (GDS, LEF, netlist, lib) reusable for the chip-top step. Notice the command runs directly -- no `docker exec` wrapper -- because we are already inside the container."*
 - Min 15:30: *"Post-synthesis GL sim is the second safety net. Same testbench, against the synthesized netlist plus the gf180 cell library. If it passes, your synthesis preserved behaviour. Routing and antenna can still break it later, but synthesis is clean."*
-- Min 19:30: *"The chip-top flow runs from the padring fork, not from `multimacro_demo/`. The two macros are referenced through the patched `MACROS:` dict in `chipathon_padring/template/librelane/config.yaml`."*
+- Min 19:30: *"The chip-top flow runs from the padring fork, not from `multimacro_demo/`. The two macros are referenced through the patched `MACROS:` dict in `multimacro_chipathon/template/librelane/config.yaml`."*
 - Min 22:30: *"Real wall-clock is ~80-90 minutes. Magic DRC and KLayout DRC dominate. We watch the first three minutes live, time-lapse the rest, and jump to the pre-recorded final banner. The flow was re-run for the artifacts; it is reproducible."*
 - Min 28:00: *"~84,000 instances at chip-top, four signoff metrics zero on the first attempt. That is what `--save-views-to` plus the chipathon-2026 padring buys you: independently-validated blocks composed into a clean tape-out."*
 

@@ -12,7 +12,7 @@
 <deck-stage width="1920" height="1080">
 
   <section data-label="01 Cover" class="slide-paper slide-title-page" style="justify-content: center; padding: 0 var(--sp-x);">
-    <div class="slide-eyebrow"><span>EPISODE 03</span><span class="rule"></span><span>1 / 6</span></div>
+    <div class="slide-eyebrow"><span>EPISODE 03</span><span class="rule"></span><span>1 / 5</span></div>
     <div style="margin: auto 0;">
       <p class="slide-eyebrow-tag" style="color: var(--accent); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; font-size: 22px; margin-bottom: 16px;">EPISODE 03</p>
       <h1 class="slide-title-big" style="font-size: 96px; line-height: 1.05; margin: 0 0 32px 0;">Episode 03 — Multi-macro chip-top</h1>
@@ -21,7 +21,7 @@
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU · chipathon-2026</span></div>
   </section>
   <section data-label="20 config macros" class="slide-paper">
-    <div class="slide-eyebrow"><span>Part 3 · Config</span><span class="rule"></span><span>2 / 6</span></div>
+    <div class="slide-eyebrow"><span>Part 3 · Config</span><span class="rule"></span><span>2 / 5</span></div>
     <h2 class="slide-title"><span class="code">config.yaml</span> — declaring macros (stage 02)</h2>
     <div class="title-rule"></div>
 
@@ -223,7 +223,7 @@
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
   </section>
   <section data-label="27 Signoff overview" class="slide-paper">
-    <div class="slide-eyebrow"><span>Part 5 · Signoff</span><span class="rule"></span><span>3 / 6</span></div>
+    <div class="slide-eyebrow"><span>Part 5 · Signoff</span><span class="rule"></span><span>3 / 5</span></div>
     <div class="driving-chip tool-verif"><span class="dc-label">LibreLane driving</span><span class="dc-tool">Magic + KLayout + Netgen + OpenSTA</span></div>
     <h2 class="slide-title">Seven checks — and what each guards against</h2>
     <div class="title-rule"></div>
@@ -255,228 +255,60 @@
 
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
   </section>
-  <section data-label="30 Antenna" class="slide-paper">
-    <div class="slide-eyebrow"><span>Part 5 · Signoff</span><span class="rule"></span><span>4 / 6</span></div>
-    <div class="driving-chip tool-openroad"><span class="dc-label">LibreLane driving</span><span class="dc-tool">OpenROAD.RepairAntennas</span></div>
-    <h2 class="slide-title">Antenna — the one nobody expects</h2>
+  <section data-label="40 PDK choice" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 4 · PDK</span><span class="rule"></span><span>4 / 5</span></div>
+    <h2 class="slide-title">PDK choice — wafer-space fork, one root for the flow</h2>
     <div class="title-rule"></div>
 
-    <div style="margin-top: 48px; display: grid; grid-template-columns: 1fr 1fr; gap: 72px; align-items: start;">
-      <div class="stack-md">
-        <p class="lead">
-          During back-end-of-line <strong>metal etch</strong>, the wafer sits in a plasma. Exposed metal segments collect ions and build up voltage <em>before</em> the upper layers that would drain them are laid down.
+    <p class="lead" style="margin-top: 18px; max-width: 1720px; font-size: 22px;">
+      Both macros and the chip-top point at the <strong>wafer-space gf180mcu fork</strong> (pinned at tag 1.8.0). The chip-top requires it: the padring instantiates <span class="mono">gf180mcu_ws_io__dvdd/dvss</span>, IO cells only the fork ships. The macros use the same root because the standard cell library is <em>not</em> byte-identical between the system PDK and the fork — using one root keeps the cells inside the merged chip-top GDS aligned with the rule deck running DRC + LVS at signoff.
+    </p>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 18px; align-items: start;">
+
+      <div>
+        <div class="label" style="color: var(--accent); margin-bottom: 10px;">What you type per macro</div>
+        <div class="code-block sm" style="margin-top: 0; font-size: 17px; line-height: 1.5;">$ <span class="c-fn">source</span> sak-pdk-script.sh gf180mcuD gf180mcu_fd_sc_mcu7t5v0
+$ <span class="c-fn">librelane</span> librelane/counter_macro.yaml \
+    <span class="c-key">--pdk</span> gf180mcuD \
+    <span class="c-key">--pdk-root</span> &lt;template&gt;/gf180mcu \
+    <span class="c-key">--manual-pdk</span> \
+    <span class="c-key">--save-views-to</span> build/counter</div>
+        <p style="font: italic 400 16px/1.4 var(--font-serif); color: var(--paper-muted); margin: 14px 0 0;">
+          <span class="mono" style="font-style:normal; font-size:15px;">--manual-pdk</span> disables LibreLane v3 manifest validation (the fork is not in the canonical list); <span class="mono" style="font-style:normal; font-size:15px;">--pdk-root</span> overrides the system path that <span class="mono" style="font-style:normal; font-size:15px;">sak-pdk-script.sh</span> would otherwise resolve. Same pattern for the ALU.
         </p>
-        <p class="lead">
-          If a partially-built net ends only at a <strong>transistor gate</strong>, the thin gate oxide takes the stress — and breaks down.
-        </p>
-        <ul class="bullets tight">
-          <li>OpenROAD computes the <strong>antenna ratio</strong> — exposed metal area ÷ gate area — per net, per layer.</li>
-          <li>Fix = tap a <strong>protection diode</strong> to the net near the gate. Under stress it conducts and bleeds charge to the substrate.</li>
-          <li>LibreLane runs this automatically in <span class="mono">OpenROAD.RepairAntennas</span>.</li>
-        </ul>
       </div>
 
-      <div class="stack-md">
-        <div class="card thick" style="padding: 32px 40px;">
-          <div class="label" style="color: var(--accent); margin-bottom: 14px;">The metric to watch</div>
-          <p style="font: 500 36px/1.25 var(--font-mono); color: var(--accent); margin: 0;">
-            antenna__violating__nets&nbsp;=&nbsp;0
-          </p>
-          <p style="font: italic 400 22px/1.4 var(--font-serif); color: var(--paper-muted); margin: 16px 0 0 0;">
-            After repair, every net that touched a gate oxide passes the PDK's area-ratio rule.
-          </p>
-        </div>
-        <div class="card" style="padding: 24px 32px;">
-          <div class="label" style="color: var(--paper-muted); margin-bottom: 10px;">Why this check exists</div>
-          <p style="font: 400 22px/1.45 var(--font-serif); color: var(--paper-ink); margin: 0;">
-            Etch happens <em>before</em> the via chain to upper metals closes. A too-long partial net is an antenna — diodes bleed charge to the substrate through a reverse-biased n+/p-sub junction.
-          </p>
+      <div>
+        <div class="label" style="color: var(--accent); margin-bottom: 10px;">Where sys and fork actually differ</div>
+        <table class="data" style="font-size: 17px; max-width: 100%;">
+          <thead>
+            <tr>
+              <th style="width:230px;">Component</th>
+              <th>System PDK</th>
+              <th>WS fork (1.8.0)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="mono">gf180mcu_ws_io__*</td><td>absent</td><td class="mono" style="color: var(--pdk-m3);">present</td></tr>
+            <tr><td class="mono">cells/gds</td><td>1155 bytes differ</td><td>reference</td></tr>
+            <tr><td class="mono">techlef antenna ratio</td><td class="mono">2</td><td class="mono" style="color: var(--accent);">15</td></tr>
+            <tr><td class="mono">KLayout DRC + LVS rules</td><td>system</td><td class="mono" style="color: var(--accent);">divergent</td></tr>
+            <tr><td class="mono">.lef / .lib / .v</td><td colspan="2" style="text-align:center;">identical</td></tr>
+          </tbody>
+        </table>
+
+        <div style="border-left: 4px solid var(--accent); padding: 10px 18px; margin-top: 16px; font: italic 500 18px/1.4 var(--font-serif); color: var(--paper-ink);">
+          Macros standalone <em>could</em> use the system PDK (verified). Chip-top <em>cannot</em> — the IO cells force the fork. Aligning both on the fork is the safe path the chipathon-2026 reference notebook follows.
         </div>
       </div>
 
-      <div style="display:none;">
-        <div class="label" style="color: var(--accent); margin-bottom: 10px;">Before repair → After repair</div>
-        <div class="card thick" style="padding: 18px 20px;">
-          <svg viewBox="0 0 620 500" style="width: 100%; height: auto; max-height: 500px; display:block; overflow: visible;" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
-            <defs>
-              <marker id="ant-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"/>
-              </marker>
-              <marker id="ant-arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--pdk-diff-n)"/>
-              </marker>
-              <pattern id="ant-sub" patternUnits="userSpaceOnUse" width="7" height="7">
-                <path d="M 0 7 L 7 0" stroke="var(--paper-muted)" stroke-width="0.7"/>
-              </pattern>
-              <pattern id="ant-nwell" patternUnits="userSpaceOnUse" width="5" height="5">
-                <path d="M 0 5 L 5 0" stroke="var(--pdk-diff-n)" stroke-width="0.6" opacity="0.6"/>
-              </pattern>
-              <!-- ion glyph: small + circle -->
-              <symbol id="ion" viewBox="0 0 14 14">
-                <circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--accent)" stroke-width="1.3"/>
-                <line x1="4" y1="7" x2="10" y2="7" stroke="var(--accent)" stroke-width="1.3"/>
-                <line x1="7" y1="4" x2="7" y2="10" stroke="var(--accent)" stroke-width="1.3"/>
-              </symbol>
-            </defs>
-
-            <!-- ======================================================= -->
-            <!-- BEFORE — rows: title / ions / metal / via / gate / body -->
-            <!-- ======================================================= -->
-            <text x="16" y="20" style="font: 700 15px var(--font-sans); fill: var(--paper-ink); letter-spacing: 0.06em;">BEFORE — metal-etch step, upper layers not yet built</text>
-
-            <!-- plasma region label (right side, clear of ions) -->
-            <text x="604" y="20" text-anchor="end" style="font: italic 500 12px var(--font-serif); fill: var(--paper-muted);">plasma ambient</text>
-
-            <!-- ions -->
-            <g>
-              <use href="#ion" x="48"  y="32" width="12" height="12"/>
-              <use href="#ion" x="108" y="30" width="12" height="12"/>
-              <use href="#ion" x="170" y="34" width="12" height="12"/>
-              <use href="#ion" x="232" y="30" width="12" height="12"/>
-              <use href="#ion" x="294" y="34" width="12" height="12"/>
-              <use href="#ion" x="356" y="30" width="12" height="12"/>
-              <use href="#ion" x="418" y="34" width="12" height="12"/>
-            </g>
-            <!-- ion flight-paths to metal -->
-            <g stroke="var(--accent)" stroke-width="1.2" fill="none" stroke-dasharray="2 3" marker-end="url(#ant-arrow)">
-              <line x1="54" y1="46" x2="54" y2="76"/>
-              <line x1="114" y1="44" x2="114" y2="76"/>
-              <line x1="176" y1="48" x2="176" y2="76"/>
-              <line x1="238" y1="44" x2="238" y2="76"/>
-              <line x1="300" y1="48" x2="300" y2="76"/>
-              <line x1="362" y1="44" x2="362" y2="76"/>
-              <line x1="424" y1="48" x2="424" y2="76"/>
-            </g>
-
-            <!-- long metal net (partial — no upper-layer drain) -->
-            <rect x="30" y="80" width="400" height="16" fill="var(--pdk-m3)"/>
-            <text x="30" y="74" style="font: 600 12px var(--font-mono); fill: var(--pdk-m3);">metal net (partial, no upper drain)</text>
-            <!-- ⊕ charges pooled on metal -->
-            <g fill="var(--accent)" style="font: 700 13px var(--font-mono);">
-              <text x="60"  y="92">+</text>
-              <text x="120" y="92">+</text>
-              <text x="180" y="92">+</text>
-              <text x="240" y="92">+</text>
-              <text x="300" y="92">+</text>
-              <text x="360" y="92">+</text>
-              <text x="400" y="92">+</text>
-            </g>
-
-            <!-- via down from end of net to poly -->
-            <rect x="418" y="96" width="14" height="38" fill="var(--pdk-m2)"/>
-            <text x="438" y="118" style="font: 500 11px var(--font-mono); fill: var(--pdk-m2);">via</text>
-
-            <!-- poly gate over channel -->
-            <rect x="398" y="134" width="54" height="10" fill="var(--pdk-m2)"/>
-            <text x="460" y="143" style="font: 700 13px var(--font-mono); fill: var(--pdk-m2);">poly gate</text>
-
-            <!-- thin gate-oxide band (shown thicker for visibility) -->
-            <rect x="398" y="144" width="54" height="3" fill="var(--accent)" opacity="0.85"/>
-            <text x="460" y="156" style="font: italic 500 11px var(--font-serif); fill: var(--accent);">gate oxide (stressed)</text>
-
-            <!-- transistor body (substrate slab under gate) -->
-            <rect x="380" y="148" width="90" height="34" fill="url(#ant-sub)" stroke="var(--paper-muted)" stroke-width="1"/>
-            <rect x="388" y="156" width="20" height="18" fill="var(--pdk-diff-n)" opacity="0.5"/>
-            <rect x="442" y="156" width="20" height="18" fill="var(--pdk-diff-n)" opacity="0.5"/>
-            <text x="425" y="170" text-anchor="middle" style="font: 500 11px var(--font-mono); fill: var(--paper-muted);">S        D</text>
-
-            <!-- damage burst -->
-            <g>
-              <path d="M 436 130 L 442 138 L 438 139 L 444 148 L 432 140 L 436 139 Z" fill="var(--accent)"/>
-              <text x="300" y="192" style="font: italic 700 13px var(--font-serif); fill: var(--accent);">⚡ oxide breakdown — device fails</text>
-            </g>
-
-            <!-- divider -->
-            <line x1="16" y1="220" x2="604" y2="220" stroke="var(--paper-border)" stroke-width="1" stroke-dasharray="5 5"/>
-
-            <!-- ======================================================= -->
-            <!-- AFTER                                                   -->
-            <!-- ======================================================= -->
-            <text x="16" y="248" style="font: 700 15px var(--font-sans); fill: var(--paper-ink); letter-spacing: 0.06em;">AFTER — protection diode tapped onto the net</text>
-
-            <!-- ions (same plasma step) -->
-            <g>
-              <use href="#ion" x="48"  y="262" width="12" height="12"/>
-              <use href="#ion" x="108" y="260" width="12" height="12"/>
-              <use href="#ion" x="170" y="264" width="12" height="12"/>
-              <use href="#ion" x="232" y="260" width="12" height="12"/>
-            </g>
-            <g stroke="var(--accent)" stroke-width="1.2" fill="none" stroke-dasharray="2 3" marker-end="url(#ant-arrow)">
-              <line x1="54" y1="276" x2="54" y2="306"/>
-              <line x1="114" y1="274" x2="114" y2="306"/>
-              <line x1="176" y1="278" x2="176" y2="306"/>
-              <line x1="238" y1="274" x2="238" y2="306"/>
-            </g>
-
-            <!-- same metal net -->
-            <rect x="30" y="310" width="400" height="16" fill="var(--pdk-m3)"/>
-            <text x="30" y="304" style="font: 600 12px var(--font-mono); fill: var(--pdk-m3);">same metal net</text>
-
-            <!-- Diode tap near start of net (via down to n+ in p-substrate = reverse diode to ground) -->
-            <rect x="174" y="326" width="14" height="30" fill="var(--pdk-m2)"/>
-            <text x="108" y="340" style="font: italic 500 11px var(--font-serif); fill: var(--paper-muted);">via</text>
-
-            <!-- n+ region in p-substrate forms the diode -->
-            <rect x="158" y="356" width="46" height="22" fill="var(--pdk-diff-n)" opacity="0.6" stroke="var(--pdk-diff-n)" stroke-width="1.2"/>
-            <text x="181" y="371" text-anchor="middle" style="font: 700 11px var(--font-mono); fill: var(--paper-ink);">n+</text>
-            <!-- diode schematic symbol beside it -->
-            <g transform="translate(220,340)">
-              <polygon points="0,4 16,12 0,20" fill="none" stroke="var(--pdk-diff-n)" stroke-width="1.6"/>
-              <line x1="16" y1="2" x2="16" y2="22" stroke="var(--pdk-diff-n)" stroke-width="1.6"/>
-              <text x="24" y="16" style="font: 600 11px var(--font-mono); fill: var(--pdk-diff-n);">protection diode</text>
-            </g>
-
-            <!-- charge-bleed arrow: metal → diode → substrate -->
-            <path d="M 181 356 L 181 390" fill="none" stroke="var(--pdk-diff-n)" stroke-width="2" marker-end="url(#ant-arrow-green)"/>
-            <text x="200" y="400" style="font: italic 600 12px var(--font-serif); fill: var(--pdk-diff-n);">charge shunted to substrate</text>
-
-            <!-- via down to poly gate (still at right end) -->
-            <rect x="418" y="326" width="14" height="38" fill="var(--pdk-m2)"/>
-            <rect x="398" y="364" width="54" height="10" fill="var(--pdk-m2)"/>
-            <text x="460" y="373" style="font: 700 13px var(--font-mono); fill: var(--pdk-m2);">poly gate</text>
-            <!-- intact oxide -->
-            <rect x="398" y="374" width="54" height="3" fill="var(--pdk-diff-n)" opacity="0.7"/>
-            <text x="460" y="386" style="font: italic 500 11px var(--font-serif); fill: var(--pdk-diff-n);">gate oxide — intact</text>
-
-            <!-- transistor body -->
-            <rect x="380" y="378" width="90" height="34" fill="url(#ant-sub)" stroke="var(--paper-muted)" stroke-width="1"/>
-            <rect x="388" y="386" width="20" height="18" fill="var(--pdk-diff-n)" opacity="0.5"/>
-            <rect x="442" y="386" width="20" height="18" fill="var(--pdk-diff-n)" opacity="0.5"/>
-            <text x="425" y="400" text-anchor="middle" style="font: 500 11px var(--font-mono); fill: var(--paper-muted);">S        D</text>
-
-            <!-- substrate ground band (spans both halves) -->
-            <rect x="16" y="430" width="588" height="28" fill="url(#ant-sub)" stroke="var(--paper-muted)" stroke-width="1"/>
-            <text x="310" y="448" text-anchor="middle" style="font: 700 13px var(--font-mono); fill: var(--paper-muted); letter-spacing: 0.08em;">p-SUBSTRATE  (ground)</text>
-
-            <!-- ratio check -->
-            <text x="16" y="484" style="font: italic 700 13px var(--font-serif); fill: var(--pdk-diff-n);">✓ antenna ratio ≤ PDK limit</text>
-          </svg>
-          <div style="display:flex; gap: 20px; margin-top: 12px; flex-wrap: wrap; font: 400 15px/1.35 var(--font-sans);">
-            <div style="display:flex; align-items:center; gap: 8px;">
-              <span style="display:inline-block; width: 14px; height: 14px; background: var(--pdk-m3);"></span>
-              <span class="mono" style="color: var(--pdk-m3);">metal</span>
-            </div>
-            <div style="display:flex; align-items:center; gap: 8px;">
-              <span style="display:inline-block; width: 14px; height: 14px; background: var(--pdk-m2);"></span>
-              <span class="mono" style="color: var(--pdk-m2);">via / poly gate</span>
-            </div>
-            <div style="display:flex; align-items:center; gap: 8px;">
-              <span style="display:inline-block; width: 14px; height: 14px; background: var(--pdk-diff-n); opacity: 0.6;"></span>
-              <span class="mono" style="color: var(--pdk-diff-n);">n+ diode / diffusion</span>
-            </div>
-            <div style="display:flex; align-items:center; gap: 8px;">
-              <span style="display:inline-block; width: 14px; height: 14px; background: url(#ant-sub); border: 1px solid var(--paper-muted);"></span>
-              <span class="mono" style="color: var(--paper-muted);">p-substrate</span>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
 
-    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU · chipathon-2026</span></div>
   </section>
   <section data-label="25 metrics csv" class="slide-paper">
-    <div class="slide-eyebrow"><span>Part 4 · Running</span><span class="rule"></span><span>5 / 6</span></div>
+    <div class="slide-eyebrow"><span>Part 4 · Running</span><span class="rule"></span><span>5 / 5</span></div>
     <h2 class="slide-title"><span class="code">metrics.csv</span> — the single source of truth</h2>
     <div class="title-rule"></div>
 
@@ -502,64 +334,6 @@
 
     <div style="border-left: 4px solid var(--accent); padding: 10px 20px; margin-top: 18px; font: italic 500 22px/1.35 var(--font-serif); color: var(--paper-ink); max-width: 1500px;">
       CI policy, one line: <span class="mono" style="font-style: normal; color: var(--accent); font-size: 20px;">awk -F, '$2&gt;0 && /error_count/ {exit 1}' metrics.csv</span>
-    </div>
-
-    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
-  </section>
-  <section data-label="35 Four pitfalls" class="slide-paper">
-    <div class="slide-eyebrow"><span>Part 6 · The finished chip</span><span class="rule"></span><span>6 / 6</span></div>
-    <h2 class="slide-title">Four pitfalls — and the one-line fix for each</h2>
-    <div class="title-rule"></div>
-
-    <div style="margin-top: 36px; display: grid; grid-template-columns: 1fr 1fr; gap: 22px 40px; max-width: 1760px;">
-      <!-- 1 -->
-      <div class="card thick" style="padding: 20px 26px;">
-        <div style="display:flex; align-items:baseline; gap: 16px;">
-          <span style="font: 700 32px/1 var(--font-mono); color: var(--accent);">01</span>
-          <div class="label" style="color: var(--paper-muted);">Wrong PDK active</div>
-        </div>
-        <p style="font: 400 20px/1.45 var(--font-serif); color: var(--paper-ink); margin: 8px 0;">
-          Error mentions <span class="mono">sg13g2_stdcell</span> (IHP) while you are targeting GF180.
-        </p>
-        <div class="code-block sm" style="margin: 0; padding: 12px 14px; font-size: 16px;"><span class="c-com"># Fix:</span>
-source sak-pdk-script.sh gf180mcuD gf180mcu_fd_sc_mcu7t5v0</div>
-      </div>
-      <!-- 2 -->
-      <div class="card thick" style="padding: 20px 26px;">
-        <div style="display:flex; align-items:baseline; gap: 16px;">
-          <span style="font: 700 32px/1 var(--font-mono); color: var(--accent);">02</span>
-          <div class="label" style="color: var(--paper-muted);">Missing SRAM / I/O files</div>
-        </div>
-        <p style="font: 400 20px/1.45 var(--font-serif); color: var(--paper-ink); margin: 8px 0;">
-          Error cites an IHP path; the script pointed LibreLane at the wrong PDK root.
-        </p>
-        <div class="code-block sm" style="margin: 0; padding: 12px 14px; font-size: 16px;"><span class="c-com"># Fix — pass it explicitly:</span>
-PDK_ROOT=/foss/designs/template/gf180mcu make librelane</div>
-      </div>
-      <!-- 3 -->
-      <div class="card thick" style="padding: 20px 26px;">
-        <div style="display:flex; align-items:baseline; gap: 16px;">
-          <span style="font: 700 32px/1 var(--font-mono); color: var(--accent);">03</span>
-          <div class="label" style="color: var(--paper-muted);">Unknown I/O cell</div>
-        </div>
-        <p style="font: 400 20px/1.45 var(--font-serif); color: var(--paper-ink); margin: 8px 0;">
-          <span class="mono">gf180mcu_ws_io__…</span> unresolved — the wafer-space PDK fork is not installed.
-        </p>
-        <div class="code-block sm" style="margin: 0; padding: 12px 14px; font-size: 16px;"><span class="c-com"># Fix:</span>
-make clone-pdk   <span class="c-com"># clones the ws fork</span></div>
-      </div>
-      <!-- 4 -->
-      <div class="card thick" style="padding: 20px 26px;">
-        <div style="display:flex; align-items:baseline; gap: 16px;">
-          <span style="font: 700 32px/1 var(--font-mono); color: var(--accent);">04</span>
-          <div class="label" style="color: var(--paper-muted);">Flow is absurdly slow</div>
-        </div>
-        <p style="font: 400 20px/1.45 var(--font-serif); color: var(--paper-ink); margin: 8px 0;">
-          Magic DRC (~32 min) + KLayout antenna (~7 min) dominate runtime. For iteration only:
-        </p>
-        <div class="code-block sm" style="margin: 0; padding: 12px 14px; font-size: 16px;"><span class="c-com"># Fast inner loop — NEVER tape out without one full DRC run:</span>
-make librelane-nodrc</div>
-      </div>
     </div>
 
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
