@@ -35,7 +35,7 @@ Everything from then on runs **inside the container**. No `docker exec` wrappers
 
 | Time | Section | Pane | Action |
 |---|---|---|---|
-| 00:00 | Pre-roll: `mini_decks/ep01_intro.html` | -- | 5 slides (cover + RTL/GDS + Pipeline + Three hardening stages + One command) |
+| 00:00 | Pre-roll: `mini_decks/ep01_intro.html` | -- | 6 slides (cover + RTL/GDS + Pipeline + Container bootstrap + Three hardening stages + One command) |
 | 02:30 | Open the working dir inside container | Pane 1 | `cd /foss/designs/counter_demo && ls -la` |
 | 03:00 | Show the Verilog -- 4-bit synchronous counter, active-high sync reset | Pane 1 | `cat counter.v` |
 | 04:30 | Show the LibreLane config -- one file, ~10 lines | Pane 1 | `cat config.yaml` |

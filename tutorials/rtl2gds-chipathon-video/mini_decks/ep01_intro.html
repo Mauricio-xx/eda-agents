@@ -12,7 +12,7 @@
 <deck-stage width="1920" height="1080">
 
   <section data-label="01 Cover" class="slide-paper slide-title-page" style="justify-content: center; padding: 0 var(--sp-x);">
-    <div class="slide-eyebrow"><span>EPISODE 01</span><span class="rule"></span><span>1 / 5</span></div>
+    <div class="slide-eyebrow"><span>EPISODE 01</span><span class="rule"></span><span>1 / 6</span></div>
     <div style="margin: auto 0;">
       <p class="slide-eyebrow-tag" style="color: var(--accent); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; font-size: 22px; margin-bottom: 16px;">EPISODE 01</p>
       <h1 class="slide-title-big" style="font-size: 96px; line-height: 1.05; margin: 0 0 32px 0;">Episode 01 — Counter through the Classic flow</h1>
@@ -21,7 +21,7 @@
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU · chipathon-2026</span></div>
   </section>
   <section data-label="05 RTL vs GDS" class="slide-paper">
-    <div class="slide-eyebrow"><span>Part 1 · The pipeline</span><span class="rule"></span><span>2 / 5</span></div>
+    <div class="slide-eyebrow"><span>Part 1 · The pipeline</span><span class="rule"></span><span>2 / 6</span></div>
     <h2 class="slide-title">RTL and GDS — two ends of the same pipeline</h2>
     <div class="title-rule"></div>
 
@@ -56,7 +56,7 @@
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
   </section>
   <section data-label="06 Pipeline overview" class="slide-paper-grid">
-    <div class="slide-eyebrow"><span>Part 1 · The pipeline</span><span class="rule"></span><span>3 / 5</span></div>
+    <div class="slide-eyebrow"><span>Part 1 · The pipeline</span><span class="rule"></span><span>3 / 6</span></div>
     <h2 class="slide-title">The pipeline, at a glance</h2>
     <div class="title-rule"></div>
 
@@ -145,8 +145,48 @@
 
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
   </section>
+  <section data-label="12 Container bootstrap" class="slide-paper">
+    <div class="slide-eyebrow"><span>Part 2 · Container</span><span class="rule"></span><span>4 / 6</span></div>
+    <h2 class="slide-title">Container bootstrap — three commands (plus cleanup)</h2>
+    <div class="title-rule"></div>
+
+    <div class="code-block" style="margin-top: 36px; font-size: 24px; line-height:1.5;"><span class="c-com"># 1. One-time: clone the IIC-OSIC-TOOLS launcher (handles X11 forward + bind-mount)</span>
+git clone https://github.com/iic-jku/IIC-OSIC-TOOLS.git ~/git/IIC-OSIC-TOOLS
+
+<span class="c-com"># 2. Start a long-running container with X11 forward (auto-pulls the image first time)</span>
+<span class="c-key">DOCKER_TAG</span>=chipathon26 <span class="c-key">CONTAINER_NAME</span>=gf180-x \
+    bash ~/git/IIC-OSIC-TOOLS/start_x.sh
+
+<span class="c-com"># 3. Open an interactive shell inside it (one per pane in your tmux split)</span>
+docker <span class="c-key">exec</span> -it gf180-x bash -l</div>
+
+    <p class="muted" style="font: italic 400 18px/1.4 var(--font-serif); margin: 14px auto 0 auto; text-align:center; max-width: 1500px;">
+      <span class="mono" style="font-style:normal;">:chipathon26</span> is the pinned chipathon-2026 image (LibreLane v3.0.2). For the rolling upstream tag use <span class="mono" style="font-style:normal;">:next</span>.
+    </p>
+
+    <div class="row-2" style="margin-top: 28px; gap: 48px; flex:0;">
+      <div class="card" style="padding: 24px 32px;">
+        <div class="label" style="margin-bottom: 8px; color: var(--accent);">What start_x.sh handles for you</div>
+        <ul style="list-style:none; padding:0; margin:0; font: 400 22px/1.5 var(--font-serif); color: var(--paper-ink);">
+          <li><span class="mono" style="color: var(--pdk-m3);">X11 forward</span> &nbsp;klayout / firefox windows pop on the host</li>
+          <li><span class="mono" style="color: var(--pdk-m3);">bind-mount</span> &nbsp;<span class="mono">~/eda/designs &harr; /foss/designs</span></li>
+          <li><span class="mono" style="color: var(--pdk-m3);">--user $(id -u)</span> &nbsp;artifacts owned by the right UID</li>
+        </ul>
+      </div>
+      <div class="card" style="padding: 24px 32px;">
+        <div class="label" style="margin-bottom: 8px; color: var(--accent);">Cleanup</div>
+        <div class="mono" style="font-size: 22px; line-height: 1.5; color: var(--paper-ink);">
+          docker stop gf180-x<br>
+          docker rm gf180-x
+        </div>
+        <div class="muted" style="font-size: 20px; margin-top: 10px; font-style:italic;">Host files untouched.</div>
+      </div>
+    </div>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
+  </section>
   <section data-label="15 Three hardening stages" class="slide-paper">
-    <div class="slide-eyebrow"><span>Part 3 · Config</span><span class="rule"></span><span>4 / 5</span></div>
+    <div class="slide-eyebrow"><span>Part 3 · Config</span><span class="rule"></span><span>5 / 6</span></div>
     <h2 class="slide-title">Three hardening stages — what belongs where</h2>
     <div class="title-rule"></div>
 
@@ -395,7 +435,7 @@
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
   </section>
   <section data-label="23 One command" class="slide-paper">
-    <div class="slide-eyebrow"><span>Part 4 · Running</span><span class="rule"></span><span>5 / 5</span></div>
+    <div class="slide-eyebrow"><span>Part 4 · Running</span><span class="rule"></span><span>6 / 6</span></div>
     <div class="driving-chip tool-openroad"><span class="dc-label">LibreLane driving</span><span class="dc-tool">Yosys → OpenROAD → M+K+N</span></div>
     <h2 class="slide-title">The one command</h2>
     <div class="title-rule"></div>

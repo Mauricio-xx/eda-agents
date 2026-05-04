@@ -36,7 +36,7 @@ Each episode is preceded by a 4-6 slide pre-roll (HTML, 1920×1080, paper-style,
 | Ep | Master slides reused (data-label) | Total | What the pre-roll covers |
 |---|---|---|---|
 | 00 | cover + 5 + 6 + 7 + 8 + four-episodes-overview | 6 | RTL vs GDS, the pipeline, LibreLane as conductor, deliverables, the 3 episodes ahead |
-| 01 | cover + 5 + 6 + 15 + 23 | 5 | RTL vs GDS, the pipeline, **three hardening stages (macro hardening = today)**, the one command |
+| 01 | cover + 5 + 6 + 12 + 15 + 23 | 6 | RTL vs GDS, the pipeline, **container bootstrap (one-time docker pull)**, **three hardening stages (macro hardening = today)**, the one command |
 | 02 | cover + 21 + 17 + 27 | 4 | Slot = CHIPATON die contract, two-level YAML, signoff overview |
 | 03 | cover + 20 + 27 + 30 + 25 + 35 | 6 | Multi-macro MACROS dict, signoff overview, antenna deep, `metrics.csv`, four pitfalls |
 
