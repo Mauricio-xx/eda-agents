@@ -35,7 +35,7 @@ Everything from then on runs **inside the container**. No `docker exec` wrappers
 
 | Time | Section | Pane | Action |
 |---|---|---|---|
-| 00:00 | Pre-roll: `mini_decks/ep01_intro.html` | -- | 5 slides (cover + RTL/GDS + Pipeline + LibreLane conductor + One command) |
+| 00:00 | Pre-roll: `mini_decks/ep01_intro.html` | -- | 5 slides (cover + RTL/GDS + Pipeline + Three hardening stages + One command) |
 | 02:30 | Open the working dir inside container | Pane 1 | `cd /foss/designs/counter_demo && ls -la` |
 | 03:00 | Show the Verilog -- 4-bit synchronous counter, active-high sync reset | Pane 1 | `cat counter.v` |
 | 04:30 | Show the LibreLane config -- one file, ~10 lines | Pane 1 | `cat config.yaml` |
@@ -119,7 +119,7 @@ klayout -n gf180mcu -e "${RUN}final/gds/counter.gds" &
 
 ## Honest scope (lines on camera)
 
-- Min 02:30: *"The counter has no padring, no SRAM, no analog. It is the bare-metal LibreLane experience -- four flip-flops, an adder, a clock. If this fails, your environment is broken; if it succeeds, you have everything you need to run the rest of the series."*
+- Min 02:30: *"The counter has no padring, no SRAM, no analog. It is the bare-metal LibreLane experience -- four flip-flops, an adder, a clock. The pre-roll's 'three hardening stages' slide places this episode on the chipathon map: today is **stage 01, macro hardening** -- RTL goes in, four reusable views (.gds, .lef, .lib, blackbox.v) come out. Episodes 02 and 03 do stages 02 and 03 (slot + chip-top integration). If this episode fails, your environment is broken; if it succeeds, you have everything you need to run the rest of the series."*
 - Min 06:00: *"Notice the prompt -- I am inside the container. Three panes, three `docker exec -it` sessions, one image. Every command from here on runs inside this image."*
 - Min 12:30: *"This is the part that dominates wall-clock on bigger designs. Magic DRC and KLayout antenna can run for half an hour on a chip-top. On a 4-bit counter they take seconds because there is barely anything to check."*
 - Min 13:30: *"`metrics.csv` is the signoff gate. Every field ending in `error__count` must be zero -- note the double underscore. One line of `awk` is enough to confirm the chip is foundry-ready, no GUI required."*

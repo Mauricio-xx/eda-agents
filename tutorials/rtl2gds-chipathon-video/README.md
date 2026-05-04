@@ -1,18 +1,18 @@
 # RTL-to-GDS on GF180MCU — chipathon-2026 video tutorial series
 
-Five-episode video tutorial that takes a chipathon-2026 participant from "what is LibreLane?" to "I shipped a multi-macro chip-top through the workshop padring." Episodes Ep 01-04 run **fully inside** the `hpretl/iic-osic-tools:chipathon26` Docker container; Ep 00 is a slide-only conceptual opener.
+Four-episode video tutorial that takes a chipathon-2026 participant from "what is LibreLane?" to "I shipped a multi-macro chip-top through the workshop padring." Episodes Ep 01-03 run **fully inside** the `hpretl/iic-osic-tools:chipathon26` Docker container; Ep 00 is a slide-only conceptual opener.
 
 The series shadows the upstream chipathon notebooks at [`sscs-ose/sscs-chipathon-2026/examples/librelane_rtl2gds_gf180/`](https://github.com/sscs-ose/sscs-chipathon-2026/tree/main/examples/librelane_rtl2gds_gf180) but is the cinematic version: same commands, same outputs, real terminal, no Jupyter on screen.
 
 ## Recording format — 3-pane terminal-driven, fully inside the container
 
-Each Eps 01-04 runs as a tmux split (or three side-by-side panes). Every pane opens with **the same one-liner** to enter the running container interactively, and from then on all commands run **inside** the container — no `docker exec` wrappers, no host paths in camera-visible commands. Ep 00 is slide-only and does not use the 3-pane layout.
+Each Eps 01-03 runs as a tmux split (or three side-by-side panes). Every pane opens with **the same one-liner** to enter the running container interactively, and from then on all commands run **inside** the container — no `docker exec` wrappers, no host paths in camera-visible commands. Ep 00 is slide-only and does not use the 3-pane layout.
 
 | Pane | Role (inside the container after `docker exec -it`) |
 |---|---|
 | Pane 1 (left) | `cat`, `less`, `awk`, `ls -R` over the files currently being read — `config.yaml`, `slot_*.yaml`, `chip_core.sv`, `metrics.csv`, cocotb tests |
 | Pane 2 (centre) | `source sak-pdk-script.sh ...` once per session; then `librelane …`, `make librelane`, cocotb `make test-*`, macro hardening |
-| Pane 3 (right) | `tail -f` the LibreLane / cocotb log; later `klayout -n gf180mcu -e <gds> &` (window pops on host via X11 forward); for Ep 02 `firefox /foss/designs/diagrams/*.svg &` for the slot-anatomy + pad-map SVGs |
+| Pane 3 (right) | `tail -f` the LibreLane / cocotb log; later `klayout -n gf180mcu -e <gds> &` (window pops on host via X11 forward) |
 
 The container ships `cat`, `less`, `awk`, `tail`, `librelane`, `klayout`, `firefox` (for SVG/PDF viewing) — but **not** `bat`, `tree`, `feh`, `nvim`. The recording uses what the stock chipathon26 image provides; do not assume host tools.
 
@@ -20,27 +20,25 @@ The Jupyter notebooks are **not in the recording**. They are the documentation a
 
 ## Reading order (per episode)
 
-| Ep | Notebook | Wall time | Live? | Pre-recorded fallback |
+| Ep | Notebook (upstream chipathon) | Wall time | Live? | Pre-recorded fallback |
 |---|---|---|---|---|
 | 00 | (no notebook — series intro, slide-only) | ~10 min, no shell | Live entirely | none — slide-only |
 | 01 | `01_rtl2gds_counter.ipynb` | 1-2 min flow | Live entirely | none — flow is short enough to record raw |
-| 02 | `00_slots_explained.ipynb` (read-only) | 2 min, read-only | Live entirely | none — no flow |
-| 03 | `03_rtl2gds_chipathon_use.ipynb` | ~35-45 min flow | Start live, jump | `prerecorded/ep03_chipathon_use.log` + GDS render |
-| 04 | `04_counter_alu_multimacro/` | ~60-90 min + cocotb | Start live, jump | `prerecorded/ep04_multimacro.log` + GDS render + cocotb output |
+| 02 | `03_rtl2gds_chipathon_use.ipynb` | ~35-45 min flow | Start live, jump | `prerecorded/ep02_chipathon_use.log` + GDS render |
+| 03 | `04_counter_alu_multimacro/` | ~60-90 min + cocotb | Start live, jump | `prerecorded/ep03_multimacro.log` + GDS render + cocotb output |
 
-Target episode length: **10-30 min on screen**, regardless of the underlying flow's wall-clock. Ep 00 is the conceptual pitch (no terminal). Eps 03-04 *will* hit a "now we wait" moment; the cut to the pre-recorded log + final artifacts is the bridge.
+Target episode length: **10-30 min on screen**, regardless of the underlying flow's wall-clock. Ep 00 is the conceptual pitch (no terminal). Eps 02-03 *will* hit a "now we wait" moment; the cut to the pre-recorded log + final artifacts is the bridge.
 
 ## Pre-roll mini-decks
 
-Each episode is preceded by a 4-6 slide pre-roll (HTML, 1920×1080, paper-style, same CSS family as `rtl2gds-gf180-docker/claude_design_slides/`). Slides are pulled from the trimmed master deck (`../rtl2gds-gf180-docker/claude_design_slides/RTL-to-GDS on GF180MCU.html`, 26 slides) so technical content stays consistent across the master deck and the per-episode pre-rolls.
+Each episode is preceded by a 4-6 slide pre-roll (HTML, 1920×1080, paper-style, same CSS family as `rtl2gds-gf180-docker/claude_design_slides/`). Slides are pulled from the trimmed master deck (`../rtl2gds-gf180-docker/claude_design_slides/RTL-to-GDS on GF180MCU.html`) so technical content stays consistent across the master deck and the per-episode pre-rolls.
 
-| Ep | Slides (in pre-roll order) | Total | What the pre-roll covers |
+| Ep | Master slides reused (data-label) | Total | What the pre-roll covers |
 |---|---|---|---|
-| 00 | cover + master 4 + 5 + 6 + 7 + series-overview | 6 | RTL vs GDS, the pipeline, LibreLane as conductor, deliverables, the 4 episodes ahead |
-| 01 | cover + master 4 + 5 + 6 + 19 | 5 | RTL vs GDS, the pipeline, LibreLane as conductor, the one command |
-| 02 | cover + master 11 + 12 + 13 + 16 + 17 | 6 | Three hardening stages, project template, two-level YAML, MACROS dict, slot YAML |
-| 03 | cover + master 13 + 17 + 18 + 22 | 5 | Two-level YAML, slot YAML, multi-macro, signoff overview |
-| 04 | cover + master 18 + 22 + 23 + 21 + 24 | 6 | Multi-macro recap, signoff overview, antenna deep, `metrics.csv`, four pitfalls |
+| 00 | cover + 5 + 6 + 7 + 8 + four-episodes-overview | 6 | RTL vs GDS, the pipeline, LibreLane as conductor, deliverables, the 3 episodes ahead |
+| 01 | cover + 5 + 6 + 15 + 23 | 5 | RTL vs GDS, the pipeline, **three hardening stages (macro hardening = today)**, the one command |
+| 02 | cover + 21 + 17 + 27 | 4 | Slot = CHIPATON die contract, two-level YAML, signoff overview |
+| 03 | cover + 20 + 27 + 30 + 25 + 35 | 6 | Multi-macro MACROS dict, signoff overview, antenna deep, `metrics.csv`, four pitfalls |
 
 The *cover* slide on each pre-roll is unique to that episode and announces the episode's title + the notebook it shadows. All other slides are reused verbatim from the master deck.
 
@@ -87,18 +85,16 @@ firefox /foss/designs/diagrams/workshop_pad_map.svg &
 ```
 tutorials/rtl2gds-chipathon-video/
 ├── README.md                        # this file
-├── mini_decks/                      # 5 HTML pre-rolls (one per episode)
+├── mini_decks/                      # 4 HTML pre-rolls (one per episode)
 │   ├── ep00_intro.html              # series intro, 6 slides
-│   ├── ep01_intro.html              # counter, 5 slides
-│   ├── ep02_intro.html              # slots explained, 6 slides
-│   ├── ep03_intro.html              # workshop slot, 5 slides
-│   └── ep04_intro.html              # multi-macro, 6 slides
-├── shot_list/                       # 5 markdown shot-lists (one per episode)
+│   ├── ep01_intro.html              # counter + macro hardening context, 5 slides
+│   ├── ep02_intro.html              # workshop slot (1-slide intro + use), 4 slides
+│   └── ep03_intro.html              # multi-macro, 6 slides
+├── shot_list/                       # 4 markdown shot-lists (one per episode)
 │   ├── ep00_what_is_librelane.md
 │   ├── ep01_counter.md
-│   ├── ep02_slots_explained.md
-│   ├── ep03_chipathon_use.md
-│   └── ep04_counter_alu_multimacro.md
+│   ├── ep02_chipathon_workshop_slot.md
+│   └── ep03_counter_alu_multimacro.md
 └── prerecorded/                     # text-only artifacts committed here (logs, metrics)
     └── (artifacts live in ~/eda/designs/prerecorded/, NOT in this repo —
          bind-mount path so the container can read them as /foss/designs/prerecorded/)
@@ -123,22 +119,22 @@ The shot-lists and mini-decks ship in this repo. The pre-recorded artifacts are 
    ```bash
    # Ep 01 — counter (one-shot, ~10 lines):
    mkdir -p ~/eda/designs/counter_demo
-   cp ~/git/sscs-chipathon-2026/examples/librelane_rtl2gds_gf180/01_rtl2gds_counter.ipynb /tmp/   # source for the cell that writes counter.v + config.yaml
-   # then run that cell once (or copy the artifacts manually)
+   # Extract counter.v + config.yaml from chipathon nb01 (see helper or copy manually)
+   cp ~/git/sscs-chipathon-2026/examples/librelane_rtl2gds_gf180/01_rtl2gds_counter.ipynb /tmp/
 
-   # Ep 02 / Ep 03 — chipathon padring fork:
+   # Ep 02 — chipathon padring fork (the slot you tape out):
    cp -r ~/git/sscs-chipathon-2026/resources/Integration/workshop_padring_librelane \
          ~/eda/designs/chipathon_padring/template
 
-   # Ep 02 — diagrams (one-time, lets the container open them with firefox):
-   cp -r ~/git/sscs-chipathon-2026/examples/librelane_rtl2gds_gf180/diagrams \
-         ~/eda/designs/diagrams
-
-   # Ep 04 — multi-macro (rtl + tb + librelane):
+   # Ep 03 — multi-macro (rtl + tb + librelane) + dedicated padring fork copy:
    mkdir -p ~/eda/designs/multimacro_demo
    cp -r ~/git/sscs-chipathon-2026/examples/librelane_rtl2gds_gf180/04_counter_alu_multimacro/{rtl,tb,librelane} \
          ~/eda/designs/multimacro_demo/
    mkdir -p ~/eda/designs/multimacro_demo/build
+
+   # Ep 03 — dedicated padring fork copy (so Ep 02 baseline stays clean):
+   cp -r ~/git/sscs-chipathon-2026/resources/Integration/workshop_padring_librelane \
+         ~/eda/designs/multimacro_chipathon/template
    ```
 6. Run the Ep 01 flow once end-to-end on the recording machine (~2 min) and confirm `runs/<ts>/final/metrics.csv` is all-zero.
 7. Create the pre-recorded artifact directory inside the bind-mount so the container can see it:
@@ -146,13 +142,13 @@ The shot-lists and mini-decks ship in this repo. The pre-recorded artifacts are 
    mkdir -p ~/eda/designs/prerecorded
    ```
    This is a real directory, not a symlink. (A host symlink whose target lives outside the bind-mount dangles inside the container — the container only sees what is under `~/eda/designs/`.) The repo's `tutorials/rtl2gds-chipathon-video/prerecorded/` is the *committed* snapshot; the bind-mount path is where the live container reads and writes. After harvesting a flow run, `cp` the small text artifacts (`flow.log`, `metrics.csv`, `cocotb_gl_output.txt`) into the repo for commit if desired; GDS and PNG renders are large and typically stay in the bind-mount only.
-8. Confirm pre-recorded artifacts for Ep 03-04 are in place (`~/eda/designs/prerecorded/ep0[3-4]_*` — log + GDS + metrics + render PNG, plus `ep04_cocotb_gl_output.txt`) and match the latest upstream notebook revision.
-9. Open the master trimmed deck (`../rtl2gds-gf180-docker/claude_design_slides/RTL-to-GDS on GF180MCU.html`) in the browser the recording uses; confirm 26 slides render.
+8. Confirm pre-recorded artifacts for Ep 02-03 are in place (`~/eda/designs/prerecorded/ep0[2-3]_*` — log + GDS + metrics, plus `ep03_cocotb_gl_output.txt`) and match the latest upstream notebook revision.
+9. Open the master trimmed deck (`../rtl2gds-gf180-docker/claude_design_slides/RTL-to-GDS on GF180MCU.html`) in the browser the recording uses; confirm all slides render.
 
 ## Cleanup
 
 ```bash
 docker stop "$GF180" && docker rm "$GF180"
 docker image rm hpretl/iic-osic-tools:chipathon26   # optional, ~18 GB back
-rm -rf ~/eda/designs/{counter_demo,chipathon_padring,multimacro_demo,diagrams,prerecorded}
+rm -rf ~/eda/designs/{counter_demo,chipathon_padring,multimacro_chipathon,multimacro_demo,prerecorded}
 ```

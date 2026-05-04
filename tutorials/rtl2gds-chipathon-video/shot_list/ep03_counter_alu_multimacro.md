@@ -1,4 +1,4 @@
-# Ep 04 shot-list -- Multi-macro chip-top: counter + 4-bit ALU (target 25-30 min)
+# Ep 03 shot-list -- Multi-macro chip-top: counter + 4-bit ALU (target 25-30 min)
 
 The capstone. Two RTL modules (an 8-bit counter + a 4-bit registered ALU) are hardened separately as macros, then merged into the chipathon-2026 workshop padring as a single chip-top with `MACROS:` + `PDN_MACRO_CONNECTIONS:` declarations. cocotb runs both pre-PnR (RTL) and post-synthesis (GL netlist) on each macro. Chip-top wall-clock is ~60-90 min, so this episode is mostly pre-recorded.
 
@@ -21,7 +21,7 @@ Each of the three recording panes opens with **one** command — entering the co
 docker exec -it "$GF180" bash -l
 ```
 
-Ep 03 must have run first so the padring fork is staged at `/foss/designs/chipathon_padring/template/`. The multimacro working dir at `/foss/designs/multimacro_demo/` is staged from upstream `examples/librelane_rtl2gds_gf180/04_counter_alu_multimacro/{rtl,tb,librelane}` (see README pre-flight; one-time `cp -r` on the host before recording).
+Ep 02 must have run first so the padring fork is staged at `/foss/designs/chipathon_padring/template/`. This episode uses a **dedicated copy** at `/foss/designs/multimacro_chipathon/template/` so the Ep 02 baseline stays clean. The multimacro working dir at `/foss/designs/multimacro_demo/` is staged from upstream `examples/librelane_rtl2gds_gf180/04_counter_alu_multimacro/{rtl,tb,librelane}` (see README pre-flight; one-time `cp -r` on the host before recording).
 
 ## Pane layout (3-pane, all inside container, mostly pre-recorded)
 
@@ -35,7 +35,7 @@ Ep 03 must have run first so the padring fork is staged at `/foss/designs/chipat
 
 | Time | Section | Pane | Action |
 |---|---|---|---|
-| 00:00 | Pre-roll: `mini_decks/ep04_intro.html` | -- | 6 slides (cover + Multi-macro + Signoff overview + Antenna + metrics + Pitfalls) |
+| 00:00 | Pre-roll: `mini_decks/ep03_intro.html` | -- | 6 slides (cover + Multi-macro + Signoff overview + Antenna + metrics + Pitfalls) |
 | 03:30 | Walk into the staging tree | Pane 1 | `cd /foss/designs/multimacro_demo && ls -R rtl/ tb/ librelane/` |
 | 05:30 | RTL verification (cocotb, ~15 s) | Pane 2 | `cd /foss/designs/multimacro_demo/tb && make clean && make test-counter && make test-alu` |
 | 07:00 | Read the cocotb tests | Pane 1 | `cat tb/test_counter.py`; `cat tb/test_alu.py` |
@@ -178,7 +178,7 @@ klayout -n gf180mcu -e /foss/designs/prerecorded/ep04_multimacro.gds &
 
 ## Honest scope (lines on camera)
 
-- Min 03:30: *"Three folders staged in the bind-mount: `rtl/`, `tb/`, `librelane/`. The chip-top patch lives in the padring fork from episode 03 — we do not re-clone it."*
+- Min 03:30: *"Three folders staged in the bind-mount: `rtl/`, `tb/`, `librelane/`. The chip-top patch lives in a dedicated padring fork copy at `/foss/designs/multimacro_chipathon/template/` so the episode-02 baseline stays untouched."*
 - Min 05:30: *"cocotb runs on the RTL, before any synthesis. It is the single best safety net you can put in front of LibreLane: a synth bug can bake into a 90-minute flow you only catch at signoff."*
 - Min 08:30: *"Each macro hardens with `librelane librelane/<macro>.yaml --save-views-to build/<macro>`. The `--save-views-to` flag is what makes the four signoff views (GDS, LEF, netlist, lib) reusable for the chip-top step. Notice the command runs directly -- no `docker exec` wrapper -- because we are already inside the container."*
 - Min 15:30: *"Post-synthesis GL sim is the second safety net. Same testbench, against the synthesized netlist plus the gf180 cell library. If it passes, your synthesis preserved behaviour. Routing and antenna can still break it later, but synthesis is clean."*
