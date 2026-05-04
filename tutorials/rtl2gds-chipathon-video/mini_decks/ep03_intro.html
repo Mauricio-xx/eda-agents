@@ -261,7 +261,7 @@
     <div class="title-rule"></div>
 
     <p class="lead" style="margin-top: 18px; max-width: 1720px; font-size: 22px;">
-      Both macros and the chip-top point at the <strong>wafer-space gf180mcu fork</strong> (pinned at tag 1.8.0). The chip-top requires it: the padring instantiates <span class="mono">gf180mcu_ws_io__dvdd/dvss</span>, IO cells only the fork ships. The macros use the same root because the standard cell library is <em>not</em> byte-identical between the system PDK and the fork — using one root keeps the cells inside the merged chip-top GDS aligned with the rule deck running DRC + LVS at signoff.
+      Both macros and the chip-top point at the <strong>wafer-space gf180mcu fork</strong> (pinned at tag 1.8.0). The chip-top requires it: the padring instantiates <span class="mono">gf180mcu_ws_io__dvdd/dvss</span>, IO cells only the fork ships. The macros use the same root because the docker image's system PDK ships an outdated <span class="mono">libs.tech/librelane/config.tcl</span> (LibreLane v1/v2 variables) — LibreLane v3 silently <em>skips KLayout DRC</em>. Only the fork's config is wired for v3.
     </p>
 
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 18px; align-items: start;">
@@ -290,16 +290,16 @@ $ <span class="c-fn">librelane</span> librelane/counter_macro.yaml \
             </tr>
           </thead>
           <tbody>
+            <tr><td class="mono">LibreLane v3 config.tcl</td><td class="mono" style="color: var(--accent);">legacy v1/v2</td><td class="mono" style="color: var(--pdk-m3);">v3-correct</td></tr>
+            <tr><td class="mono">KLayout DRC step</td><td class="mono" style="color: var(--accent);">skipped silently</td><td class="mono" style="color: var(--pdk-m3);">runs</td></tr>
             <tr><td class="mono">gf180mcu_ws_io__*</td><td>absent</td><td class="mono" style="color: var(--pdk-m3);">present</td></tr>
-            <tr><td class="mono">cells/gds</td><td>1155 bytes differ</td><td>reference</td></tr>
-            <tr><td class="mono">techlef antenna ratio</td><td class="mono">2</td><td class="mono" style="color: var(--accent);">15</td></tr>
-            <tr><td class="mono">KLayout DRC + LVS rules</td><td>system</td><td class="mono" style="color: var(--accent);">divergent</td></tr>
+            <tr><td class="mono">cells/gds, antenna rule</td><td colspan="2" style="text-align:center;">~0.08% diff (irrelevant)</td></tr>
             <tr><td class="mono">.lef / .lib / .v</td><td colspan="2" style="text-align:center;">identical</td></tr>
           </tbody>
         </table>
 
         <div style="border-left: 4px solid var(--accent); padding: 10px 18px; margin-top: 16px; font: italic 500 18px/1.4 var(--font-serif); color: var(--paper-ink);">
-          Macros standalone <em>could</em> use the system PDK (verified). Chip-top <em>cannot</em> — the IO cells force the fork. Aligning both on the fork is the safe path the chipathon-2026 reference notebook follows.
+          Workaround for a <strong>docker image bug</strong>: the system PDK was installed from <span class="mono" style="font-style: normal; font-size: 17px;">open_pdks @ 7b70722e</span>, which predates LibreLane v3 wiring. Upstream fix tracked at <span class="mono" style="font-style: normal; font-size: 17px;">iic-jku/IIC-OSIC-TOOLS</span>. Until then, the fork is the only path to full signoff.
         </div>
       </div>
 

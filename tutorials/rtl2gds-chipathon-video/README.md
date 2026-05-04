@@ -49,6 +49,54 @@ The *cover* slide on each pre-roll is unique to that episode and announces the e
 - **Pre-recorded artifacts are required for Ep 03-04.** Each one needs at least one full clean run of the underlying notebook before the recording day. See `prerecorded/` for the artifact slots.
 - **Fully inside the container.** Eps 01-04 open three panes; each pane runs `docker exec -it "$GF180" bash -l` once at the top of the recording and stays inside for the whole episode. No `docker exec "$GF180" bash -lc '…'` wrappers in any camera-visible command. The contract is the image (`:chipathon26`) and the `~/eda/designs <-> /foss/designs` bind-mount. Ep 00 frames *why* the container is the deliverable boundary; Eps 01-04 live there.
 
+## PDK source policy — why all LibreLane steps in Ep 03 target the wafer-space fork
+
+Every `librelane` invocation in Ep 03 (macro hardening *and* chip-top integration) sets `--pdk-root` (or the equivalent `PDK_ROOT=` Make variable) to a local clone of `wafer-space/gf180mcu` @ tag `1.8.0`, **not** the system PDK at `/foss/pdks/gf180mcuD` that the `chipathon26` image bundles. This is a hard workaround for a real bug in the docker-bundled PDK, not a stylistic choice.
+
+### Cause
+
+The system PDK in `hpretl/iic-osic-tools:chipathon26` was installed from `open_pdks` at commit `7b70722e` (per `/foss/pdks/gf180mcuD/SOURCES`). That commit ships a `libs.tech/librelane/config.tcl` written against **LibreLane v1/v2**:
+
+```tcl
+set ::env(KLAYOUT_DRC_TECH_SCRIPT) "$::env(PDK_ROOT)/$::env(PDK)/libs.tech/klayout/drc/gf180mcu.drc"
+```
+
+LibreLane v3.0.2 (the version inside the image) reads different variable names (`KLAYOUT_DRC_RUNSET`, `KLAYOUT_DRC_OPTIONS` dict, plus sibling dicts for density / antenna / filler / LVS, plus RC tables and ~30 v3 entries). It does not find them, and silently skips the step:
+
+```
+WARNING [Checker.KLayoutDRC]
+  KLayout.DRC may not be supported for the gf180mcuD PDK.
+  This step will be skipped.
+WARNING [Misc.ReportManufacturability]
+  klayout__drc_error__count not reported. KLayout.DRC may have been skipped.
+```
+
+The resulting `metrics.csv` is missing `klayout__drc_error__count`. The Magic DRC + LVS + antenna metrics still show zero, so the on-camera `awk` looks clean — but **signoff is incomplete**: KLayout DRC, KLayout density, KLayout antenna, KLayout LVS, and the v3 RC tables never ran.
+
+The KLayout DRC rule files themselves *do* exist at `/foss/pdks/gf180mcuD/libs.tech/klayout/tech/drc/`. The bug is purely in the v1/v2 wiring of `config.tcl` to LibreLane, not in the rule decks.
+
+### The workaround
+
+The `wafer-space/gf180mcu` fork (tag `1.8.0`, derived from `open_pdks` @ `40cee970` plus chipathon-specific deltas) ships a v3-correct `libs.tech/librelane/config.tcl` *and* the `gf180mcu_ws_io__*` IO cells the chipathon padring instantiates. Pointing all LibreLane steps at this fork via `--pdk-root` (macros) or `PDK_ROOT=` (chip-top Make var) recovers full v3 signoff.
+
+### What still uses the docker's system PDK
+
+Not everything jumps to the fork. Inside `:chipathon26` the system PDK at `/foss/pdks/gf180mcuD` is still:
+
+- The default the SAK env script resolves to (`source sak-pdk-script.sh gf180mcuD ...` exports `PDK_ROOT=/foss/pdks` and friends).
+- The technology source for the KLayout viewer (`klayout -n gf180mcu …` reads `libs.tech/klayout/` for layer colors and properties; this never validates anything).
+- Unused by cocotb pre-PnR (no PDK references at the RTL level).
+
+The `gf180mcu_fd_sc_mcu7t5v0` standard cell library is functionally equivalent at the LEF / LIB / Verilog level between the two PDKs (verified byte-identical). The cell GDS differs by ~0.08% (1155 bytes scattered), `techlef` antenna ratio rule is `2` (sys) vs `15` (ws), and the cdl differs by 218 bytes — none of which affect synthesis or P&R.
+
+### Upstream fix
+
+The right place to upstream a real fix is `iic-jku/IIC-OSIC-TOOLS` (where the open_pdks commit is pinned for the docker build). Once a future `:chipathon27`-style image ships `open_pdks` @ a commit that includes the LibreLane v3 integration, this workaround retires: macros could harden against the system PDK directly, and only chip-top (which still needs the IO cells) would target the fork.
+
+The `--manual-pdk` flag in the verbose form is technically redundant — `/foss/tools/bin/librelane` is a wrapper that auto-injects it. Pass it explicitly anyway for parity with the upstream chipathon-2026 reference notebook.
+
+Ep 01 (the bare counter) currently uses the system PDK and therefore *also* silently skips KLayout DRC. The episode's signoff narration tolerates this: a 4-flip-flop counter has no realistic KLayout-DRC-only failure mode at this geometry, so the cut to `awk '/error__count/'` over Magic DRC + LVS + antenna is honest enough for that scope. Ep 03 cannot tolerate the skip — chipathon entries must pass KLayout DRC at chip-top, so the workaround is mandatory there.
+
 ## Bootstrap (every Eps 01-04 opens with this; Ep 00 is slide-only)
 
 ```bash
