@@ -27,7 +27,7 @@ Ep 02 must have run first so the padring fork is staged at `/foss/designs/chipat
 
 | Pane | Contents (after `docker exec -it` at start) |
 |---|---|
-| Pane 1 (left) | `cat`/`less` over `librelane/{counter_macro,alu_macro,chip_top_multi_patch}.yaml`, `rtl/chip_core_multi.sv`, the cocotb `tb/test_*.py`; later `awk` over chip-top `metrics.csv` |
+| Pane 1 (left) | `cat`/`less` over `librelane/{counter_macro,alu_macro}.yaml`, `rtl/chip_core_multi.sv`, the cocotb `tb/test_*.py`; later `awk` over chip-top `metrics.csv` and `sed` to extract the post-patch MACROS dict |
 | Pane 2 (centre) | `source sak-pdk-script.sh ...` once, then per-macro hardening + chip-top `make librelane` |
 | Pane 3 (right) | `tail -f` of the active LibreLane/cocotb log; later `klayout -n gf180mcu -e <gds> &` |
 
@@ -46,7 +46,7 @@ Ep 02 must have run first so the padring fork is staged at `/foss/designs/chipat
 | 12:30 | Live tail of the ALU hardening | Pane 3 | `tail -f $(ls -td build/alu_macro/runs/*/ \| head -1)flow.log` |
 | 15:30 | Post-synth GL sim of both macros (~15 s) | Pane 2 | `cd /foss/designs/multimacro_chipathon/user_macros/tb && make test-counter-gl && make test-alu-gl` |
 | 17:00 | Patch the padring fork's `chip_core.sv` | Pane 2 | `cp /foss/designs/multimacro_chipathon/user_macros/rtl/chip_core_multi.sv /foss/designs/multimacro_chipathon/template/src/chip_core.sv` |
-| 18:30 | Show the chip-top patch -- `MACROS:` + `PDN_MACRO_CONNECTIONS:` | Pane 1 | `cat /foss/designs/multimacro_chipathon/user_macros/librelane/chip_top_multi_patch.yaml` |
+| 18:30 | Show the post-patch MACROS dict | Pane 1 | `sed -n '/^MACROS:/,/^FP_MACRO_HORIZONTAL_HALO:/p' /foss/designs/multimacro_chipathon/template/librelane/config.yaml` |
 | 19:30 | Kick off chip-top flow (`SLOT=workshop make librelane`) | Pane 2 | `cd /foss/designs/multimacro_chipathon/template && make librelane SLOT=workshop PDK=gf180mcuD PDK_ROOT=/foss/designs/multimacro_chipathon/template/gf180mcu` |
 | 19:30 | Live tail for ~3 min | Pane 3 | `cd /foss/designs/multimacro_chipathon/template && tail -f $(ls -td librelane/runs/*/ \| head -1)flow.log` |
 | 22:30 | **Cut to time-lapse** -- chip-flow stages (4-8x speed) | -- | voice-over OpenROAD + Magic DRC + KLayout DRC stages |
@@ -145,11 +145,12 @@ cp /foss/designs/multimacro_chipathon/user_macros/rtl/chip_core_multi.sv \
    /foss/designs/multimacro_chipathon/template/src/chip_core.sv
 ```
 
-**Pane 1, 18:30 (show the chip-top patch)**:
+**Pane 1, 18:30 (show the post-patch MACROS dict)**:
 ```bash
-cat /foss/designs/multimacro_chipathon/user_macros/librelane/chip_top_multi_patch.yaml
+sed -n '/^MACROS:/,/^FP_MACRO_HORIZONTAL_HALO:/p' \
+  /foss/designs/multimacro_chipathon/template/librelane/config.yaml
 ```
-(Hand-merge into `multimacro_chipathon/template/librelane/config.yaml` off-camera, or run the upstream notebook's `patch_top()` cell.)
+(The patch is applied off-camera by the notebook's `patch_top()` cell, which adds the MACROS + PDN_MACRO_CONNECTIONS entries shown here.)
 
 **Pane 2, 19:30 (chip-top flow)**:
 ```bash
@@ -188,4 +189,4 @@ klayout -n gf180mcu -e /foss/designs/prerecorded/ep03_multimacro.gds &
 
 ## Pre-recorded fallback
 
-If pre-recorded artifacts are missing on recording day, the episode degrades to a recap of the per-macro hardening (Eps 01-02 already cover that pattern) plus a hand-walked `cat` of the multi-macro `chip_core.sv` and `chip_top_multi_patch.yaml`. Skip the chip-top flow entirely; quote the upstream README's signoff numbers and show the layout PNG from the chipathon-2026 fork's documentation. The viewer still gets the multi-macro pattern; the live chip-flow shot moves to a follow-up.
+If pre-recorded artifacts are missing on recording day, the episode degrades to a recap of the per-macro hardening (Eps 01-02 already cover that pattern) plus a hand-walked `cat` of the multi-macro `chip_core.sv`. Skip the chip-top flow entirely; quote the upstream README's signoff numbers and show the layout PNG from the chipathon-2026 fork's documentation. The viewer still gets the multi-macro pattern; the live chip-flow shot moves to a follow-up.
