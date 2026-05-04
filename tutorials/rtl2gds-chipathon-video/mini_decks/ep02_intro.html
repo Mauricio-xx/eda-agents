@@ -12,7 +12,7 @@
 <deck-stage width="1920" height="1080">
 
   <section data-label="01 Cover" class="slide-paper slide-title-page" style="justify-content: center; padding: 0 var(--sp-x);">
-    <div class="slide-eyebrow"><span>EPISODE 02</span><span class="rule"></span><span>1 / 6</span></div>
+    <div class="slide-eyebrow"><span>EPISODE 02</span><span class="rule"></span><span>1 / 5</span></div>
     <div style="margin: auto 0;">
       <p class="slide-eyebrow-tag" style="color: var(--accent); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; font-size: 22px; margin-bottom: 16px;">EPISODE 02</p>
       <h1 class="slide-title-big" style="font-size: 96px; line-height: 1.05; margin: 0 0 32px 0;">Episode 02 — Use the chipathon workshop slot</h1>
@@ -21,7 +21,7 @@
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU · chipathon-2026</span></div>
   </section>
   <section data-label="21 Slot = CHIPATON die contract" class="slide-paper">
-    <div class="slide-eyebrow"><span>Part 3 · Config</span><span class="rule"></span><span>2 / 6</span></div>
+    <div class="slide-eyebrow"><span>Part 3 · Config</span><span class="rule"></span><span>2 / 5</span></div>
     <h2 class="slide-title">The <span class="code">slot_*.yaml</span> — CHIPATON's die contract</h2>
     <div class="title-rule"></div>
 
@@ -179,7 +179,7 @@
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
   </section>
   <section data-label="03 Slot anatomy — three files per slot" class="slide-paper">
-    <div class="slide-eyebrow"><span>Slot anatomy</span><span class="rule"></span><span>3 / 6</span></div>
+    <div class="slide-eyebrow"><span>Slot anatomy</span><span class="rule"></span><span>3 / 5</span></div>
     <h2 class="slide-title">Slot anatomy — three files per slot</h2>
     <div class="title-rule"></div>
 
@@ -196,7 +196,7 @@
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU · chipathon-2026</span></div>
   </section>
   <section data-label="04 Workshop slot — pad map at the chipathon die" class="slide-paper">
-    <div class="slide-eyebrow"><span>Slot anatomy</span><span class="rule"></span><span>4 / 6</span></div>
+    <div class="slide-eyebrow"><span>Slot anatomy</span><span class="rule"></span><span>4 / 5</span></div>
     <h2 class="slide-title">Workshop slot — pad map at the chipathon die</h2>
     <div class="title-rule"></div>
 
@@ -212,203 +212,8 @@
 
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU · chipathon-2026</span></div>
   </section>
-  <section data-label="17 Two-level YAML" class="slide-paper">
-    <div class="slide-eyebrow"><span>Part 3 · Config</span><span class="rule"></span><span>5 / 6</span></div>
-    <h2 class="slide-title">LibreLane v3 YAML — two levels, one command</h2>
-    <div class="title-rule"></div>
-
-    <p class="lead" style="margin-top: 18px; max-width: 1680px;">
-      The full-chip flow reads <strong>two</strong> YAML files: a stable design-level config and a swappable floorplan-level slot. If a key appears in both, the <strong>rightmost file's value overrides</strong> the leftmost — that's how one slot file can retarget the same design to a different die.
-    </p>
-
-    <!-- Central diagram: two files → merge → LibreLane -->
-    <div style="margin-top: 30px;">
-      <svg viewBox="0 0 1680 540" style="width: 100%; height: auto; max-height: 560px; display:block;" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
-        <defs>
-          <marker id="yaml-arr-m3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--pdk-m3)"/>
-          </marker>
-          <marker id="yaml-arr-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"/>
-          </marker>
-          <marker id="yaml-arr-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--paper-ink)"/>
-          </marker>
-        </defs>
-
-        <!-- ============================================================= -->
-        <!-- LEFT COLUMN: two stacked YAML files with "OWNS" tags         -->
-        <!-- ============================================================= -->
-
-        <!-- config.yaml (top) -->
-        <g transform="translate(30,10)">
-          <rect x="0" y="0" width="440" height="170" fill="var(--paper-bg)" stroke="var(--pdk-m3)" stroke-width="2.4"/>
-          <rect x="0" y="0" width="440" height="7" fill="var(--pdk-m3)"/>
-
-          <!-- filename tab -->
-          <g>
-            <text x="20" y="30" style="font: 700 14px var(--font-sans); fill: var(--pdk-m3); letter-spacing: 0.12em;">DESIGN-LEVEL</text>
-            <text x="20" y="58" style="font: 700 26px var(--font-mono); fill: var(--paper-ink);">config.yaml</text>
-          </g>
-
-          <line x1="20" y1="72" x2="420" y2="72" stroke="var(--paper-border)" stroke-width="1"/>
-
-          <!-- YAML body (stylised, tight) -->
-          <g style="font: 500 15px var(--font-mono);">
-            <text x="20" y="94"><tspan fill="var(--pdk-m3)" font-weight="700">DESIGN_NAME:</tspan><tspan fill="var(--paper-ink)" dx="10">chip_top</tspan></text>
-            <text x="20" y="114"><tspan fill="var(--pdk-m3)" font-weight="700">VERILOG_FILES:</tspan><tspan fill="var(--paper-muted)" dx="10">[src/*.sv]</tspan></text>
-            <text x="20" y="134"><tspan fill="var(--pdk-m3)" font-weight="700">CLOCK_PERIOD:</tspan><tspan fill="var(--paper-ink)" dx="10">40.0</tspan></text>
-            <text x="20" y="154"><tspan fill="var(--pdk-m3)" font-weight="700">MACROS:</tspan><tspan fill="var(--paper-muted)" dx="10">block_a, block_b …</tspan></text>
-          </g>
-
-          <!-- owns tag (top-right corner) -->
-          <g transform="translate(300,12)">
-            <rect x="0" y="0" width="128" height="22" fill="color-mix(in srgb, var(--pdk-m3) 14%, transparent)" rx="3"/>
-            <text x="64" y="15" text-anchor="middle" style="font: 700 11px var(--font-sans); fill: var(--pdk-m3); letter-spacing: 0.1em;">DESIGN FACTS</text>
-          </g>
-        </g>
-
-        <!-- slot_*.yaml (bottom) -->
-        <g transform="translate(30,200)">
-          <rect x="0" y="0" width="440" height="170" fill="var(--paper-bg)" stroke="var(--accent)" stroke-width="2.4"/>
-          <rect x="0" y="0" width="440" height="7" fill="var(--accent)"/>
-
-          <g>
-            <text x="20" y="30" style="font: 700 14px var(--font-sans); fill: var(--accent); letter-spacing: 0.12em;">FLOORPLAN-LEVEL</text>
-            <text x="20" y="58" style="font: 700 26px var(--font-mono); fill: var(--paper-ink);">slots/slot_*.yaml</text>
-          </g>
-
-          <line x1="20" y1="72" x2="420" y2="72" stroke="var(--paper-border)" stroke-width="1"/>
-
-          <g style="font: 500 15px var(--font-mono);">
-            <text x="20" y="94"><tspan fill="var(--accent)" font-weight="700">FP_SIZING:</tspan><tspan fill="var(--paper-ink)" dx="10">absolute</tspan></text>
-            <text x="20" y="114"><tspan fill="var(--accent)" font-weight="700">DIE_AREA:</tspan><tspan fill="var(--paper-ink)" dx="10">[0, 0, 1500, 1500]</tspan></text>
-            <text x="20" y="134"><tspan fill="var(--accent)" font-weight="700">CORE_AREA:</tspan><tspan fill="var(--paper-ink)" dx="10">[120, 120, 1380, 1380]</tspan></text>
-            <text x="20" y="154"><tspan fill="var(--accent)" font-weight="700">PADRING:</tspan><tspan fill="var(--paper-ink)" dx="10">true</tspan></text>
-          </g>
-
-          <g transform="translate(260,12)">
-            <rect x="0" y="0" width="168" height="22" fill="color-mix(in srgb, var(--accent) 14%, transparent)" rx="3"/>
-            <text x="84" y="15" text-anchor="middle" style="font: 700 11px var(--font-sans); fill: var(--accent); letter-spacing: 0.1em;">DIE GEOMETRY</text>
-          </g>
-        </g>
-
-        <!-- ============================================================= -->
-        <!-- ARROWS converging into MERGE                                 -->
-        <!-- ============================================================= -->
-
-        <!-- config.yaml → merge -->
-        <path d="M 470 95 C 560 95 600 185 700 185" fill="none" stroke="var(--pdk-m3)" stroke-width="3" marker-end="url(#yaml-arr-m3)"/>
-        <!-- slot.yaml → merge -->
-        <path d="M 470 285 C 560 285 600 205 700 205" fill="none" stroke="var(--accent)" stroke-width="3" marker-end="url(#yaml-arr-acc)"/>
-
-        <!-- ============================================================= -->
-        <!-- MERGE node                                                   -->
-        <!-- ============================================================= -->
-        <g transform="translate(700,105)">
-          <circle cx="90" cy="90" r="88" fill="var(--paper-bg)" stroke="var(--paper-ink)" stroke-width="3"/>
-          <text x="90" y="68" text-anchor="middle" style="font: 700 18px var(--font-sans); fill: var(--paper-ink); letter-spacing: 0.14em;">MERGE</text>
-          <text x="90" y="100" text-anchor="middle" style="font: 700 22px var(--font-mono); fill: var(--paper-ink);">left → right</text>
-          <text x="90" y="124" text-anchor="middle" style="font: italic 500 14px var(--font-serif); fill: var(--paper-muted);">same key in both?</text>
-          <text x="90" y="142" text-anchor="middle" style="font: italic 500 14px var(--font-serif); fill: var(--paper-muted);">rightmost wins</text>
-        </g>
-
-        <!-- merge → runner -->
-        <path d="M 884 195 L 960 195" fill="none" stroke="var(--paper-ink)" stroke-width="3" marker-end="url(#yaml-arr-ink)"/>
-
-        <!-- ============================================================= -->
-        <!-- LIBRELANE runner                                             -->
-        <!-- ============================================================= -->
-        <g transform="translate(968,85)">
-          <rect x="0" y="0" width="380" height="220" rx="10" fill="var(--paper-ink)"/>
-          <text x="190" y="42" text-anchor="middle" style="font: 700 17px var(--font-sans); fill: var(--paper-bg); letter-spacing: 0.18em;">LIBRELANE</text>
-          <text x="190" y="68" text-anchor="middle" style="font: italic 400 16px var(--font-serif); fill: rgb(216, 211, 211);">meta.flow: Chip</text>
-
-          <!-- command line -->
-          <rect x="20" y="90" width="340" height="110" fill="color-mix(in srgb, var(--paper-bg) 10%, transparent)" stroke="color-mix(in srgb, var(--paper-bg) 35%, transparent)" stroke-width="1"/>
-          <g style="font: 500 15px var(--font-mono);">
-            <text x="32" y="114" fill="var(--accent)">$ librelane \</text>
-            <text x="32" y="136" fill="var(--paper-bg)">    slot_1x1.yaml \</text>
-            <text x="32" y="158" fill="var(--paper-bg)">    config.yaml \</text>
-            <text x="32" y="180" fill="color-mix(in srgb, var(--paper-bg) 70%, transparent);">    --pdk gf180mcuD</text>
-          </g>
-        </g>
-
-        <!-- runner → output -->
-        <path d="M 1352 195 L 1428 195" fill="none" stroke="var(--paper-ink)" stroke-width="3" marker-end="url(#yaml-arr-ink)"/>
-
-        <!-- ============================================================= -->
-        <!-- OUTPUT chip                                                  -->
-        <!-- ============================================================= -->
-        <g transform="translate(1440,105)">
-          <rect x="0" y="0" width="200" height="180" fill="color-mix(in srgb, var(--accent) 10%, transparent)" stroke="var(--paper-ink)" stroke-width="2.4"/>
-          <!-- padring -->
-          <g fill="var(--accent)">
-            <rect x="10" y="6" width="14" height="12"/><rect x="30" y="6" width="14" height="12"/><rect x="50" y="6" width="14" height="12"/><rect x="70" y="6" width="14" height="12"/><rect x="116" y="6" width="14" height="12"/><rect x="136" y="6" width="14" height="12"/><rect x="156" y="6" width="14" height="12"/><rect x="176" y="6" width="14" height="12"/>
-            <rect x="10" y="162" width="14" height="12"/><rect x="30" y="162" width="14" height="12"/><rect x="50" y="162" width="14" height="12"/><rect x="70" y="162" width="14" height="12"/><rect x="116" y="162" width="14" height="12"/><rect x="136" y="162" width="14" height="12"/><rect x="156" y="162" width="14" height="12"/><rect x="176" y="162" width="14" height="12"/>
-            <rect x="6" y="30" width="12" height="14"/><rect x="6" y="50" width="12" height="14"/><rect x="6" y="70" width="12" height="14"/><rect x="6" y="110" width="12" height="14"/><rect x="6" y="130" width="12" height="14"/>
-            <rect x="182" y="30" width="12" height="14"/><rect x="182" y="50" width="12" height="14"/><rect x="182" y="70" width="12" height="14"/><rect x="182" y="110" width="12" height="14"/><rect x="182" y="130" width="12" height="14"/>
-          </g>
-          <!-- core -->
-          <rect x="26" y="26" width="148" height="128" fill="var(--paper-bg)" stroke="var(--pdk-m3)" stroke-width="1.2" stroke-dasharray="4 3"/>
-          <!-- macros -->
-          <rect x="34" y="40" width="54" height="38" fill="color-mix(in srgb, var(--accent) 25%, transparent)" stroke="var(--accent)" stroke-width="1.4"/>
-          <rect x="104" y="78" width="60" height="44" fill="color-mix(in srgb, var(--pdk-m3) 25%, transparent)" stroke="var(--pdk-m3)" stroke-width="1.4"/>
-          <text x="100" y="204" text-anchor="middle" style="font: 700 16px var(--font-mono); fill: var(--paper-ink);">chip_top.gds</text>
-        </g>
-
-        <!-- ============================================================= -->
-        <!-- BOTTOM: Example row — clean band below the diagram            -->
-        <!-- ============================================================= -->
-
-        <!-- horizontal rule separating diagram from example -->
-        <line x1="30" y1="400" x2="1650" y2="400" stroke="var(--paper-border)" stroke-width="1" stroke-dasharray="3 4"/>
-
-        <g transform="translate(380,420)">
-          <text x="0" y="0" style="font: 700 18px var(--font-sans); fill: var(--paper-muted); letter-spacing: 0.14em;">EXAMPLE — SAME KEY IN BOTH FILES</text>
-
-          <!-- leftmost file says X -->
-          <g transform="translate(0,20)">
-            <rect x="0" y="0" width="240" height="92" fill="color-mix(in srgb, var(--pdk-m3) 10%, transparent)" stroke="var(--pdk-m3)" stroke-width="2" rx="6"/>
-            <text x="14" y="26" style="font: 600 15px var(--font-mono); fill: var(--pdk-m3);">config.yaml (leftmost)</text>
-            <text x="14" y="58" style="font: 500 20px var(--font-mono); fill: var(--paper-ink);">FP_CORE_UTIL: 45</text>
-            <text x="14" y="80" style="font: italic 400 14px var(--font-serif); fill: var(--paper-muted);">read first — the base</text>
-          </g>
-
-          <!-- + sign -->
-          <text x="272" y="84" style="font: 700 36px var(--font-mono); fill: var(--paper-muted);">+</text>
-
-          <!-- rightmost file says Y -->
-          <g transform="translate(308,20)">
-            <rect x="0" y="0" width="256" height="92" fill="color-mix(in srgb, var(--accent) 12%, transparent)" stroke="var(--accent)" stroke-width="2" rx="6"/>
-            <text x="14" y="26" style="font: 600 15px var(--font-mono); fill: var(--accent);">slot_*.yaml (rightmost)</text>
-            <text x="14" y="58" style="font: 500 20px var(--font-mono); fill: var(--paper-ink);">FP_CORE_UTIL: 38</text>
-            <text x="14" y="80" style="font: italic 400 14px var(--font-serif); fill: var(--paper-muted);">overrides the base</text>
-          </g>
-
-          <!-- = -->
-          <text x="596" y="84" style="font: 700 36px var(--font-mono); fill: var(--paper-muted);">=</text>
-
-          <!-- result -->
-          <g transform="translate(634,20)">
-            <rect x="0" y="0" width="272" height="92" fill="var(--paper-ink)" rx="6"/>
-            <text x="14" y="26" style="font: 700 14px var(--font-sans); fill: var(--paper-bg); letter-spacing: 0.14em;">WHAT LIBRELANE USES</text>
-            <text x="14" y="62" style="font: 700 24px var(--font-mono); fill: var(--accent);">FP_CORE_UTIL: 38</text>
-            <text x="14" y="84" style="font: italic 400 14px var(--font-serif); fill: rgb(251, 248, 248);">rightmost value wins</text>
-          </g>
-        </g>
-      </svg>
-    </div>
-
-    <p style="font: italic 400 19px/1.4 var(--font-serif); color: var(--paper-muted); margin: 10px 0 0 0;">
-      Companion: <span class="mono" style="font-style:normal; color: var(--paper-ink);">demo/00_slots_explained.ipynb</span> walks the concept;
-      <span class="mono" style="font-style:normal; color: var(--paper-ink);">demo/rtl2gds_chipathon_padring.ipynb</span> builds a new slot from scratch.
-    </p>
-
-    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
-  </section>
   <section data-label="27 Signoff overview" class="slide-paper">
-    <div class="slide-eyebrow"><span>Part 5 · Signoff</span><span class="rule"></span><span>6 / 6</span></div>
+    <div class="slide-eyebrow"><span>Part 5 · Signoff</span><span class="rule"></span><span>5 / 5</span></div>
     <div class="driving-chip tool-verif"><span class="dc-label">LibreLane driving</span><span class="dc-tool">Magic + KLayout + Netgen + OpenSTA</span></div>
     <h2 class="slide-title">Seven checks — and what each guards against</h2>
     <div class="title-rule"></div>

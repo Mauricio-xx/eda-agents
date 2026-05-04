@@ -37,7 +37,7 @@ Each episode is preceded by a 4-6 slide pre-roll (HTML, 1920×1080, paper-style,
 |---|---|---|---|
 | 00 | cover + 5 + 6 + 7 + 8 + four-episodes-overview | 6 | RTL vs GDS, the pipeline, LibreLane as conductor, deliverables, the 3 episodes ahead |
 | 01 | cover + 5 + 6 + 12 + 15 + 23 | 6 | RTL vs GDS, the pipeline, **container bootstrap (one-time docker pull)**, **three hardening stages (macro hardening = today)**, the one command |
-| 02 | cover + 21 + slot_anatomy.svg + workshop_pad_map.svg + 17 + 27 | 6 | Slot = CHIPATON die contract, slot anatomy (3 files), workshop pad map, two-level YAML, signoff overview |
+| 02 | cover + 21 + slot_anatomy.svg + workshop_pad_map.svg + 27 | 5 | Slot = CHIPATON die contract, slot anatomy (3 files), workshop pad map, signoff overview |
 | 03 | cover + 20 + 27 + 30 + 25 + 35 | 6 | Multi-macro MACROS dict, signoff overview, antenna deep, `metrics.csv`, four pitfalls |
 
 The *cover* slide on each pre-roll is unique to that episode and announces the episode's title + the notebook it shadows. All other slides are reused verbatim from the master deck.
@@ -91,7 +91,7 @@ tutorials/rtl2gds-chipathon-video/
 ├── mini_decks/                      # 4 HTML pre-rolls (one per episode)
 │   ├── ep00_intro.html              # series intro, 6 slides
 │   ├── ep01_intro.html              # counter + macro hardening context, 6 slides
-│   ├── ep02_intro.html              # workshop slot (anatomy + pad map + use), 6 slides
+│   ├── ep02_intro.html              # workshop slot (anatomy + pad map + signoff), 5 slides
 │   └── ep03_intro.html              # multi-macro, 6 slides
 ├── shot_list/                       # 4 markdown shot-lists (one per episode)
 │   ├── ep00_what_is_librelane.md
