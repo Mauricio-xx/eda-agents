@@ -262,53 +262,34 @@
   </section>
   <section data-label="40 PDK choice" class="slide-paper">
     <div class="slide-eyebrow"><span>Part 4 · PDK</span><span class="rule"></span><span>4 / 5</span></div>
-    <h2 class="slide-title">PDK choice — wafer-space fork, one root for the flow</h2>
+    <h2 class="slide-title">PDK choice — point at the wafer-space fork</h2>
     <div class="title-rule"></div>
 
-    <p class="lead" style="margin-top: 18px; max-width: 1720px; font-size: 22px;">
-      Both macros and the chip-top point at the <strong>wafer-space gf180mcu fork</strong> (pinned at tag 1.8.0). The chip-top requires it: the padring instantiates <span class="mono">gf180mcu_ws_io__dvdd/dvss</span>, IO cells only the fork ships. The macros use the same root because the docker image's system PDK ships an outdated <span class="mono">libs.tech/librelane/config.tcl</span> (LibreLane v1/v2 variables) — LibreLane v3 silently <em>skips KLayout DRC</em>. Only the fork's config is wired for v3.
+    <p class="lead" style="margin-top: 36px; max-width: 1640px; font-size: 26px;">
+      All LibreLane steps in Ep 03 set <span class="mono" style="font-size: 23px;">--pdk-root</span> to a local clone of <strong>wafer-space/gf180mcu</strong> (tag 1.8.0), not the docker's bundled gf180mcuD. Two reasons.
     </p>
 
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 18px; align-items: start;">
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 56px; margin-top: 44px; max-width: 1700px;">
 
-      <div>
-        <div class="label" style="color: var(--accent); margin-bottom: 10px;">What you type per macro</div>
-        <div class="code-block sm" style="margin-top: 0; font-size: 17px; line-height: 1.5;">$ <span class="c-fn">source</span> sak-pdk-script.sh gf180mcuD gf180mcu_fd_sc_mcu7t5v0
-$ <span class="c-fn">librelane</span> librelane/counter_macro.yaml \
-    <span class="c-key">--pdk</span> gf180mcuD \
-    <span class="c-key">--pdk-root</span> &lt;template&gt;/gf180mcu \
-    <span class="c-key">--manual-pdk</span> \
-    <span class="c-key">--save-views-to</span> build/counter</div>
-        <p style="font: italic 400 16px/1.4 var(--font-serif); color: var(--paper-muted); margin: 14px 0 0;">
-          <span class="mono" style="font-style:normal; font-size:15px;">--manual-pdk</span> disables LibreLane v3 manifest validation (the fork is not in the canonical list); <span class="mono" style="font-style:normal; font-size:15px;">--pdk-root</span> overrides the system path that <span class="mono" style="font-style:normal; font-size:15px;">sak-pdk-script.sh</span> would otherwise resolve. Same pattern for the ALU.
+      <div class="card thick" style="padding: 26px 30px;">
+        <div class="label" style="color: var(--accent); font-size: 16px; letter-spacing: 0.14em; margin-bottom: 14px;">1 · CHIP-TOP REQUIRES IT</div>
+        <p style="font: 500 24px/1.45 var(--font-serif); color: var(--paper-ink); margin: 0;">
+          The padring instantiates <span class="mono" style="font-size: 21px;">gf180mcu_ws_io__dvdd / dvss</span> — IO cells the docker's stock PDK does not ship.
         </p>
       </div>
 
-      <div>
-        <div class="label" style="color: var(--accent); margin-bottom: 10px;">Where sys and fork actually differ</div>
-        <table class="data" style="font-size: 17px; max-width: 100%;">
-          <thead>
-            <tr>
-              <th style="width:230px;">Component</th>
-              <th>System PDK</th>
-              <th>WS fork (1.8.0)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td class="mono">LibreLane v3 config.tcl</td><td class="mono" style="color: var(--accent);">legacy v1/v2</td><td class="mono" style="color: var(--pdk-m3);">v3-correct</td></tr>
-            <tr><td class="mono">KLayout DRC step</td><td class="mono" style="color: var(--accent);">skipped silently</td><td class="mono" style="color: var(--pdk-m3);">runs</td></tr>
-            <tr><td class="mono">gf180mcu_ws_io__*</td><td>absent</td><td class="mono" style="color: var(--pdk-m3);">present</td></tr>
-            <tr><td class="mono">cells/gds, antenna rule</td><td colspan="2" style="text-align:center;">~0.08% diff (irrelevant)</td></tr>
-            <tr><td class="mono">.lef / .lib / .v</td><td colspan="2" style="text-align:center;">identical</td></tr>
-          </tbody>
-        </table>
-
-        <div style="border-left: 4px solid var(--accent); padding: 10px 18px; margin-top: 16px; font: italic 500 18px/1.4 var(--font-serif); color: var(--paper-ink);">
-          Workaround for an <strong>upstream bug</strong>: the open_pdks-generated <span class="mono" style="font-style: normal; font-size: 17px;">config.tcl</span> is OpenLane 1.x; LibreLane v3 silently drops most legacy variables. Fix tracked in <span class="mono" style="font-style: normal; font-size: 17px;">RTimothyEdwards/open_pdks#507</span> (open, unmerged). Until it lands, the fork is the only path to full signoff.
-        </div>
+      <div class="card thick" style="padding: 26px 30px;">
+        <div class="label" style="color: var(--accent); font-size: 16px; letter-spacing: 0.14em; margin-bottom: 14px;">2 · DOCKER PDK HAS STALE CONFIG</div>
+        <p style="font: 500 24px/1.45 var(--font-serif); color: var(--paper-ink); margin: 0;">
+          Its <span class="mono" style="font-size: 21px;">libs.tech/librelane/config.tcl</span> is OpenLane 1.x; LibreLane v3 silently skips KLayout DRC. <span class="mono" style="font-size: 21px;">metrics.csv</span> looks clean, signoff is incomplete.
+        </p>
       </div>
 
     </div>
+
+    <p style="font: italic 400 18px/1.4 var(--font-serif); color: var(--paper-muted); margin: 44px 0 0; max-width: 1700px;">
+      Upstream fix tracked in <span class="mono" style="font-style: normal; font-size: 17px;">RTimothyEdwards/open_pdks#507</span> — open, unmerged. Until it lands, the fork is the only path to full LibreLane v3 signoff on gf180mcu.
+    </p>
 
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU · chipathon-2026</span></div>
   </section>
