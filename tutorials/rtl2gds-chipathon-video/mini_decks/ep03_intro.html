@@ -223,34 +223,39 @@
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
   </section>
   <section data-label="27 Signoff overview" class="slide-paper">
-    <div class="slide-eyebrow"><span>Part 5 · Signoff</span><span class="rule"></span><span>3 / 5</span></div>
-    <div class="driving-chip tool-verif"><span class="dc-label">LibreLane driving</span><span class="dc-tool">Magic + KLayout + Netgen + OpenSTA</span></div>
-    <h2 class="slide-title">Seven checks — and what each guards against</h2>
+    <div class="slide-eyebrow"><span>Part 3 · Signoff</span><span class="rule"></span><span>3 / 5</span></div>
+    <h2 class="slide-title">Seven checks at signoff</h2>
     <div class="title-rule"></div>
 
-    <table class="data" style="margin-top: 36px; max-width: 1640px; font-size: 22px;">
-      <thead>
-        <tr><th style="width:180px;">Check</th><th style="width:300px;">Tool</th><th>Question it answers</th></tr>
-      </thead>
-      <tbody>
-        <tr><td class="mono tool-orange" style="font-weight:700;">DRC</td><td class="mono">Magic &amp; KLayout</td><td>Does every polygon obey the foundry's geometry rules?</td></tr>
-        <tr><td class="mono tool-orange" style="font-weight:700;">XOR</td><td class="mono">KLayout (Magic vs KLayout GDS)</td><td>Do the two GDS streams match exactly, shape for shape?</td></tr>
-        <tr><td class="mono tool-orange" style="font-weight:700;">LVS</td><td class="mono">Netgen</td><td>Does the layout's extracted netlist match the synthesized Verilog?</td></tr>
-        <tr><td class="mono tool-blue" style="font-weight:700;">RCX</td><td class="mono">OpenRCX (inside OpenROAD)</td><td>What are the real parasitics? Feeds STA and IR.</td></tr>
-        <tr><td class="mono tool-blue" style="font-weight:700;">STA</td><td class="mono">OpenSTA (inside OpenROAD)</td><td>Does the circuit meet timing across all 9 corners?</td></tr>
-        <tr><td class="mono tool-blue" style="font-weight:700;">IR</td><td class="mono">PDNSim (inside OpenROAD)</td><td>Does the power grid stay within spec under load?</td></tr>
-        <tr><td class="mono tool-blue" style="font-weight:700;">Antenna</td><td class="mono">OpenROAD.RepairAntennas</td><td>Will any long metal-only net damage a gate during etch?</td></tr>
-      </tbody>
-    </table>
+    <p class="lead" style="margin-top: 26px; max-width: 1640px; font-size: 24px;">
+      LibreLane runs all of these automatically. Pass all seven with zero errors and the GDS is foundry-ready.
+    </p>
 
-    <div style="border-left: 4px solid var(--accent); padding: 14px 22px; margin-top: 28px; font: italic 500 22px/1.45 var(--font-serif); color: var(--paper-ink); max-width: 1640px;">
-      Pass all seven with zero errors → the GDS is ready for the foundry. Three disclosed warnings (slew, cap) are acceptable if bounded.
-    </div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 56px; margin-top: 40px; max-width: 1700px; align-items: start;">
 
-    <div style="margin-top: 18px; display:flex; gap: 20px; align-items: center; font: 500 16px/1 var(--font-sans); color: var(--paper-muted); letter-spacing: 0.04em; text-transform: uppercase;">
-      <span style="display:inline-flex; align-items:center; gap:8px;"><span style="width:12px;height:12px;background:#2d7a2a;border-radius:2px;"></span>Yosys</span>
-      <span style="display:inline-flex; align-items:center; gap:8px;"><span style="width:12px;height:12px;background:#1e6fb0;border-radius:2px;"></span>OpenROAD</span>
-      <span style="display:inline-flex; align-items:center; gap:8px;"><span style="width:12px;height:12px;background:#CF5044;border-radius:2px;"></span>Magic + KLayout + Netgen</span>
+      <div>
+        <div class="label" style="color: var(--accent); font-size: 16px; letter-spacing: 0.14em; margin-bottom: 14px;">PHYSICAL · MAGIC + KLAYOUT + NETGEN</div>
+        <table class="data" style="font-size: 22px;">
+          <tbody>
+            <tr><td class="mono tool-orange" style="font-weight:700; width:130px;">DRC</td><td>polygons obey foundry rules</td></tr>
+            <tr><td class="mono tool-orange" style="font-weight:700;">XOR</td><td>Magic and KLayout GDS streams agree</td></tr>
+            <tr><td class="mono tool-orange" style="font-weight:700;">LVS</td><td>extracted netlist matches synthesized verilog</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div>
+        <div class="label" style="color: var(--accent); font-size: 16px; letter-spacing: 0.14em; margin-bottom: 14px;">ELECTRICAL · OPENROAD</div>
+        <table class="data" style="font-size: 22px;">
+          <tbody>
+            <tr><td class="mono tool-blue" style="font-weight:700; width:130px;">RCX</td><td>real parasitics feeding STA and IR</td></tr>
+            <tr><td class="mono tool-blue" style="font-weight:700;">STA</td><td>timing slack across nine corners</td></tr>
+            <tr><td class="mono tool-blue" style="font-weight:700;">IR</td><td>power grid drop within spec</td></tr>
+            <tr><td class="mono tool-blue" style="font-weight:700;">Antenna</td><td>no long metal nets damage gate oxide</td></tr>
+          </tbody>
+        </table>
+      </div>
+
     </div>
 
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
