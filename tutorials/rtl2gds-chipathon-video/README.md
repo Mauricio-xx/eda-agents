@@ -186,10 +186,10 @@ The shot-lists and mini-decks ship in this repo. The pre-recorded artifacts are 
          ~/eda/designs/chipathon_padring/template
 
    # Ep 03 — multi-macro (rtl + tb + librelane) + dedicated padring fork copy:
-   mkdir -p ~/eda/designs/multimacro_demo
+   mkdir -p ~/eda/designs/multimacro_chipathon/user_macros
    cp -r ~/git/sscs-chipathon-2026/examples/librelane_rtl2gds_gf180/04_counter_alu_multimacro/{rtl,tb,librelane} \
-         ~/eda/designs/multimacro_demo/
-   mkdir -p ~/eda/designs/multimacro_demo/build
+         ~/eda/designs/multimacro_chipathon/user_macros/
+   mkdir -p ~/eda/designs/multimacro_chipathon/user_macros/build
 
    # Ep 03 — dedicated padring fork copy (so Ep 02 baseline stays clean):
    cp -r ~/git/sscs-chipathon-2026/resources/Integration/workshop_padring_librelane \
@@ -209,5 +209,5 @@ The shot-lists and mini-decks ship in this repo. The pre-recorded artifacts are 
 ```bash
 docker stop "$GF180" && docker rm "$GF180"
 docker image rm hpretl/iic-osic-tools:chipathon26   # optional, ~18 GB back
-rm -rf ~/eda/designs/{counter_demo,chipathon_padring,multimacro_chipathon,multimacro_demo,prerecorded}
+rm -rf ~/eda/designs/{counter_demo,chipathon_padring,multimacro_chipathon,prerecorded}
 ```
