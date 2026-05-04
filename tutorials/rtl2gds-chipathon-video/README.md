@@ -37,7 +37,7 @@ Each episode is preceded by a 4-6 slide pre-roll (HTML, 1920×1080, paper-style,
 |---|---|---|---|
 | 00 | cover + 5 + 6 + 7 + 8 + four-episodes-overview | 6 | RTL vs GDS, the pipeline, LibreLane as conductor, deliverables, the 3 episodes ahead |
 | 01 | cover + 5 + 6 + 12 + 15 + 23 | 6 | RTL vs GDS, the pipeline, **container bootstrap (one-time docker pull)**, **three hardening stages (macro hardening = today)**, the one command |
-| 02 | cover + slot_anatomy.svg + workshop_pad_map.svg + 21 + 17 + 27 | 6 | Slot anatomy (3 files), workshop pad map, Slot = CHIPATON die contract, two-level YAML, signoff overview |
+| 02 | cover + 21 + slot_anatomy.svg + workshop_pad_map.svg + 17 + 27 | 6 | Slot = CHIPATON die contract, slot anatomy (3 files), workshop pad map, two-level YAML, signoff overview |
 | 03 | cover + 20 + 27 + 30 + 25 + 35 | 6 | Multi-macro MACROS dict, signoff overview, antenna deep, `metrics.csv`, four pitfalls |
 
 The *cover* slide on each pre-roll is unique to that episode and announces the episode's title + the notebook it shadows. All other slides are reused verbatim from the master deck.

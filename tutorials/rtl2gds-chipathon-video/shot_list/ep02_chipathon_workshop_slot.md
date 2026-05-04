@@ -39,7 +39,7 @@ The pre-roll's slot_anatomy + workshop_pad_map diagrams already cover the slot c
 
 | Time | Section | Pane | Action |
 |---|---|---|---|
-| 00:00 | Pre-roll: `mini_decks/ep02_intro.html` | -- | 6 slides (cover + Slot anatomy diagram + Workshop pad map + Slot YAML / die contract + Two-level YAML + Signoff overview) |
+| 00:00 | Pre-roll: `mini_decks/ep02_intro.html` | -- | 6 slides (cover + Slot YAML / die contract + Slot anatomy diagram + Workshop pad map + Two-level YAML + Signoff overview) |
 | 03:00 | Title card: "the placeholder you replace + the flow" | -- | text overlay |
 | 03:00 | All panes enter the container | 1, 2, 3 | `docker exec -it "$GF180" bash -l` |
 | 03:30 | The placeholder `chip_core.sv` (today this is your design) | Pane 1 | `cd /foss/designs/chipathon_padring/template && cat src/chip_core.sv` -- 30 s, "in a real entry you replace this with your logic" |
