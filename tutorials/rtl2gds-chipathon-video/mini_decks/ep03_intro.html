@@ -22,115 +22,41 @@
   </section>
   <section data-label="22 patching chip-top" class="slide-paper">
     <div class="slide-eyebrow"><span>Part 2 · Integration</span><span class="rule"></span><span>2 / 5</span></div>
-    <h2 class="slide-title">Two folders, one merged config</h2>
+    <h2 class="slide-title">Two siblings, one chip-top</h2>
     <div class="title-rule"></div>
 
     <p class="lead" style="margin-top: 18px; max-width: 1640px; font-size: 22px;">
-      The macros and the chip-top live in separate working dirs. The notebook's <span class="mono" style="font-size: 19px;">patch_top()</span> Python helper copies <span class="mono" style="font-size: 19px;">chip_core_multi.sv</span> into the padring fork and mutates its <span class="mono" style="font-size: 19px;">librelane/config.yaml</span> in place to register the macros. The reference patch YAML documents the shape; the actual fields are written by Python.
+      Under <span class="mono" style="font-size: 19px;">multimacro_chipathon/</span>, <span class="mono" style="font-size: 19px;">user_macros/</span> holds our two macros (counter + alu_macro), and <span class="mono" style="font-size: 19px;">template/</span> is the dedicated padring-fork copy that runs the chip-top flow. The notebook's <span class="mono" style="font-size: 19px;">patch_top()</span> helper wires our macros into <span class="mono" style="font-size: 19px;">template/librelane/config.yaml</span>. The chip flow then floor-plans both macros side by side inside the workshop padring.
     </p>
 
-    <div style="margin-top: 18px; display:flex; justify-content: center;">
-      <svg viewBox="0 0 1500 720" style="width: 100%; max-width: 1500px; height: auto;" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
-        <defs>
-          <marker id="ptm-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--paper-ink)"/>
-          </marker>
-          <marker id="ptm-arrow-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"/>
-          </marker>
-          <marker id="ptm-arrow-mut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--paper-muted)"/>
-          </marker>
-        </defs>
+    <div style="margin-top: 24px; display: flex; justify-content: center;">
+      <svg viewBox="0 0 1200 600" style="width: 100%; max-width: 1100px; height: auto;" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+        <!-- Caption above chip -->
+        <text x="600" y="34" text-anchor="middle" style="font: 700 22px var(--font-mono); fill: var(--paper-ink); letter-spacing: 0.03em;">chip_top  ·  workshop slot</text>
 
-        <!-- LEFT box: multimacro_chipathon/user_macros -->
-        <g transform="translate(20, 0)">
-          <rect width="660" height="500" rx="6" fill="color-mix(in srgb, var(--pdk-m2) 5%, var(--paper-bg))" stroke="var(--pdk-m2)" stroke-width="1.8"/>
+        <!-- Die outline -->
+        <rect x="80" y="60" width="1040" height="500" rx="14" fill="var(--paper-bg)" stroke="var(--paper-ink)" stroke-width="2.5"/>
 
-          <text x="20" y="34" style="font: 700 18px var(--font-mono); fill: var(--pdk-m2); letter-spacing: 0.04em;">multimacro_chipathon/user_macros/</text>
-          <text x="20" y="56" style="font: italic 400 14px var(--font-serif); fill: var(--paper-muted);">your macros: source + tests + build outputs</text>
+        <!-- Padring boundary (dashed inner ring) -->
+        <rect x="130" y="110" width="940" height="400" rx="6" fill="none" stroke="var(--paper-muted)" stroke-width="1.2" stroke-dasharray="6 4"/>
+        <text x="600" y="100" text-anchor="middle" style="font: italic 400 14px var(--font-serif); fill: var(--paper-muted);">padring (gf180 ws_io pads on perimeter)</text>
 
-          <text x="20" y="100" style="font: 700 16px var(--font-mono); fill: var(--paper-ink);">rtl/</text>
-          <text x="40" y="124" style="font: 500 14px var(--font-mono); fill: var(--paper-ink);">counter.sv  alu.sv  alu_macro.sv</text>
-          <text x="40" y="148" style="font: 500 14px var(--font-mono); fill: var(--accent);">chip_core_multi.sv</text>
-
-          <text x="20" y="194" style="font: 700 16px var(--font-mono); fill: var(--paper-ink);">tb/</text>
-          <text x="40" y="218" style="font: 500 14px var(--font-mono); fill: var(--paper-ink);">test_counter.py  test_alu.py  Makefile</text>
-
-          <text x="20" y="264" style="font: 700 16px var(--font-mono); fill: var(--paper-ink);">librelane/</text>
-          <text x="40" y="288" style="font: 500 14px var(--font-mono); fill: var(--paper-ink);">counter_macro.yaml</text>
-          <text x="40" y="312" style="font: 500 14px var(--font-mono); fill: var(--paper-ink);">alu_macro.yaml</text>
-          <text x="40" y="336" style="font: 500 14px var(--font-mono); fill: var(--paper-muted);">chip_top_multi_patch.yaml</text>
-          <text x="290" y="336" style="font: italic 400 12px var(--font-serif); fill: var(--paper-muted);">(reference shape, not read at runtime)</text>
-
-          <text x="20" y="394" style="font: 700 16px var(--font-mono); fill: var(--paper-ink);">build/</text>
-          <text x="40" y="418" style="font: 500 14px var(--font-mono); fill: var(--accent);">counter/{gds, lef, nl, lib×9}</text>
-          <text x="40" y="442" style="font: 500 14px var(--font-mono); fill: var(--accent);">alu_macro/{gds, lef, nl, lib×9}</text>
-          <text x="40" y="466" style="font: italic 400 12px var(--font-serif); fill: var(--paper-muted);">produced by `librelane &lt;macro&gt;.yaml --save-views-to build/&lt;name&gt;`</text>
+        <!-- counter macro (left, from user_macros) -->
+        <g>
+          <rect x="200" y="180" width="380" height="260" rx="6" fill="color-mix(in srgb, var(--pdk-m2) 18%, var(--paper-bg))" stroke="var(--pdk-m2)" stroke-width="2.4"/>
+          <text x="390" y="305" text-anchor="middle" style="font: 700 38px var(--font-mono); fill: var(--pdk-m2); letter-spacing: 0.04em;">counter</text>
+          <text x="390" y="338" text-anchor="middle" style="font: italic 400 16px var(--font-serif); fill: var(--paper-muted);">u_counter</text>
         </g>
 
-        <!-- RIGHT box: multimacro_chipathon/template -->
-        <g transform="translate(820, 0)">
-          <rect width="660" height="500" rx="6" fill="color-mix(in srgb, var(--pdk-m3) 5%, var(--paper-bg))" stroke="var(--pdk-m3)" stroke-width="1.8"/>
-
-          <text x="20" y="34" style="font: 700 18px var(--font-mono); fill: var(--pdk-m3); letter-spacing: 0.04em;">multimacro_chipathon/template/</text>
-          <text x="20" y="56" style="font: italic 400 14px var(--font-serif); fill: var(--paper-muted);">dedicated copy of the chipathon padring fork (chip-top env)</text>
-
-          <text x="20" y="100" style="font: 700 16px var(--font-mono); fill: var(--paper-ink);">src/</text>
-          <text x="40" y="124" style="font: 500 14px var(--font-mono); fill: var(--paper-ink);">chip_top.sv</text>
-          <text x="200" y="124" style="font: italic 400 12px var(--font-serif); fill: var(--paper-muted);">(upstream padring wiring, untouched)</text>
-          <text x="40" y="148" style="font: 500 14px var(--font-mono); fill: var(--accent);">chip_core.sv</text>
-          <text x="200" y="148" style="font: italic 400 12px var(--font-serif); fill: var(--accent);">replaced by patch_top step 1</text>
-
-          <text x="20" y="194" style="font: 700 16px var(--font-mono); fill: var(--paper-ink);">librelane/</text>
-          <text x="40" y="218" style="font: 500 14px var(--font-mono); fill: var(--accent);">config.yaml</text>
-          <text x="200" y="218" style="font: italic 400 12px var(--font-serif); fill: var(--paper-muted);">flow: Chip · mutated in place</text>
-          <text x="60" y="244" style="font: 500 13px var(--font-mono); fill: var(--paper-ink);">+ MACROS: { counter, alu_macro }   ← added</text>
-          <text x="60" y="266" style="font: 500 13px var(--font-mono); fill: var(--paper-ink);">+ PDN_MACRO_CONNECTIONS: extended</text>
-          <text x="60" y="288" style="font: 500 13px var(--font-mono); fill: var(--paper-ink);">+ VERILOG_FILES: [chip_top, chip_core]   ← replaced</text>
-
-          <text x="20" y="346" style="font: 700 16px var(--font-mono); fill: var(--paper-ink);">gf180mcu/</text>
-          <text x="40" y="370" style="font: italic 400 13px var(--font-serif); fill: var(--paper-muted);">wafer-space PDK fork (v3 LibreLane config + ws_io cells)</text>
-
-          <text x="20" y="416" style="font: 700 16px var(--font-mono); fill: var(--paper-ink);">Makefile</text>
-          <text x="40" y="440" style="font: 500 14px var(--font-mono); fill: var(--paper-ink);">$ make librelane SLOT=workshop</text>
-          <text x="40" y="464" style="font: italic 400 12px var(--font-serif); fill: var(--paper-muted);">reads librelane/config.yaml after the mutation</text>
+        <!-- alu_macro (right, from user_macros) -->
+        <g>
+          <rect x="620" y="180" width="380" height="260" rx="6" fill="color-mix(in srgb, var(--pdk-m2) 18%, var(--paper-bg))" stroke="var(--pdk-m2)" stroke-width="2.4"/>
+          <text x="810" y="305" text-anchor="middle" style="font: 700 38px var(--font-mono); fill: var(--pdk-m2); letter-spacing: 0.04em;">alu_macro</text>
+          <text x="810" y="338" text-anchor="middle" style="font: italic 400 16px var(--font-serif); fill: var(--paper-muted);">u_alu</text>
         </g>
 
-        <!-- Arrow 1: chip_core_multi.sv → chip_core.sv (cp action) -->
-        <g stroke="var(--accent)" stroke-width="2.2" fill="none">
-          <path d="M 240 148 Q 530 100 860 148" marker-end="url(#ptm-arrow-acc)"/>
-        </g>
-        <text x="550" y="92" text-anchor="middle" style="font: italic 700 13px var(--font-serif); fill: var(--accent);">step 1 · shutil.copy</text>
-
-        <!-- Arrow 2: build/ outputs ← consumed by MACROS dict in RIGHT (absolute paths) -->
-        <g stroke="var(--paper-ink)" stroke-width="1.6" fill="none">
-          <path d="M 320 442 C 540 488 720 360 860 256" stroke-dasharray="6 4" marker-end="url(#ptm-arrow)"/>
-        </g>
-        <text x="600" y="500" text-anchor="middle" style="font: italic 500 13px var(--font-serif); fill: var(--paper-ink);">build outputs consumed via absolute paths inside MACROS dict</text>
-
-        <!-- patch_top() box at the bottom -->
-        <g transform="translate(220, 540)">
-          <rect width="1060" height="170" rx="6" fill="color-mix(in srgb, var(--accent) 8%, var(--paper-bg))" stroke="var(--accent)" stroke-width="2"/>
-          <text x="530" y="32" text-anchor="middle" style="font: 700 18px var(--font-mono); fill: var(--accent); letter-spacing: 0.04em;">patch_top()  —  notebook cell 25 (Python)</text>
-          <text x="40" y="64" style="font: 500 14px var(--font-mono); fill: var(--paper-ink);">1.  shutil.copy   user_macros/rtl/chip_core_multi.sv  -&gt;  template/src/chip_core.sv</text>
-          <text x="40" y="90" style="font: 500 14px var(--font-mono); fill: var(--paper-ink);">2.  cfg = yaml.safe_load(fork/librelane/config.yaml)</text>
-          <text x="40" y="116" style="font: 500 14px var(--font-mono); fill: var(--paper-ink);">3.  cfg['MACROS'].update({counter: ..., alu_macro: ...})  ;  cfg['PDN_MACRO_CONNECTIONS'] = [...]</text>
-          <text x="40" y="142" style="font: 500 14px var(--font-mono); fill: var(--paper-ink);">4.  yaml.safe_dump(cfg)  →  overwrite fork/librelane/config.yaml</text>
-        </g>
-
-        <!-- arrows from boxes down into patch_top() -->
-        <g stroke="var(--paper-ink)" stroke-width="1.6" fill="none">
-          <path d="M 350 502 L 480 540" marker-end="url(#ptm-arrow)"/>
-          <path d="M 1150 502 L 1020 540" marker-end="url(#ptm-arrow)"/>
-        </g>
-
-        <!-- arrow from patch_top back up to RIGHT box config.yaml (mutation result) -->
-        <g stroke="var(--paper-muted)" stroke-width="1.4" fill="none">
-          <path d="M 1100 540 C 1240 480 1190 360 1080 230" stroke-dasharray="4 4" marker-end="url(#ptm-arrow-mut)"/>
-        </g>
-        <text x="1290" y="430" text-anchor="middle" style="font: italic 500 12px var(--font-serif); fill: var(--paper-muted);">writes back</text>
-
+        <!-- Single annotation below the 2 macros -->
+        <text x="600" y="490" text-anchor="middle" style="font: italic 500 16px var(--font-serif); fill: var(--paper-ink);">added by <tspan class="mono" style="font: 700 16px var(--font-mono); fill: var(--pdk-m2);">patch_top()</tspan> from <tspan class="mono" style="font: 700 16px var(--font-mono); fill: var(--pdk-m2);">user_macros/</tspan></text>
       </svg>
     </div>
 
