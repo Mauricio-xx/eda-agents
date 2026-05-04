@@ -557,35 +557,34 @@
     <h2 class="slide-title">Container bootstrap — three commands (plus cleanup)</h2>
     <div class="title-rule"></div>
 
-    <div class="code-block" style="margin-top: 56px; font-size: 26px; line-height:1.5;"><span class="c-com"># 1. One-time image pull (~15 GB)</span>
-docker pull <span class="c-num">hpretl/iic-osic-tools:next</span>
+    <div class="code-block" style="margin-top: 36px; font-size: 24px; line-height:1.5;"><span class="c-com"># 1. One-time: clone the IIC-OSIC-TOOLS launcher (handles X11 forward + bind-mount)</span>
+git clone https://github.com/iic-jku/IIC-OSIC-TOOLS.git ~/git/IIC-OSIC-TOOLS
 
-<span class="c-com"># 2. Start a long-running, headless container</span>
-docker run -d --name gf180 \
-    -v ~/eda/designs:/foss/designs:rw \
-    --user <span class="c-fn">$(id -u)</span>:<span class="c-fn">$(id -g)</span> \
-    hpretl/iic-osic-tools:next --skip sleep infinity
+<span class="c-com"># 2. Start a long-running container with X11 forward (auto-pulls the image first time)</span>
+<span class="c-key">DOCKER_TAG</span>=chipathon26 <span class="c-key">CONTAINER_NAME</span>=gf180-x \
+    bash ~/git/IIC-OSIC-TOOLS/start_x.sh
 
-<span class="c-com"># 3. (Optional) interactive shell for debugging</span>
-docker <span class="c-key">exec</span> -it gf180 bash
+<span class="c-com"># 3. Open an interactive shell inside it (one per pane in your tmux split)</span>
+docker <span class="c-key">exec</span> -it gf180-x bash -l</div>
 
-<span class="c-com"># 4. Non-interactive use (what the rest of the deck does)</span>
-docker <span class="c-key">exec</span> gf180 bash -lc <span class="c-str">'&lt;command&gt;'</span></div>
+    <p class="muted" style="font: italic 400 18px/1.4 var(--font-serif); margin: 14px auto 0 auto; text-align:center; max-width: 1500px;">
+      <span class="mono" style="font-style:normal;">:chipathon26</span> is the pinned chipathon-2026 image (LibreLane v3.0.2). For the rolling upstream tag use <span class="mono" style="font-style:normal;">:next</span>.
+    </p>
 
-    <div class="row-2" style="margin-top: 40px; gap: 48px; flex:0;">
+    <div class="row-2" style="margin-top: 28px; gap: 48px; flex:0;">
       <div class="card" style="padding: 24px 32px;">
-        <div class="label" style="margin-bottom: 8px; color: var(--accent);">Why these flags</div>
+        <div class="label" style="margin-bottom: 8px; color: var(--accent);">What start_x.sh handles for you</div>
         <ul style="list-style:none; padding:0; margin:0; font: 400 22px/1.5 var(--font-serif); color: var(--paper-ink);">
-          <li><span class="mono" style="color: var(--pdk-m3);">-v</span> &nbsp;binds your host workspace</li>
-          <li><span class="mono" style="color: var(--pdk-m3);">--user</span> &nbsp;artifacts owned by the right UID</li>
-          <li><span class="mono" style="color: var(--pdk-m3);">--skip sleep infinity</span> &nbsp;do-nothing entrypoint</li>
+          <li><span class="mono" style="color: var(--pdk-m3);">X11 forward</span> &nbsp;klayout / firefox windows pop on the host</li>
+          <li><span class="mono" style="color: var(--pdk-m3);">bind-mount</span> &nbsp;<span class="mono">~/eda/designs &harr; /foss/designs</span></li>
+          <li><span class="mono" style="color: var(--pdk-m3);">--user $(id -u)</span> &nbsp;artifacts owned by the right UID</li>
         </ul>
       </div>
       <div class="card" style="padding: 24px 32px;">
         <div class="label" style="margin-bottom: 8px; color: var(--accent);">Cleanup</div>
         <div class="mono" style="font-size: 22px; line-height: 1.5; color: var(--paper-ink);">
-          docker stop gf180<br>
-          docker rm gf180
+          docker stop gf180-x<br>
+          docker rm gf180-x
         </div>
         <div class="muted" style="font-size: 20px; margin-top: 10px; font-style:italic;">Host files untouched.</div>
       </div>
@@ -1631,13 +1630,13 @@ PDN_CORE_HORIZONTAL_LAYER: <span class="c-str">Metal3</span>
     <h2 class="slide-title">The one command</h2>
     <div class="title-rule"></div>
 
-    <div class="code-block" style="margin-top: 56px; font-size: 26px;"><span class="c-com"># from the host, one line:</span>
-docker <span class="c-key">exec</span> gf180 bash -lc \
-    <span class="c-str">'cd /foss/designs/my-chip &amp;&amp; make librelane'</span>
+    <div class="code-block" style="margin-top: 56px; font-size: 26px;"><span class="c-com"># inside the container (pane 2 of your tmux split):</span>
+cd /foss/designs/my-chip
+<span class="c-key">source</span> sak-pdk-script.sh gf180mcuD gf180mcu_fd_sc_mcu7t5v0   <span class="c-com"># once per session</span>
+make librelane
 
 <span class="c-com"># what the Makefile actually runs, unwrapped:</span>
-<span class="c-key">source</span> sak-pdk-script.sh gf180mcuD gf180mcu_fd_sc_mcu7t5v0 &amp;&amp; \
-librelane librelane/slots/slot_1x1.yaml librelane/config.yaml \
+librelane librelane/slots/slot_workshop.yaml librelane/config.yaml \
     --pdk gf180mcuD --pdk-root <span class="c-str">$PDK_ROOT</span> --manual-pdk \
     --run-tag <span class="c-str">$(date +%Y%m%d_%H%M%S)</span></div>
 
