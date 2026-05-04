@@ -299,7 +299,7 @@ $ <span class="c-fn">librelane</span> librelane/counter_macro.yaml \
         </table>
 
         <div style="border-left: 4px solid var(--accent); padding: 10px 18px; margin-top: 16px; font: italic 500 18px/1.4 var(--font-serif); color: var(--paper-ink);">
-          Workaround for a <strong>docker image bug</strong>: the system PDK was installed from <span class="mono" style="font-style: normal; font-size: 17px;">open_pdks @ 7b70722e</span>, which predates LibreLane v3 wiring. Upstream fix tracked at <span class="mono" style="font-style: normal; font-size: 17px;">iic-jku/IIC-OSIC-TOOLS</span>. Until then, the fork is the only path to full signoff.
+          Workaround for an <strong>upstream bug</strong>: the open_pdks-generated <span class="mono" style="font-style: normal; font-size: 17px;">config.tcl</span> is OpenLane 1.x; LibreLane v3 silently drops most legacy variables. Fix tracked in <span class="mono" style="font-style: normal; font-size: 17px;">RTimothyEdwards/open_pdks#507</span> (open, unmerged). Until it lands, the fork is the only path to full signoff.
         </div>
       </div>
 

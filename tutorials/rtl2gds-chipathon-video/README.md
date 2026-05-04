@@ -55,13 +55,17 @@ Every `librelane` invocation in Ep 03 (macro hardening *and* chip-top integratio
 
 ### Cause
 
-The system PDK in `hpretl/iic-osic-tools:chipathon26` was installed from `open_pdks` at commit `7b70722e` (per `/foss/pdks/gf180mcuD/SOURCES`). That commit ships a `libs.tech/librelane/config.tcl` written against **LibreLane v1/v2**:
+The system PDK in `hpretl/iic-osic-tools:chipathon26` was installed from `open_pdks` at commit `7b70722e` (per `/foss/pdks/gf180mcuD/SOURCES`). That commit ships a `libs.tech/librelane/config.tcl` written against **OpenLane 1.x**, not LibreLane v3 — most variable names are legacy and silently dropped by the v3 config resolver.
 
-```tcl
-set ::env(KLAYOUT_DRC_TECH_SCRIPT) "$::env(PDK_ROOT)/$::env(PDK)/libs.tech/klayout/drc/gf180mcu.drc"
-```
+Inspecting the resolved config.json that LibreLane v3.0.2 produces inside `runs/<ts>/<NN>-klayout-drc/config.json` shows the scope of the gap:
 
-LibreLane v3.0.2 (the version inside the image) reads different variable names (`KLAYOUT_DRC_RUNSET`, `KLAYOUT_DRC_OPTIONS` dict, plus sibling dicts for density / antenna / filler / LVS, plus RC tables and ~30 v3 entries). It does not find them, and silently skips the step:
+| Variable in sys `config.tcl` | Resolved config dict | Status |
+|---|---|---|
+| `VDD_PIN`, `GND_PIN`, `KLAYOUT_TECH`, `KLAYOUT_PROPERTIES`, `KLAYOUT_DEF_LAYER_MAP` | populated correctly | v3 still recognizes these names |
+| `LIB_SYNTH`, `TECH_LEF`, `CELLS_LEF`, `GDS_FILES`, `PROCESS`, `FP_PDN_RAIL_LAYER` | **`<missing>`** | renamed in v3 (likely plural, e.g. `TECH_LEFS`, or different schema) |
+| `KLAYOUT_DRC_TECH_SCRIPT` | **`<missing>`** | should auto-alias to `KLAYOUT_DRC_RUNSET` via `deprecated_names` per `librelane/steps/klayout.py:454`, but the resolved value is `None` |
+
+The KLayout DRC skip is just the most visible symptom. LibreLane v3 falls back to internal defaults for synth + PnR + Magic DRC + LVS, which is why those steps pass and produce a misleadingly clean `metrics.csv`. KLayout DRC + density + antenna + filler + KLayout LVS are all silently absent because the v3 dict-shaped variables (`KLAYOUT_DRC_RUNSET`, `KLAYOUT_DRC_OPTIONS`, `KLAYOUT_DENSITY_RUNSET`, etc.) are never defined and the legacy alias path drops them anyway. The two warnings on the user-visible log are:
 
 ```
 WARNING [Checker.KLayoutDRC]
@@ -71,9 +75,7 @@ WARNING [Misc.ReportManufacturability]
   klayout__drc_error__count not reported. KLayout.DRC may have been skipped.
 ```
 
-The resulting `metrics.csv` is missing `klayout__drc_error__count`. The Magic DRC + LVS + antenna metrics still show zero, so the on-camera `awk` looks clean — but **signoff is incomplete**: KLayout DRC, KLayout density, KLayout antenna, KLayout LVS, and the v3 RC tables never ran.
-
-The KLayout DRC rule files themselves *do* exist at `/foss/pdks/gf180mcuD/libs.tech/klayout/tech/drc/`. The bug is purely in the v1/v2 wiring of `config.tcl` to LibreLane, not in the rule decks.
+The KLayout DRC rule files themselves *do* exist at `/foss/pdks/gf180mcuD/libs.tech/klayout/tech/drc/`. The bug is purely in the OpenLane 1.x format of `config.tcl`, not in the rule decks.
 
 ### The workaround
 
@@ -91,7 +93,13 @@ The `gf180mcu_fd_sc_mcu7t5v0` standard cell library is functionally equivalent a
 
 ### Upstream fix
 
-The right place to upstream a real fix is `iic-jku/IIC-OSIC-TOOLS` (where the open_pdks commit is pinned for the docker build). Once a future `:chipathon27`-style image ships `open_pdks` @ a commit that includes the LibreLane v3 integration, this workaround retires: macros could harden against the system PDK directly, and only chip-top (which still needs the IO cells) would target the fork.
+The bug is upstream in `RTimothyEdwards/open_pdks`, not in `iic-jku/IIC-OSIC-TOOLS`. IIC-OSIC-TOOLS only pins an `open_pdks` commit for the docker build (`_build/images/open_pdks/Dockerfile` line 19, `OPEN_PDKS_REPO_COMMIT="7b70722e..."`). They install via `efabless/ciel` (volare's successor) which downloads pre-built tarballs keyed by an open_pdks commit hash.
+
+The relevant upstream PR is **open_pdks PR #507** (https://github.com/RTimothyEdwards/open_pdks/pull/507) by Leo Moser (also the top contributor to `wafer-space/gf180mcu`). It replaces `KLAYOUT_DRC_TECH_SCRIPT` with the v3 dict-shaped form plus `KLAYOUT_DRC_OPTIONS` plus sibling dicts for `KLAYOUT_DENSITY_RUNSET / ANTENNA_RUNSET / FILLER_SCRIPT / LVS_SCRIPT` plus active `LAYERS_RC` / `VIAS_R` dicts. Filed 2026-04-27, **open and unmerged**. PR description explicitly flags "Update KLayout DRC and LVS" as still pending.
+
+Crucially, **`open_pdks` HEAD also does not have v3 support yet** (verified 2026-05-04 against commit `d815bb30`). Bumping the IIC-OSIC-TOOLS pin to a newer open_pdks SHA does *not* fix this; PR #507 has to merge first. Once PR #507 lands and a volare tarball is published for that commit, IIC-OSIC-TOOLS can bump line 19 and the workaround retires — macros could harden against the system PDK directly, only chip-top (which still needs the IO cells) would target the fork.
+
+For historical context, see the related (long-standing) issue `open_pdks#295` (https://github.com/RTimothyEdwards/open_pdks/issues/295), open since 2022-10-20: gf180mcu config.tcl missing pieces. PR #507 is the current upstreaming pathway from wafer-space.
 
 The `--manual-pdk` flag in the verbose form is technically redundant — `/foss/tools/bin/librelane` is a wrapper that auto-injects it. Pass it explicitly anyway for parity with the upstream chipathon-2026 reference notebook.
 
