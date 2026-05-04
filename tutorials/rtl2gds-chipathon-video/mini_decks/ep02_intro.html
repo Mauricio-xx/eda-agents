@@ -12,7 +12,7 @@
 <deck-stage width="1920" height="1080">
 
   <section data-label="01 Cover" class="slide-paper slide-title-page" style="justify-content: center; padding: 0 var(--sp-x);">
-    <div class="slide-eyebrow"><span>EPISODE 02</span><span class="rule"></span><span>1 / 4</span></div>
+    <div class="slide-eyebrow"><span>EPISODE 02</span><span class="rule"></span><span>1 / 6</span></div>
     <div style="margin: auto 0;">
       <p class="slide-eyebrow-tag" style="color: var(--accent); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; font-size: 22px; margin-bottom: 16px;">EPISODE 02</p>
       <h1 class="slide-title-big" style="font-size: 96px; line-height: 1.05; margin: 0 0 32px 0;">Episode 02 — Use the chipathon workshop slot</h1>
@@ -20,8 +20,42 @@
     </div>
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU · chipathon-2026</span></div>
   </section>
+  <section data-label="02 Slot anatomy — three files per slot" class="slide-paper">
+    <div class="slide-eyebrow"><span>Slot anatomy</span><span class="rule"></span><span>2 / 6</span></div>
+    <h2 class="slide-title">Slot anatomy — three files per slot</h2>
+    <div class="title-rule"></div>
+
+    <p class="lead" style="margin-top: 14px; max-width: 1680px; font-size: 22px;">A LibreLane <em>slot</em> is fully described by three files in the wafer-space template. Adding a new slot = writing this triple.</p>
+
+    <div style="display:flex; justify-content:center; align-items:center; flex:1; margin-top: 18px;">
+      <object data="../assets/slot_anatomy.svg" type="image/svg+xml" style="max-width: 1700px; max-height: 720px; width: auto; height: auto;">
+        <img src="../assets/slot_anatomy.svg" alt="Slot anatomy — three files per slot" style="max-width: 1700px; max-height: 720px;"/>
+      </object>
+    </div>
+
+    <p class="muted" style="font: italic 400 18px/1.4 var(--font-serif); margin: 8px auto 0 auto; text-align:center; max-width: 1500px;">Diagram from <span class="mono">examples/librelane_rtl2gds_gf180/diagrams/slot_anatomy.svg</span> (chipathon-2026 repo, Apache-2.0)</p>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU · chipathon-2026</span></div>
+  </section>
+  <section data-label="03 Workshop slot — pad map at the chipathon die" class="slide-paper">
+    <div class="slide-eyebrow"><span>Slot anatomy</span><span class="rule"></span><span>3 / 6</span></div>
+    <h2 class="slide-title">Workshop slot — pad map at the chipathon die</h2>
+    <div class="title-rule"></div>
+
+    <p class="lead" style="margin-top: 14px; max-width: 1680px; font-size: 22px;">Top-down view of the chipathon-2026 workshop slot die: 2935×2935 um with 91 I/O cells (60 analog + 20 bidir + 4 DVDD + 4 DVSS + clk + rst_n + inputs[0]) plus 4 corners. Per-pad index numbers are clockwise from the south-west corner.</p>
+
+    <div style="display:flex; justify-content:center; align-items:center; flex:1; margin-top: 18px;">
+      <object data="../assets/workshop_pad_map.svg" type="image/svg+xml" style="max-width: 1700px; max-height: 720px; width: auto; height: auto;">
+        <img src="../assets/workshop_pad_map.svg" alt="Workshop slot — pad map at the chipathon die" style="max-width: 1700px; max-height: 720px;"/>
+      </object>
+    </div>
+
+    <p class="muted" style="font: italic 400 18px/1.4 var(--font-serif); margin: 8px auto 0 auto; text-align:center; max-width: 1500px;">Diagram from <span class="mono">examples/librelane_rtl2gds_gf180/diagrams/workshop_pad_map.svg</span> (chipathon-2026 repo, Apache-2.0). Bondpad-name convention: <span class="mono">analog[i] -&gt; ana(i+1)</span>, <span class="mono">bidir[i] -&gt; config(i+1)</span>.</p>
+
+    <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU · chipathon-2026</span></div>
+  </section>
   <section data-label="21 Slot = CHIPATON die contract" class="slide-paper">
-    <div class="slide-eyebrow"><span>Part 3 · Config</span><span class="rule"></span><span>2 / 4</span></div>
+    <div class="slide-eyebrow"><span>Part 3 · Config</span><span class="rule"></span><span>4 / 6</span></div>
     <h2 class="slide-title">The <span class="code">slot_*.yaml</span> — CHIPATON's die contract</h2>
     <div class="title-rule"></div>
 
@@ -179,7 +213,7 @@
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
   </section>
   <section data-label="17 Two-level YAML" class="slide-paper">
-    <div class="slide-eyebrow"><span>Part 3 · Config</span><span class="rule"></span><span>3 / 4</span></div>
+    <div class="slide-eyebrow"><span>Part 3 · Config</span><span class="rule"></span><span>5 / 6</span></div>
     <h2 class="slide-title">LibreLane v3 YAML — two levels, one command</h2>
     <div class="title-rule"></div>
 
@@ -374,7 +408,7 @@
     <div class="slide-footer"><span class="brand">Mauricio Montanares · IHP</span><span>RTL-to-GDS · GF180MCU</span></div>
   </section>
   <section data-label="27 Signoff overview" class="slide-paper">
-    <div class="slide-eyebrow"><span>Part 5 · Signoff</span><span class="rule"></span><span>4 / 4</span></div>
+    <div class="slide-eyebrow"><span>Part 5 · Signoff</span><span class="rule"></span><span>6 / 6</span></div>
     <div class="driving-chip tool-verif"><span class="dc-label">LibreLane driving</span><span class="dc-tool">Magic + KLayout + Netgen + OpenSTA</span></div>
     <h2 class="slide-title">Seven checks — and what each guards against</h2>
     <div class="title-rule"></div>

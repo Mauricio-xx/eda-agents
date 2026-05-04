@@ -1,8 +1,8 @@
-# Ep 02 shot-list -- Use the chipathon workshop slot (target 25-30 min)
+# Ep 02 shot-list -- Use the chipathon workshop slot (target ~22 min)
 
-The chipathon-2026 entry path. The viewer's own RTL drops into the pre-built workshop padring slot (2935 x 2935 um, 60 analog + 20 bidir + 4 power + 4 ground + clock + reset, the slot mirror of JuanMoya's reference padring) and the full Chip flow signs it off. Wall-clock is ~35-45 min, so this episode is half live, half pre-recorded.
+The chipathon-2026 entry path. The viewer's own RTL drops into the pre-built workshop padring slot (2935 x 2935 um, 60 analog + 20 bidir + 4 power + 4 ground + clock + reset, the slot mirror of JuanMoya's reference padring) and the full Chip flow signs it off. Wall-clock is ~35-45 min, so this episode is half live (5 min), half pre-recorded.
 
-This episode merges the old "Slots explained" (read-only walk) and "Use the chipathon workshop slot" (run the flow). The slot concept gets ONE slide of explanation up front; everything else is the flow.
+This episode merges the old "Slots explained" (read-only walk) and "Use the chipathon workshop slot" (run the flow). The slot concept is fully covered in the pre-roll (slot_anatomy + workshop_pad_map diagrams + the master deck Slot/YAML/Signoff slides); the live demo is intentionally minimal — only the placeholder `chip_core.sv` (the file the participant replaces) and the empty `MACROS:` block get a 30-second look each, then the flow kicks off.
 
 ## Hook narrative
 
@@ -35,29 +35,30 @@ The chipathon padring template is staged in the bind-mount as `/foss/designs/chi
 
 ## Episode timeline
 
+The pre-roll's slot_anatomy + workshop_pad_map diagrams already cover the slot concept. The live demo is intentionally minimal: one 30-second look at the placeholder `chip_core.sv` (the file the participant will replace), a 30-second look at the empty `MACROS:` block, a 15-second PDK tag check, then we run the flow.
+
 | Time | Section | Pane | Action |
 |---|---|---|---|
-| 00:00 | Pre-roll: `mini_decks/ep02_intro.html` | -- | 4 slides (cover + Slot YAML / die contract + Two-level YAML + Signoff overview) |
-| 02:30 | Title card: "what a slot is, in 60 seconds" | -- | text overlay |
-| 03:00 | Walk into the staged template | Pane 1 | `cd /foss/designs/chipathon_padring/template && ls -R src/ librelane/` |
-| 04:00 | The slot YAML (the entire concept in one file) | Pane 1 | `cat librelane/slots/slot_workshop.yaml` -- die area 2935x2935, four PAD_* arrays clockwise |
-| 06:00 | The placeholder `chip_core.sv` (today this is your design) | Pane 1 | `cat src/chip_core.sv` -- minimal stub; in a real entry you replace it with your logic |
-| 07:30 | The chip-top `config.yaml` -- empty `MACROS:` for a logic-only design | Pane 1 | `cat librelane/config.yaml` |
-| 08:30 | Verify the wafer-space PDK fork (one-line check) | Pane 2 | `cd /foss/designs/chipathon_padring/template/gf180mcu && git describe --tags && cd -` |
-| 09:00 | Activate PDK + run the flow | Pane 2 | `source sak-pdk-script.sh gf180mcuD gf180mcu_fd_sc_mcu7t5v0 && make librelane SLOT=workshop PDK_ROOT=./gf180mcu` |
-| 09:00 | Live log tail -- first ~5 min (Yosys + Floorplan + PDN visible) | Pane 3 | `tail -f $(ls -td librelane/runs/*/ \| head -1)flow.log` |
-| 14:00 | **Cut to time-lapse** -- routing iterations through Magic DRC | -- | 4x speed of pre-recorded log; voice-over the routing iterations |
-| 18:00 | **Cut to pre-recorded artifacts** -- final banner | -- | screen-record from `/foss/designs/prerecorded/ep02_chipathon_use.log` |
-| 19:00 | Read the pre-recorded `metrics.csv` -- all-zero signoff | Pane 1 | `awk -F, '$1 ~ /error__count\|violation__count\|drc_error\|antenna__viol\|lvs_.*__count/' /foss/designs/prerecorded/ep02_metrics.csv` |
-| 22:00 | Open the chip-top GDS in KLayout | Pane 3 | `klayout -n gf180mcu -e /foss/designs/prerecorded/ep02_chipathon_use.gds &` |
-| 24:00 | Zoom -- padring perimeter, core area, std cells | Pane 3 | KLayout viewport navigation |
-| 26:00 | Tease Ep 03 -- "now real macros instead of a placeholder" | -- | -- |
-| 27:00 | Out | -- | -- |
+| 00:00 | Pre-roll: `mini_decks/ep02_intro.html` | -- | 6 slides (cover + Slot anatomy diagram + Workshop pad map + Slot YAML / die contract + Two-level YAML + Signoff overview) |
+| 03:00 | Title card: "the placeholder you replace + the flow" | -- | text overlay |
+| 03:00 | All panes enter the container | 1, 2, 3 | `docker exec -it "$GF180" bash -l` |
+| 03:30 | The placeholder `chip_core.sv` (today this is your design) | Pane 1 | `cd /foss/designs/chipathon_padring/template && cat src/chip_core.sv` -- 30 s, "in a real entry you replace this with your logic" |
+| 04:00 | The chip-top `config.yaml` -- empty `MACROS:` for a logic-only design | Pane 1 | `grep -A 5 '^MACROS:' librelane/config.yaml` -- 30 s, "empty today, Ep 03 fills it with two macros" |
+| 04:30 | Verify the wafer-space PDK fork (one-line check) | Pane 2 | `cd gf180mcu && git describe --tags && cd -` -- 15 s, expect `1.8.0` |
+| 04:45 | Activate PDK + run the flow | Pane 2 | `source sak-pdk-script.sh gf180mcuD gf180mcu_fd_sc_mcu7t5v0 && make librelane SLOT=workshop PDK_ROOT=./gf180mcu` |
+| 04:45 | Live log tail -- first ~5 min (Yosys + Floorplan + PDN + routing iter 1) | Pane 3 | `tail -f $(ls -td librelane/runs/*/ \| head -1)flow.log` |
+| 09:45 | **Cut to time-lapse** -- routing iterations through Magic DRC | -- | 4x speed of pre-recorded log; voice-over the routing iterations |
+| 13:45 | **Cut to pre-recorded artifacts** -- final banner | -- | screen-record from `/foss/designs/prerecorded/ep02_chipathon_use.log` |
+| 14:45 | Read the pre-recorded `metrics.csv` -- all-zero signoff | Pane 1 | `awk -F, '$1 ~ /error__count\|violation__count\|drc_error\|antenna__viol\|lvs_.*__count/' /foss/designs/prerecorded/ep02_metrics.csv` |
+| 16:30 | Open the chip-top GDS in KLayout | Pane 3 | `klayout -n gf180mcu -e /foss/designs/prerecorded/ep02_chipathon_use.gds &` |
+| 17:00 | Walk the layout -- padring perimeter, core area, std cells | Pane 3 | KLayout viewport navigation |
+| 20:00 | Tease Ep 03 -- "now real macros instead of a placeholder" | -- | -- |
+| 22:00 | Out | -- | -- |
 
 ## Cuts / time-lapses
 
-- **14:00 -> 18:00**: time-lapse the routing + Magic DRC stages (the long ones). Voice-over.
-- **18:00 -> end**: pre-recorded artifacts only. Live machine does not need to finish the flow on camera.
+- **09:45 -> 13:45**: time-lapse the routing + Magic DRC stages (the long ones). Voice-over.
+- **13:45 -> end**: pre-recorded artifacts only. Live machine does not need to finish the flow on camera.
 - Magic DRC on this design is ~10-15 min; KLayout DRC on chip-top can be 30-60 min — both off-camera.
 
 ## Pre-recorded artifacts (required)
@@ -85,61 +86,59 @@ cp "$LATEST/final/metrics.csv"       /foss/designs/prerecorded/ep02_metrics.csv
 
 Each pane opens with the bootstrap snippet above (off-camera) and then `docker exec -it "$GF180" bash -l` to enter the container.
 
-**Each pane, 02:30 (entry into container)**:
+**Each pane, 03:00 (entry into container)**:
 ```bash
 docker exec -it "$GF180" bash -l
 ```
 
-**Pane 1, 03:00 (cwd + tree)**:
+**Pane 1, 03:30 (the placeholder, 30 s)**:
 ```bash
 cd /foss/designs/chipathon_padring/template
-ls -R src/ librelane/
-```
-
-**Pane 1, 04:00 / 06:00 / 07:30 (the three template files)**:
-```bash
-cat librelane/slots/slot_workshop.yaml
 cat src/chip_core.sv
-cat librelane/config.yaml
 ```
 
-**Pane 2, 08:30 (verify PDK fork tag)**:
+**Pane 1, 04:00 (the empty MACROS block, 30 s)**:
 ```bash
-cd /foss/designs/chipathon_padring/template/gf180mcu && git describe --tags && cd -
+grep -A 5 '^MACROS:' librelane/config.yaml
+```
+
+**Pane 2, 04:30 (verify PDK fork tag, 15 s)**:
+```bash
+cd gf180mcu && git describe --tags && cd -
 ```
 The chipathon padring template ships a `Makefile` that pulls a local clone of the wafer-space PDK fork (`https://github.com/wafer-space/gf180mcu`, tag 1.8.0) into `<template>/gf180mcu/` via `make clone-pdk`. That fork is required because chip_top.sv instantiates `gf180mcu_ws_io__dvdd/dvss` cells that the system PDK at `/foss/pdks/gf180mcuD` does not carry.
 
-**Pane 2, 09:00 (run the flow)**:
+**Pane 2, 04:45 (run the flow)**:
 ```bash
 source sak-pdk-script.sh gf180mcuD gf180mcu_fd_sc_mcu7t5v0
-cd /foss/designs/chipathon_padring/template
 make librelane SLOT=workshop PDK_ROOT=./gf180mcu
 ```
 `SLOT=workshop` selects `librelane/slots/slot_workshop.yaml` (the chipathon shuttle slot — without it the Makefile defaults to `1x1`, a different padring). `PDK_ROOT=./gf180mcu` points at the local wafer-space PDK clone so the `gf180mcu_ws_io__*` IO cells in `src/chip_top.sv` resolve.
 
-**Pane 3, 09:00 (live tail, ~5 s after pane 2 begins)**:
+**Pane 3, 04:45 (live tail, ~5 s after pane 2 begins)**:
 ```bash
 cd /foss/designs/chipathon_padring/template
 tail -f $(ls -td librelane/runs/*/ | head -1)flow.log
 ```
 
-**Pane 1, 19:00 (signoff sanity check on pre-recorded)**:
+**Pane 1, 14:45 (signoff sanity check on pre-recorded)**:
 ```bash
 awk -F, '$1 ~ /error__count|violation__count|drc_error|antenna__viol|lvs_.*__count/' \
   /foss/designs/prerecorded/ep02_metrics.csv
 ```
 
-**Pane 3, 22:00 (open the chip-top GDS, backgrounded)**:
+**Pane 3, 16:30 (open the chip-top GDS, backgrounded)**:
 ```bash
 klayout -n gf180mcu -e /foss/designs/prerecorded/ep02_chipathon_use.gds &
 ```
 
 ## Honest scope (lines on camera)
 
-- Min 02:30: *"A slot is three files: a chip_core.sv stub, a slot_defines.svh with pad-category counts, and a slot_workshop.yaml with the die area plus the four PAD_* clockwise arrays. That's it. Today we'll see slot_workshop.yaml — the chipathon-2026 die contract — and the placeholder chip_core.sv. In a real entry you swap chip_core.sv for your logic."*
-- Min 04:00: *"Die 2935 by 2935 microns. Sixty analog plus twenty bidir plus power and ground and clock and reset. Pads listed clockwise from south-west — that's the LibreLane convention, miss the order and the padring does not close."*
-- Min 09:00: *"Forty-five minutes is real wall-clock. We watch the first five minutes live -- Yosys, Floorplan, PDN -- and then we time-lapse the long routing + Magic DRC pass. The pre-recorded log is from yesterday's clean run."*
-- Min 19:00: *"All four signoff metrics zero on the first attempt. That is what 'use the workshop slot' buys you -- the padring, the PDK fork, the slot YAML are all proven. The only thing that can break is your own logic, which is the part you should be debugging anyway."*
+- Min 03:00 (title card): *"You already saw the slot in the pre-roll: three files, a die map, the signoff overview. The live demo skips the read-only walk through the YAMLs and goes straight to what a participant actually does — point at the placeholder you replace, kick off the flow, look at the metrics."*
+- Min 03:30 (`cat chip_core.sv`): *"This is the placeholder. In a real entry, this file is your design. We are running it unmodified so you see the padring close on its own; episode 03 puts macros inside."*
+- Min 04:00 (grep MACROS): *"Empty `MACROS:` block — logic-only design today. Episode 03 fills this with two macros."*
+- Min 04:45 (kick off): *"`source sak-pdk-script.sh` once per session, then `make librelane SLOT=workshop PDK_ROOT=./gf180mcu`. Forty-five minutes wall-clock — mostly Magic DRC and KLayout DRC. We watch five minutes live."*
+- Min 14:45: *"All four signoff metrics zero on the first attempt. That is what 'use the workshop slot' buys you -- the padring, the PDK fork, the slot YAML are all proven. The only thing that can break is your own logic, which is the part you should be debugging anyway."*
 - Min 26:00: *"Today the chip_core.sv was a placeholder. Episode 3 puts two real macros inside — a counter and a 4-bit ALU — using the same padring. The integration pattern."*
 
 ## Pre-recorded fallback
