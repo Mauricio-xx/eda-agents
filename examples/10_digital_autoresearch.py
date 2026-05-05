@@ -160,7 +160,11 @@ async def main():
     )
     parser.add_argument(
         "--no-rtl-sim", action="store_true",
-        help="Skip RTL simulation (rtl/hybrid strategies run sim by default)",
+        help=(
+            "Skip the cocotb / iverilog RTL simulation gate. By "
+            "default the gate runs for every strategy because "
+            "DigitalDesign.testbench() is mandatory."
+        ),
     )
     parser.add_argument(
         "--stop-after", default="FULL",
@@ -286,11 +290,13 @@ async def main():
     if args.strategy != "flow":
         rtl_lines = design.rtl_total_lines()
         print(f"  RTL lines:   {rtl_lines}")
-        print(f"  RTL sim:     {'disabled' if args.no_rtl_sim else 'enabled (if testbench exists)'}")
+        print(f"  RTL sim:     {'disabled' if args.no_rtl_sim else 'enabled (every strategy)'}")
     print(f"  Dedup:       {not args.no_dedup}")
     print()
 
-    # run_rtl_sim: None = auto (True for rtl/hybrid), explicit False if --no-rtl-sim
+    # ``DigitalDesign.testbench`` is abstract, so ``run_rtl_sim``
+    # defaults to True in the runner. ``--no-rtl-sim`` opts out
+    # explicitly; otherwise the runner picks its own default (True).
     run_rtl_sim = False if args.no_rtl_sim else None
 
     runner = DigitalAutoresearchRunner(

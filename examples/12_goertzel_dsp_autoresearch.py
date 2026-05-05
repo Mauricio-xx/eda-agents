@@ -163,11 +163,12 @@ async def main():
         ),
     )
     parser.add_argument(
-        "--run-rtl-sim", action="store_true",
+        "--run-rtl-sim", action=argparse.BooleanOptionalAction, default=True,
         help=(
-            "Run cocotb post-LibreLane (rtl/hybrid only). The "
-            "throughput tb writes meas.json which the GoertzelDspDesign "
-            "sidecar reader picks up."
+            "Run the cocotb throughput tb post-lint (default: on; "
+            "pass --no-run-rtl-sim to skip for fast iteration). "
+            "The tb writes meas.json which GoertzelDspDesign reads "
+            "via the sidecar convention."
         ),
     )
     parser.add_argument(

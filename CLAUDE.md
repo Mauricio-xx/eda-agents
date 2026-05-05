@@ -150,9 +150,19 @@ for analytical sizing) or a full `CircuitTopology` subclass. Current:
 
 - `generic.py` — `GenericDesign`: auto-derives all 13 `DigitalDesign`
   methods from a LibreLane config file. Zero Python class needed.
-  Constructor: `GenericDesign(config_path, pdk_root=None)`.
+  Constructor: `GenericDesign(config_path, pdk_root=None)`. The tb
+  is declared via `EDA_AGENTS_TB_DRIVER` / `EDA_AGENTS_TB_TARGET`
+  (with optional `EDA_AGENTS_TB_DIR` / `EDA_AGENTS_TB_ENV`) in the
+  config; iverilog auto-detect is the fallback.
 - `fazyrv_hachure.py` — GF180 RISC-V SoC (primary design, nix-shell)
 - `systolic_mac_dft.py` — CI fixture (simpler, faster)
+
+`DigitalDesign.testbench()` is mandatory (`@abstractmethod`):
+every design must return a `TestbenchSpec` whose underlying tb
+file satisfies the `digital.cocotb_testbench` skill rules so the
+same testbench drives RTL, post-synth GL, and post-PnR-SDF
+simulation. Silent skipping of the verification gate is not
+supported.
 
 ### `tools/`, `parsers/`, `utils/`
 
