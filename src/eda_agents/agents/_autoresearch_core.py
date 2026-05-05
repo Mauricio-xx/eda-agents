@@ -318,6 +318,31 @@ class TsvLogger:
 # ---------------------------------------------------------------------------
 
 
+def proposal_temperature(model: str | None) -> float:
+    """Return the temperature value safe for the given LiteLLM model.
+
+    OpenAI ``gpt-5*`` (including ``gpt-5-codex``, ``gpt-5.1``,
+    ``gpt-5.2``, ``gpt-5.3-codex``, ``gpt-5.4`` ...) and the ``o1`` /
+    ``o3`` reasoning families reject any temperature other than 1.0
+    via ``litellm.UnsupportedParamsError``; passing the framework's
+    default 0.7 makes the proposal call fail and forces autoresearch
+    to fall back to defaults, breaking the RL-emulated feedback. The
+    rest of the model fleet (Claude, Gemini, GPT-4*) is comfortable
+    with 0.7.
+
+    The check is intentionally substring-based on the lower-cased
+    model id so namespaced ids (``openai/gpt-5.3-codex``,
+    ``openrouter/openai/gpt-5.3-codex``) all map to the right value.
+    """
+    if not model:
+        return 0.7
+    m = model.lower()
+    incompatible_markers = ("gpt-5", "/o1", "/o1-", "/o3", "/o3-")
+    if any(marker in m for marker in incompatible_markers):
+        return 1.0
+    return 0.7
+
+
 def generate_program_content(
     *,
     domain_name: str,

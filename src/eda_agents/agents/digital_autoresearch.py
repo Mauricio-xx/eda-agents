@@ -56,6 +56,7 @@ from eda_agents.agents._autoresearch_core import (
     TsvLogger,
     extract_json_from_response,
     generate_program_content,
+    proposal_temperature,
 )
 from eda_agents.agents.phase_results import AutoresearchResult
 from eda_agents.core.digital_design import DigitalDesign
@@ -67,25 +68,182 @@ from eda_agents.skills.registry import render_relevant_skills
 logger = logging.getLogger(__name__)
 
 
+def _detect_librelane_venv_pythonpath() -> list[str]:
+    """Return ``site-packages`` dirs of the LibreLane venv (or empty).
+
+    Yosys-with-plugins from ``nix-eda`` embeds a CPython that does NOT
+    inherit site-packages from the active venv. When LibreLane invokes
+    ``yosys -y pyosys/json_header.py`` the embedded interpreter cannot
+    import ``click`` or ``ys_common``, and the
+    ``Yosys.JsonHeader`` step crashes with a ``ModuleNotFoundError``
+    before any LibreLane run directory is produced.
+
+    The fix is to prepend the LibreLane venv's site-packages dirs to
+    ``PYTHONPATH`` so the embedded interpreter sees the venv's
+    packages. We probe the same Python interpreter
+    :func:`LibreLaneRunner._find_librelane_python` discovers and
+    derive its venv layout.
+
+    Returns an empty list if the venv cannot be located so callers
+    can short-circuit gracefully.
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    try:
+        from eda_agents.core.librelane_runner import _find_librelane_python
+    except ImportError:
+        return []
+
+    py = _find_librelane_python()
+    if not py:
+        return []
+
+    # Do NOT resolve(): venv ``bin/python`` is a symlink chain that
+    # ends at the system interpreter, which would jump out of the
+    # venv and lose the site-packages we are trying to find.
+    py_path = _Path(py)
+    if not py_path.is_symlink() and not py_path.exists():
+        return []
+    venv_root = py_path.parent.parent  # <venv>/bin/python -> <venv>/
+    if not (venv_root / "pyvenv.cfg").is_file():
+        return []
+
+    pyver = f"python{_sys.version_info.major}.{_sys.version_info.minor}"
+    candidates = [
+        venv_root / "lib" / pyver / "site-packages",
+        venv_root / "local" / "lib" / pyver / "dist-packages",
+        venv_root / "lib" / "python3" / "dist-packages",
+        venv_root / "lib" / pyver / "dist-packages",
+    ]
+    return [str(p) for p in candidates if p.is_dir()]
+
+
+def _pick_latest_openroad(candidates: list[str]) -> str | None:
+    """Choose the newest openroad bin dir by ``YYYY-MM-DD`` suffix.
+
+    Hash-based reverse-sort picks alphabetically; that is uncorrelated
+    with the build date and routinely lands on a stale 2025-06 build
+    when 2026-02 is also installed. The newer build matters because
+    LibreLane's STAMidPnR / STAPostPNR Tcl scripts use the
+    ``est::`` namespace introduced after the 2025-06 cutoff
+    (``corner.tcl line 44 invalid command name "est::check_corner_wire_cap"``).
+    Prefers the no-``-env`` flavour at a given date so the openroad
+    bin does not drag a python3.13 site-packages prefix into PATH
+    that conflicts with the python3.12 LibreLane venv.
+    """
+    import re
+
+    if not candidates:
+        return None
+
+    dated: list[tuple[str, int, str]] = []
+    for c in candidates:
+        m = re.search(r"openroad-(\d{4}-\d{2}-\d{2})", c)
+        date_key = m.group(1) if m else "0000-00-00"
+        # Prefer non-env at same date: env flavour bundles a python
+        # interpreter we do not want on PATH.
+        env_penalty = 1 if "-python3-" in c else 0
+        dated.append((date_key, env_penalty, c))
+    dated.sort(reverse=True, key=lambda t: (t[0], -t[1]))
+    return dated[0][2]
+
+
+def _pick_latest_opensta(candidates: list[str]) -> str | None:
+    """Choose the newest opensta bin dir by ``-version`` probe.
+
+    Nix store hashes carry no version information, so the only way to
+    rank candidates deterministically is to invoke ``sta -version``.
+    We need 2.7.0+ for ``corner.tcl``'s
+    ``report_checks -group_path_count`` flag; 2.6.0 fails STAPrePNR
+    immediately with ``not a known keyword or flag``.
+    """
+    import os
+    import subprocess
+
+    if not candidates:
+        return None
+
+    ranked: list[tuple[tuple[int, ...], str]] = []
+    for c in candidates:
+        sta_bin = os.path.join(c, "sta")
+        if not os.path.isfile(sta_bin):
+            continue
+        try:
+            out = subprocess.run(
+                [sta_bin, "-version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            raw = (out.stdout or out.stderr).strip().splitlines()[0]
+            parts = raw.split(".")
+            ver = tuple(int(p) for p in parts if p.isdigit())
+        except (subprocess.SubprocessError, OSError, ValueError):
+            ver = (0, 0, 0)
+        ranked.append((ver, c))
+    if not ranked:
+        return None
+    ranked.sort(reverse=True, key=lambda t: t[0])
+    return ranked[0][1]
+
+
 def detect_nix_eda_tool_dirs() -> list[str]:
     """Scan /nix/store for LibreLane-compatible EDA tool binaries.
 
-    LibreLane v3 requires yosys >= 0.60 and recent OpenROAD. System
+    LibreLane v3 requires yosys >= 0.60 and a recent OpenROAD. System
     packages on Ubuntu are often too old. When a Nix installation is
     present on this machine, prefer its bin directories.
 
-    Returns the first matching bin directory per tool, in the order
-    yosys -> openroad -> magic -> netgen -> klayout. The caller is
-    responsible for deciding how to prepend these to PATH (or pass them
-    verbatim into a subprocess env). Returns an empty list on systems
-    without Nix or without these tools.
+    Returns the bin directory per tool, in the order
+    yosys -> openroad -> opensta -> magic -> netgen -> klayout. The
+    caller is responsible for deciding how to prepend these to PATH
+    (or pass them verbatim into a subprocess env). Returns an empty
+    list on systems without Nix or without these tools.
+
+    Picker is tool-specific:
+
+    * ``openroad`` is selected by the YYYY-MM-DD date in the store
+      path (see :func:`_pick_latest_openroad`). Hash-reverse-sort is
+      undefined w.r.t. version, and an old 2025-06 build is missing
+      the ``est::`` Tcl namespace LibreLane's STAMidPnR uses.
+    * ``opensta`` is selected by ``sta -version`` probe (see
+      :func:`_pick_latest_opensta`). 2.6.0 lacks
+      ``report_checks -group_path_count`` (STAPrePNR Tcl error);
+      2.7.0+ is required.
+    * Other tools currently only have a single candidate per host;
+      reverse-sorted alphabetic pick is fine.
     """
     import glob
 
     nix_dirs: list[str] = []
+
+    # yosys
+    yosys_cands = sorted(
+        glob.glob("/nix/store/*-yosys-with-plugins-0.6*/bin"),
+        reverse=True,
+    )
+    if yosys_cands:
+        nix_dirs.append(yosys_cands[0])
+
+    # openroad: prefer newest YYYY-MM-DD, prefer non-env flavour at
+    # the same date.
+    openroad_cands = sorted(
+        glob.glob("/nix/store/*-openroad*/bin"),
+    )
+    chosen = _pick_latest_openroad(openroad_cands)
+    if chosen:
+        nix_dirs.append(chosen)
+
+    # opensta: pick highest version via -version probe (need 2.7.0+).
+    opensta_cands = sorted(glob.glob("/nix/store/*-opensta*/bin"))
+    chosen = _pick_latest_opensta(opensta_cands)
+    if chosen:
+        nix_dirs.append(chosen)
+
+    # magic, netgen, klayout: single candidate per host on the
+    # current nix-eda lock; alphabetic reverse-sort is safe.
     for pattern in [
-        "/nix/store/*-yosys-with-plugins-0.6*/bin",
-        "/nix/store/*-openroad-202[56]*/bin",
         "/nix/store/*-magic-*/bin",
         "/nix/store/*-netgen-*/bin",
         "/nix/store/*-klayout-*/bin",
@@ -93,6 +251,7 @@ def detect_nix_eda_tool_dirs() -> list[str]:
         candidates = sorted(glob.glob(pattern), reverse=True)
         if candidates:
             nix_dirs.append(candidates[0])
+
     return nix_dirs
 
 # Digital measurement columns for TSV logging
@@ -162,10 +321,6 @@ class DigitalAutoresearchRunner:
             )
         if strategy not in ("flow", "rtl", "hybrid"):
             raise ValueError(f"Unknown strategy: {strategy!r}. Use 'flow', 'rtl', or 'hybrid'.")
-        if backend == "cc_cli" and strategy == "flow":
-            logger.warning(
-                "backend='cc_cli' accepted but flow-only proposals still use litellm."
-            )
         self.design = design
         self.model = model
         self.budget = budget
@@ -241,6 +396,16 @@ class DigitalAutoresearchRunner:
         framing arrives before the run-local strategy in ``program.md``.
         Gated by ``EDA_AGENTS_INJECT_SKILLS``: set to ``"0"`` to fall
         back to the pre-S10c prompt.
+
+        The response-format guidance tells the LLM that the listed
+        design space is a *starting hint*, not a cage: it is free to
+        propose any LibreLane safe-listed config key and let the
+        downstream loop's safety check accept or reject it. The only
+        immutables are the spec assertions
+        (:meth:`DigitalDesign.check_validity`) and the FoM
+        (:meth:`DigitalDesign.compute_fom`); both live in the design
+        subclass and are evaluation criteria, not action-space
+        levers.
         """
         space = self.design.design_space()
         example_keys = list(space.keys())
@@ -253,14 +418,42 @@ class DigitalAutoresearchRunner:
             )
         prefix = f"{skills_block}\n\n" if skills_block else ""
 
+        # Surface the LibreLane safe-list so the LLM knows what other
+        # keys it is free to touch. We import lazily to avoid a top-of-
+        # file cycle with the runner module.
+        try:
+            from eda_agents.core.librelane_runner import SAFE_CONFIG_KEYS
+            safe_keys = sorted(SAFE_CONFIG_KEYS)
+        except ImportError:
+            safe_keys = []
+        safe_list = ", ".join(safe_keys) if safe_keys else "(unavailable)"
+
         return (
             f"{prefix}"
             f"You are an autonomous digital design optimizer. Your program "
             f"is defined below. Follow it exactly.\n\n"
             f"{program_content}\n\n"
+            f"DESIGN-SPACE POLICY: the variables listed under '## Design "
+            f"Space' above are a starting hint, not a cage. Treat them as "
+            f"the bounds the optimizer pre-knows. You are free to:\n"
+            f"  * Propose any value within the listed range.\n"
+            f"  * Propose ANY OTHER key from the LibreLane safe-list "
+            f"(below). The runner will write the value into config.yaml; "
+            f"unsafe keys are dropped with a warning, valid keys take "
+            f"effect on the next eval.\n"
+            f"  * In hybrid/rtl strategies, edit RTL files directly via "
+            f"the tools your harness provides.\n"
+            f"The ONLY immutables are: the spec (what must hold for a "
+            f"valid design, encoded in ``check_validity``) and the FoM "
+            f"definition (what we are maximising, encoded in "
+            f"``compute_fom``). Both live in the design class; do not "
+            f"try to redefine them from inside a proposal.\n\n"
+            f"LibreLane safe-listed config keys: {safe_list}\n\n"
             f"RESPONSE FORMAT: You must respond with ONLY a JSON object "
-            f"containing the next design parameters to try. No explanation, "
-            f"no markdown fences, no commentary. Just the raw JSON.\n"
+            f"containing the next design parameters to try. No "
+            f"explanation, no markdown fences, no commentary. Just the "
+            f"raw JSON. Keys not from the design space are fine as long "
+            f"as they are in the LibreLane safe-list.\n"
             f"Example: {{{example}}}"
         )
 
@@ -311,7 +504,32 @@ class DigitalAutoresearchRunner:
         best: dict | None,
         eval_num: int,
     ) -> dict[str, float | int]:
-        """Ask LLM to propose next design parameters."""
+        """Ask LLM to propose next design parameters.
+
+        Dispatches by ``self.backend`` so flow-strategy proposals run on
+        the same engine the user picked for the rest of the loop:
+
+        * ``cc_cli``   -> Claude Code CLI (subscription, Opus 4.7 default).
+        * ``opencode`` -> opencode CLI (any provider, e.g. gpt-5.3-codex).
+        * ``adk`` / ``litellm`` -> the legacy LiteLLM ``acompletion`` path.
+
+        Without this dispatch, a user who selects ``--backend opencode
+        --model openai/gpt-5.3-codex`` ends up with proposals routed to
+        OpenAI directly via LiteLLM, bypassing the opencode CLI and its
+        OAuth-managed subscription. Same shape with ``cc_cli``: the
+        proposal silently runs on whatever LiteLLM model defaulted to,
+        not on the Claude subscription the user paid for.
+        """
+        if self.backend == "cc_cli":
+            return await self._propose_params_via_cc_cli(
+                program_content, history, best, eval_num
+            )
+        if self.backend == "opencode":
+            return await self._propose_params_via_opencode(
+                program_content, history, best, eval_num
+            )
+
+        # backend in {"adk", "litellm"}: LiteLLM ``acompletion`` path
         import litellm
 
         prompt = self._build_proposal_prompt(history, best, eval_num)
@@ -323,7 +541,7 @@ class DigitalAutoresearchRunner:
                 {"role": "user", "content": prompt},
             ],
             "max_tokens": 1024,
-            "temperature": 0.7,
+            "temperature": proposal_temperature(self.model),
         }
 
         try:
@@ -355,11 +573,141 @@ class DigitalAutoresearchRunner:
 
         return self._clamp_params(params)
 
-    def _clamp_params(self, params: dict) -> dict[str, float | int]:
-        """Validate and snap proposed params to the design space.
+    def _build_flow_proposal_prompt(
+        self,
+        program_content: str,
+        history: list[dict],
+        best: dict | None,
+        eval_num: int,
+    ) -> str:
+        """Concatenate system + user prompts for CLI-harness consumption.
 
-        Discrete lists: snap to nearest valid value.
-        Continuous ranges: clamp to [lo, hi].
+        ClaudeCodeHarness and OpenCodeHarness do not expose a separate
+        system-prompt slot; both accept a single prompt string. We
+        glue ``_system_prompt`` and ``_build_proposal_prompt`` together
+        and append a hard instruction telling the agent to emit JSON
+        only and not touch the working tree (the harness still loads
+        an editing-capable agent; the prompt is the only guardrail).
+        """
+        sys_prompt = self._system_prompt(program_content)
+        user_prompt = self._build_proposal_prompt(history, best, eval_num)
+        return (
+            f"{sys_prompt}\n\n"
+            f"---\n\n"
+            f"{user_prompt}\n\n"
+            f"IMPORTANT: Respond with ONLY the raw JSON object. No "
+            f"commentary, no markdown fences, no tool calls. Do not "
+            f"edit any files in the working directory. Your entire "
+            f"response must be parseable by ``json.loads`` as-is."
+        )
+
+    async def _propose_params_via_cc_cli(
+        self,
+        program_content: str,
+        history: list[dict],
+        best: dict | None,
+        eval_num: int,
+    ) -> dict[str, float | int]:
+        """Flow-strategy proposal via the Claude Code CLI subscription.
+
+        Mirrors :meth:`_propose_cc_cli` (rtl/hybrid) but for the
+        ``flow`` strategy: we only need a JSON object matching the
+        design space, no file edits, no lint. The harness still runs a
+        full Claude agent (Opus 4.7 by default), so the prompt has to
+        steer it to JSON-only output. The ``result_text`` is parsed
+        with :func:`extract_json_from_response` and clamped via
+        :meth:`_clamp_params`.
+        """
+        from eda_agents.agents.claude_code_harness import ClaudeCodeHarness
+
+        prompt = self._build_flow_proposal_prompt(
+            program_content, history, best, eval_num
+        )
+
+        harness = ClaudeCodeHarness(
+            prompt=prompt,
+            work_dir=self.design.project_dir(),
+            allow_dangerous=self.allow_dangerous,
+            cli_path=self.cli_path,
+            timeout_s=300,
+            max_budget_usd=2.0,
+        )
+
+        result = await harness.run()
+        if not result.success:
+            raise RuntimeError(
+                f"CC CLI flow proposal failed: {result.error or 'unknown'}"
+            )
+
+        text = result.result_text or ""
+        content = extract_json_from_response(text)
+        params = json.loads(content)
+        return self._clamp_params(params)
+
+    async def _propose_params_via_opencode(
+        self,
+        program_content: str,
+        history: list[dict],
+        best: dict | None,
+        eval_num: int,
+    ) -> dict[str, float | int]:
+        """Flow-strategy proposal via the opencode CLI.
+
+        Same shape as :meth:`_propose_params_via_cc_cli`. Uses
+        ``self.opencode_model`` (e.g. ``openai/gpt-5.3-codex``) under
+        the opencode CLI so codex-class models run through the
+        opencode OAuth, NOT through LiteLLM ``acompletion`` (which
+        would short-circuit straight to OpenAI's API and ignore the
+        subscription).
+        """
+        from eda_agents.agents.opencode_harness import OpenCodeHarness
+
+        prompt = self._build_flow_proposal_prompt(
+            program_content, history, best, eval_num
+        )
+
+        harness = OpenCodeHarness(
+            prompt=prompt,
+            work_dir=self.design.project_dir(),
+            model=self.opencode_model,
+            cli_path=self.opencode_cli_path,
+            timeout_s=300,
+        )
+
+        result = await harness.run()
+        if not result.success:
+            raise RuntimeError(
+                f"OpenCode flow proposal failed: {result.error or 'unknown'}"
+            )
+
+        text = result.result_text or ""
+        content = extract_json_from_response(text)
+        params = json.loads(content)
+        return self._clamp_params(params)
+
+    def _clamp_params(self, params: dict) -> dict[str, float | int]:
+        """Coerce proposed params for downstream consumption.
+
+        Behaviour by key class:
+
+        * **Declared design-space keys**: clamp / snap to the
+          declared range. Discrete lists snap to the nearest valid
+          value; continuous ``(lo, hi)`` tuples clamp to the bound.
+          A missing value gets filled from ``default_config`` (or
+          the lower bound if the default is also absent).
+        * **Undeclared keys** (anything the LLM proposes that is not
+          in ``design.design_space()``): pass through untouched.
+
+        The pass-through is intentional. The autoresearch policy is
+        "design space is a starting hint; the model has full
+        flexibility to experiment with any LibreLane safe-listed
+        config key". The downstream
+        ``LibreLaneRunner.modify_config`` call validates each key
+        against ``SAFE_CONFIG_KEYS`` and either accepts it (writes
+        to ``config.yaml``) or rejects it (caught by the eval loop's
+        ``ValueError`` handler at ``_evaluate``). Either outcome is
+        useful feedback for the LLM; silently dropping undeclared
+        keys was the broken behaviour.
         """
         space = self.design.design_space()
         default = self.design.default_config()
@@ -382,6 +730,15 @@ class DigitalAutoresearchRunner:
             else:
                 clean[name] = val
 
+        # Pass-through any key the LLM proposed that is not in the
+        # declared design space. modify_config will safety-check each
+        # one and reject (with a logged warning) anything outside
+        # SAFE_CONFIG_KEYS.
+        for name, val in params.items():
+            if name in space or name in clean:
+                continue
+            clean[name] = val
+
         return clean
 
     # ------------------------------------------------------------------
@@ -395,6 +752,17 @@ class DigitalAutoresearchRunner:
         LibreLane v3 requires yosys >= 0.60 and a recent OpenROAD.
         System packages may be outdated. Auto-detect and prepend
         nix-store tool directories when available.
+
+        Also injects ``PYTHONPATH`` pointing at the LibreLane venv's
+        ``site-packages``: Yosys (from Nix) embeds its own CPython that
+        runs ``pyosys/json_header.py`` and imports ``click``,
+        ``ys_common`` from the venv. Without this, the
+        ``Yosys.JsonHeader`` step crashes with ``ModuleNotFoundError:
+        No module named 'click'`` before producing any
+        ``runs/<tag>/`` artefact. This mirrors the PYTHONPATH prefix
+        the from-spec idea-loop prompt embeds (``tool_defs.py:984``)
+        for the agent's own Bash tool calls; autoresearch invokes
+        LibreLane directly, so the env must carry the same prefix.
         """
         import os as _os
 
@@ -404,6 +772,20 @@ class DigitalAutoresearchRunner:
             nix_prefix = ":".join(nix_dirs)
             env_extra["PATH"] = f"{nix_prefix}:{current_path}"
             logger.info("Prepended nix tools to PATH: %s", nix_prefix)
+
+        venv_paths = _detect_librelane_venv_pythonpath()
+        if venv_paths:
+            current = env_extra.get(
+                "PYTHONPATH", _os.environ.get("PYTHONPATH", "")
+            )
+            prefix = ":".join(venv_paths)
+            env_extra["PYTHONPATH"] = (
+                f"{prefix}:{current}" if current else prefix
+            )
+            logger.info(
+                "Prepended LibreLane venv site-packages to PYTHONPATH: %s",
+                prefix,
+            )
 
     def _read_rtl_sources(self) -> dict[str, str]:
         """Read current RTL files into {relative_path: content}."""
@@ -489,8 +871,15 @@ class DigitalAutoresearchRunner:
             log = lint_result.log_tail or ""
             return False, f"{error}\n{log[:500]}", 0
 
-        warnings = lint_result.metrics.get("lint_warnings", 0)
-        return True, None, warnings
+        # ``StageResult`` exposes lint metrics via ``metrics_delta`` (the
+        # canonical name across the digital flow stages). The previous
+        # version reached for ``lint_result.metrics`` which does not
+        # exist on the dataclass and crashed the very first hybrid eval
+        # for every non-cc_cli backend (opencode hit it on demo_goertzel
+        # FP32; cc_cli skips this code path because the agent already
+        # wrote files and the call site lints inline).
+        warnings = lint_result.metrics_delta.get("lint_warnings", 0)
+        return True, None, int(warnings)
 
     async def _propose_rtl(
         self,
@@ -521,7 +910,7 @@ class DigitalAutoresearchRunner:
                 {"role": "user", "content": user_prompt},
             ],
             "max_tokens": 4096,
-            "temperature": 0.7,
+            "temperature": proposal_temperature(self.model),
         }
 
         try:
@@ -569,7 +958,7 @@ class DigitalAutoresearchRunner:
                 {"role": "user", "content": user_prompt},
             ],
             "max_tokens": 4096,
-            "temperature": 0.7,
+            "temperature": proposal_temperature(self.model),
         }
 
         try:
