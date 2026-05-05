@@ -14,6 +14,7 @@ from pathlib import Path
 from eda_agents.core.digital_design import (
     DEFAULT_PPA_COLUMNS,
     DigitalDesign,
+    TestbenchSpec,
 )
 from eda_agents.core.flow_metrics import FlowMetrics
 from eda_agents.core.stage_results import StageResults
@@ -60,6 +61,9 @@ class _MinimalDesign(DigitalDesign):
 
     def reference_description(self):
         return ""
+
+    def testbench(self):
+        return TestbenchSpec(driver="cocotb", target="sim")
 
 
 def test_default_columns_match_canonical_tuple():

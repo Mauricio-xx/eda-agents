@@ -57,6 +57,13 @@ class _DummyDesign(DigitalDesign):
     def reference_description(self):
         return "DENSITY=50, CLOCK=30: WNS=+5ns"
 
+    def testbench(self):
+        return TestbenchSpec(
+            driver="cocotb",
+            target="sim",
+            work_dir_relative="tb",
+        )
+
 
 class TestDigitalDesignABC:
     def test_instantiate_dummy(self):
@@ -98,9 +105,33 @@ class TestDigitalDesignABC:
         d = _DummyDesign()
         assert d.rtl_sources() == []
 
-    def test_testbench_default_none(self):
+    def test_dummy_design_testbench_override(self):
         d = _DummyDesign()
-        assert d.testbench() is None
+        assert d.testbench().driver == "cocotb"
+
+    def test_subclass_without_testbench_cannot_instantiate(self):
+        """``DigitalDesign.testbench`` is mandatory: a subclass that
+        omits the override must fail at instantiation, not silently
+        skip simulation."""
+        import pytest
+
+        class _NoTbDesign(DigitalDesign):
+            project_name = lambda self: "no-tb"  # noqa: E731
+            specification = lambda self: ""  # noqa: E731
+            design_space = lambda self: {}  # noqa: E731
+            flow_config_overrides = lambda self: {}  # noqa: E731
+            project_dir = lambda self: Path("/tmp")  # noqa: E731
+            librelane_config = lambda self: Path("/tmp/c.yaml")  # noqa: E731
+            compute_fom = lambda self, m: 0.0  # noqa: E731, ARG005
+            check_validity = lambda self, m: (True, [])  # noqa: E731, ARG005
+            prompt_description = lambda self: ""  # noqa: E731
+            design_vars_description = lambda self: ""  # noqa: E731
+            specs_description = lambda self: ""  # noqa: E731
+            fom_description = lambda self: ""  # noqa: E731
+            reference_description = lambda self: ""  # noqa: E731
+
+        with pytest.raises(TypeError, match="testbench"):
+            _NoTbDesign()
 
     def test_compute_fom_valid(self):
         d = _DummyDesign()

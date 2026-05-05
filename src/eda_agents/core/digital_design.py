@@ -242,9 +242,17 @@ class DigitalDesign(ABC):
                 total += len(src.read_text().splitlines())
         return total
 
-    def testbench(self) -> TestbenchSpec | None:
-        """How to run RTL simulation, or None if not available."""
-        return None
+    @abstractmethod
+    def testbench(self) -> TestbenchSpec:
+        """How to run RTL simulation for this design.
+
+        Must return a :class:`TestbenchSpec` whose underlying tb file
+        satisfies the ``digital.cocotb_testbench`` skill rules so the
+        same testbench drives RTL, post-synth GL, and post-PnR-SDF
+        simulation. Designs that genuinely cannot ship a testbench
+        should not be modelled as :class:`DigitalDesign`s — the
+        framework's verification contract is mandatory.
+        """
 
     def flow_type(self) -> Literal["Classic", "Chip"]:
         """LibreLane flow type: 'Classic' (macro-only) or 'Chip' (with padring)."""

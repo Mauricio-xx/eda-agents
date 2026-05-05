@@ -16,7 +16,7 @@ import pytest
 from eda_agents.core.designs.fazyrv_hachure import FazyRvHachureDesign
 from eda_agents.core.designs.generic import GenericDesign
 from eda_agents.core.designs.systolic_mac_dft import SystolicMacDftDesign
-from eda_agents.core.digital_design import DigitalDesign
+from eda_agents.core.digital_design import DigitalDesign, TestbenchSpec
 from eda_agents.core.topology import CircuitTopology
 from eda_agents.skills import get_skill
 from eda_agents.topologies import get_topology_by_name, list_topology_names
@@ -105,6 +105,9 @@ class _BareDigitalDesign(DigitalDesign):
 
     def reference_description(self) -> str:
         return ""
+
+    def testbench(self) -> TestbenchSpec:
+        return TestbenchSpec(driver="cocotb", target="sim")
 
 
 def test_default_relevant_skills_empty_circuit_topology():
