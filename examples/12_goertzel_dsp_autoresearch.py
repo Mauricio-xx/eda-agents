@@ -22,11 +22,11 @@ Usage:
       --output /tmp/goertzel_smoke \\
       --budget 3
 
-    # Real run with Gemini Flash. Requires a phase_idea-shaped project
-    # with cocotb tb at <project>/tb/test_demo_goertzel_throughput.py
-    # and a LibreLane config.yaml at <project>/config.yaml.
+    # Real run with Gemini Flash. Requires a project layout with the
+    # cocotb tb at <project>/tb/test_demo_goertzel_throughput.py and
+    # a LibreLane config.yaml at <project>/config.yaml.
     python examples/12_goertzel_dsp_autoresearch.py \\
-      --project-dir /home/montanares/i2o_claude_demo/idea_to_optimize/phase_idea \\
+      --project-dir /path/to/your/goertzel_project \\
       --pdk-root /path/to/gf180mcu \\
       --model google/gemini-3-flash-preview \\
       --budget 5
@@ -63,9 +63,6 @@ import time
 from pathlib import Path
 
 DEFAULT_MODEL = "google/gemini-3-flash-preview"
-DEFAULT_PROJECT_DIR = (
-    "/home/montanares/i2o_claude_demo/idea_to_optimize/phase_idea"
-)
 
 
 def parse_fom_weights(raw: str | None) -> dict[str, float] | None:
@@ -103,10 +100,11 @@ async def main():
         )
     )
     parser.add_argument(
-        "--project-dir", default=DEFAULT_PROJECT_DIR,
+        "--project-dir", default=None,
         help=(
             "Project root containing the Goertzel RTL, cocotb tb, and "
-            f"LibreLane config.yaml. Default: {DEFAULT_PROJECT_DIR}"
+            "LibreLane config.yaml. REQUIRED for live runs; mock mode "
+            "(--use-mock-metrics) tolerates the flag being omitted."
         ),
     )
     parser.add_argument(
@@ -225,7 +223,15 @@ async def main():
     else:
         logging.basicConfig(level=logging.WARNING)
 
-    project_dir = Path(args.project_dir).expanduser().resolve()
+    if args.project_dir:
+        project_dir = Path(args.project_dir).expanduser().resolve()
+    elif args.use_mock_metrics:
+        # Mock path never reads the project dir; cwd is a placeholder.
+        project_dir = Path.cwd()
+    else:
+        print("--project-dir is required for live runs")
+        sys.exit(1)
+
     if not args.use_mock_metrics:
         if not project_dir.is_dir():
             print(f"--project-dir does not exist: {project_dir}")
