@@ -75,6 +75,7 @@ from eda_agents.agents._autoresearch_core import (
     TsvLogger,
     extract_json_from_response,
     generate_program_content,
+    proposal_temperature,
 )
 from eda_agents.agents.phase_results import AutoresearchResult
 from eda_agents.core.pdk import PdkConfig, resolve_pdk
@@ -140,17 +141,12 @@ class AutoresearchRunner:
 
     def _generate_program(self) -> str:
         """Generate the initial program.md content from topology metadata."""
-        space = self.topology.design_space()
-        space_lines = "\n".join(
-            f"- {name}: [{lo}, {hi}]" for name, (lo, hi) in space.items()
-        )
         return generate_program_content(
             domain_name=self.topology.topology_name(),
             pdk_display_name=self.pdk.display_name,
             fom_description=self.topology.fom_description(),
             specs_description=self.topology.specs_description(),
             design_vars_description=self.topology.design_vars_description(),
-            design_space_lines=space_lines,
             reference_description=self.topology.reference_description(),
         )
 
@@ -289,7 +285,7 @@ class AutoresearchRunner:
                 {"role": "user", "content": prompt},
             ],
             "max_tokens": 1024,
-            "temperature": 0.7,
+            "temperature": proposal_temperature(self.model),
         }
 
         # response_format not supported by all providers (e.g., z.ai).

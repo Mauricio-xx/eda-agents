@@ -88,6 +88,11 @@ def _make_design():
     design.extract_measurements.side_effect = extract_measurements
     design.compute_fom.side_effect = compute_fom
     design.check_validity.side_effect = check_validity
+    # Anti-centroid seed: by default the mock has no baseline so the
+    # runner takes the LLM-only path (matches every legacy test's
+    # implicit expectation). Tests that exercise the seed override
+    # this in-place.
+    design.baseline_params.return_value = {}
     return design
 
 
@@ -434,8 +439,19 @@ class TestFullLoop:
             assert result.kept == 0
 
     @pytest.mark.anyio
-    async def test_llm_failure_fallback(self, design, tmp_path):
-        """LLM failure should fall back to default params."""
+    async def test_llm_failure_fallback_uses_baseline(self, design, tmp_path):
+        """LLM failure should fall back to baseline_params, not the
+        centroid-of-design-space midpoint that ``default_config()``
+        returns. The baseline anchor is what makes the fallback safe;
+        without it the fallback re-introduces the centroid bias the
+        seed was specifically designed to remove."""
+        # Pin a non-midpoint baseline so we can distinguish from
+        # default_config (whose midpoint for the discrete fixture is
+        # PL=65, CLOCK=40 — too close to the test value).
+        design.baseline_params.return_value = {
+            "PL_TARGET_DENSITY_PCT": 75,
+            "CLOCK_PERIOD": 50,
+        }
         metrics_path = _make_mock_metrics_file(tmp_path)
         runner = DigitalAutoresearchRunner(
             design=design,
@@ -446,13 +462,25 @@ class TestFullLoop:
         )
 
         with patch.object(runner, "_propose_params", new_callable=AsyncMock) as mock_propose:
-            mock_propose.side_effect = [
-                RuntimeError("API timeout"),
-                {"PL_TARGET_DENSITY_PCT": 75, "CLOCK_PERIOD": 45},
-            ]
+            # Eval 1 will be the seeded baseline (no LLM call). Eval 2's
+            # LLM call raises, exercising the fallback path.
+            mock_propose.side_effect = [RuntimeError("API timeout")]
 
             result = await runner.run(tmp_path / "run")
+            # 1 seeded eval + 1 LLM-failed-eval (baseline fallback) = 2
             assert result.total_evals == 2
+
+            # The TSV's eval-2 row must carry the baseline (75 / 50),
+            # not the design_space midpoint (65 / 40).
+            tsv_lines = (tmp_path / "run" / "results.tsv").read_text().strip().splitlines()
+            # header + 2 data rows
+            assert len(tsv_lines) == 3
+            eval2 = tsv_lines[2].split("\t")
+            # Header layout: eval, PL_TARGET_DENSITY_PCT, CLOCK_PERIOD,
+            # ...measurements..., fom, valid, status
+            assert eval2[0] == "2"
+            assert float(eval2[1]) == 75.0  # PL_TARGET_DENSITY_PCT
+            assert float(eval2[2]) == 50.0  # CLOCK_PERIOD
 
     @pytest.mark.anyio
     async def test_crash_handled(self, design, tmp_path):
@@ -1302,3 +1330,281 @@ class TestApplyRtlAndLint:
         assert err is not None
         assert "3 lint errors" in err
         assert warns == 0
+
+
+# ---------------------------------------------------------------------------
+# Anti-centroid seed + drop-tuples tests
+# ---------------------------------------------------------------------------
+
+
+class TestProgramMdNoLiteralTuples:
+    """The Goertzel reward-hacking incident traced the LLM's centroid
+    pick to the literal ``[lo, hi]`` lines under ``## Design Space``.
+    The harness now passes only the design's own
+    ``design_vars_description`` text — no auto-generated tuple
+    serialisation, no ``Ranges:`` sub-block."""
+
+    def test_program_md_uses_design_vars_description_only(self, design):
+        # Sentinel string lets us assert the description is plumbed
+        # through verbatim instead of being supplemented with
+        # auto-generated tuple text.
+        sentinel = "SENTINEL_DESIGN_DESCRIPTION_42"
+        design.design_vars_description.return_value = sentinel
+        runner = DigitalAutoresearchRunner(design=design)
+        content = runner._generate_program()
+        assert sentinel in content
+        assert "Ranges:" not in content
+        # No tuple-style auto-generated line should appear either.
+        assert "- PL_TARGET_DENSITY_PCT: [" not in content
+        assert "- CLOCK_PERIOD: [" not in content
+
+    def test_program_md_no_literal_range_tuples_with_generic(
+        self, tmp_path,
+    ):
+        """End-to-end check via GenericDesign: the centroid-anchoring
+        ``(0.1, 10000.0)`` parens form must NOT appear anywhere in
+        program.md. The descriptive ``range [0.1, 10000.0]`` form
+        lives inside free-form prose, which is acceptable — the LLM
+        sees that as bounds, not as a midpoint hint."""
+        import yaml as _yaml
+
+        from eda_agents.core.designs.generic import GenericDesign
+
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(_yaml.safe_dump({
+            "DESIGN_NAME": "demo_block",
+            "CLOCK_PERIOD": 40,
+            "PL_TARGET_DENSITY_PCT": 65,
+            "VERILOG_FILES": ["dir::../src/top.v"],
+        }))
+        d = GenericDesign(cfg)
+        runner = DigitalAutoresearchRunner(design=d)
+        content = runner._generate_program()
+        # Continuous-range tuple form must be gone.
+        assert "(0.1, 10000.0)" not in content
+        assert "(1.0, 99.0)" not in content
+
+
+class TestSeedEval:
+    """Coverage for the eval-1 baseline seed + downstream effects."""
+
+    @pytest.mark.anyio
+    async def test_run_seeds_eval1_with_baseline(self, design, tmp_path):
+        """First eval comes from baseline_params, not from the LLM.
+
+        We set baseline=(75, 50) and the LLM mock to (45, 35). The
+        eval-1 row must carry 75/50; the LLM mock must NOT have been
+        called at all (budget=1 → only the seed runs)."""
+        design.baseline_params.return_value = {
+            "PL_TARGET_DENSITY_PCT": 75,
+            "CLOCK_PERIOD": 50,
+        }
+        metrics_path = _make_mock_metrics_file(tmp_path)
+        runner = DigitalAutoresearchRunner(
+            design=design,
+            model="test-model",
+            budget=1,
+            use_mock_metrics=metrics_path,
+            dedup=False,
+        )
+
+        with patch.object(
+            runner, "_propose_params", new_callable=AsyncMock,
+        ) as mock_propose:
+            mock_propose.return_value = {
+                "PL_TARGET_DENSITY_PCT": 45,
+                "CLOCK_PERIOD": 35,
+            }
+            await runner.run(tmp_path / "run")
+            # The LLM proposal must NOT have been called for eval 1.
+            assert mock_propose.await_count == 0
+
+        tsv_lines = (
+            (tmp_path / "run" / "results.tsv").read_text().strip().splitlines()
+        )
+        assert len(tsv_lines) == 2  # header + 1 row
+        eval1 = tsv_lines[1].split("\t")
+        # Header order: eval, PL_TARGET_DENSITY_PCT, CLOCK_PERIOD, ...
+        assert eval1[0] == "1"
+        assert float(eval1[1]) == 75.0
+        assert float(eval1[2]) == 50.0
+
+    @pytest.mark.anyio
+    async def test_run_skips_seed_when_baseline_empty(self, design, tmp_path):
+        """When baseline_params returns {}, the runner falls back to
+        the LLM-only path for eval 1. Mock the proposal so the test
+        is deterministic."""
+        design.baseline_params.return_value = {}
+        metrics_path = _make_mock_metrics_file(tmp_path)
+        runner = DigitalAutoresearchRunner(
+            design=design,
+            model="test-model",
+            budget=1,
+            use_mock_metrics=metrics_path,
+            dedup=False,
+        )
+
+        with patch.object(
+            runner, "_propose_params", new_callable=AsyncMock,
+        ) as mock_propose:
+            mock_propose.return_value = {
+                "PL_TARGET_DENSITY_PCT": 65,
+                "CLOCK_PERIOD": 40,
+            }
+            await runner.run(tmp_path / "run")
+            # The LLM was the source of eval 1.
+            assert mock_propose.await_count == 1
+
+    @pytest.mark.anyio
+    async def test_run_seed_only_for_flow_strategy(self, design, tmp_path):
+        """The seed concept does not translate cleanly to RTL/hybrid
+        strategies (no analogous baseline RTL diff). Even with a
+        non-empty baseline the runner must call the LLM for eval 1
+        when ``strategy="rtl"``."""
+        design.baseline_params.return_value = {
+            "PL_TARGET_DENSITY_PCT": 75,
+            "CLOCK_PERIOD": 50,
+        }
+        # Strategy="rtl" requires non-empty rtl_sources.
+        rtl_file = tmp_path / "top.v"
+        rtl_file.write_text("module top; endmodule\n")
+        design.rtl_sources.return_value = [rtl_file]
+
+        runner = DigitalAutoresearchRunner(
+            design=design,
+            model="test-model",
+            budget=1,
+            strategy="rtl",
+            backend="litellm",
+        )
+
+        # Patch the rtl proposal call AND _evaluate so we don't hit
+        # any real LibreLane / RTL-snapshot infra.
+        with patch.object(
+            runner, "_propose_litellm", new_callable=AsyncMock,
+        ) as mock_propose, \
+            patch.object(
+                runner, "_evaluate", new_callable=AsyncMock,
+            ) as mock_eval, \
+            patch(
+                "eda_agents.agents.rtl_snapshot_manager.RtlSnapshotManager.init_from_originals",
+                lambda self, *a, **kw: None,
+            ), \
+            patch(
+                "eda_agents.agents.rtl_snapshot_manager.RtlSnapshotManager.content_hash",
+                lambda self, *a, **kw: "hash",
+            ):
+            mock_propose.return_value = {
+                "rtl_changes": {}, "rationale": "noop",
+            }
+            mock_eval.return_value = {
+                "eval": 1,
+                "params": {},
+                "success": True,
+                "valid": True,
+                "fom": 1.0,
+                "violations": [],
+                "wns_worst_ns": 1.0,
+            }
+            await runner.run(tmp_path / "run")
+            # Even though baseline_params is non-empty, the runner
+            # must have hit the LLM path because strategy != "flow".
+            assert mock_propose.await_count == 1
+
+    @pytest.mark.anyio
+    async def test_resume_after_baseline_seed(self, design, tmp_path):
+        """A pre-existing TSV with eval 1 = baseline (status=kept)
+        must resume cleanly: start_eval=2, baseline as the current
+        best, and the runner does NOT re-seed."""
+        design.baseline_params.return_value = {
+            "PL_TARGET_DENSITY_PCT": 75,
+            "CLOCK_PERIOD": 50,
+        }
+        metrics_path = _make_mock_metrics_file(tmp_path)
+        work_dir = tmp_path / "run"
+        work_dir.mkdir()
+
+        runner = DigitalAutoresearchRunner(
+            design=design,
+            model="test-model",
+            budget=1,
+            use_mock_metrics=metrics_path,
+            dedup=False,
+        )
+        runner._make_program_store(work_dir).init()
+        tsv_logger = runner._make_tsv_logger(work_dir / "results.tsv")
+        tsv_logger.write_header()
+        tsv_logger.append_row({
+            "eval": 1,
+            "params": {
+                "PL_TARGET_DENSITY_PCT": 75.0,
+                "CLOCK_PERIOD": 50.0,
+            },
+            "wns_worst_ns": 1.4,
+            "cell_count": 12000,
+            "die_area_um2": 250000.0,
+            "power_mw": 50.0,
+            "wire_length_um": 150000.0,
+            "fom": 2.4,
+            "valid": True,
+            "status": "kept",
+        })
+
+        with patch.object(
+            runner, "_propose_params", new_callable=AsyncMock,
+        ) as mock_propose:
+            mock_propose.return_value = {
+                "PL_TARGET_DENSITY_PCT": 65,
+                "CLOCK_PERIOD": 40,
+            }
+            result = await runner.run(work_dir)
+            # 1 prior + 1 new (LLM-proposed, no re-seed) = 2 total.
+            assert result.total_evals == 2
+            # The new eval must have come from the LLM, not a re-seed.
+            assert mock_propose.await_count == 1
+
+    def test_eval2_prompt_mentions_baseline(self, design):
+        """When history[0]['seed'] is True, the eval 2 prompt must
+        explicitly tell the LLM that eval 1 is the project baseline
+        so it proposes a delta instead of guessing the same point."""
+        runner = DigitalAutoresearchRunner(design=design)
+        seed_entry = {
+            "eval": 1,
+            "fom": 2.0,
+            "valid": True,
+            "params": {
+                "PL_TARGET_DENSITY_PCT": 75,
+                "CLOCK_PERIOD": 50,
+            },
+            "wns_worst_ns": 1.4,
+            "cell_count": 12000,
+            "die_area_um2": 250000.0,
+            "power_mw": 50.0,
+            "kept": True,
+            "status": "kept",
+            "seed": True,
+        }
+        prompt = runner._build_proposal_prompt([seed_entry], seed_entry, 2)
+        assert "baseline" in prompt.lower()
+        assert "delta" in prompt.lower()
+
+    def test_eval2_prompt_quiet_when_no_seed(self, design):
+        """The anchor cue is only emitted on the post-seed eval 2.
+        Without a seeded history[0], the prompt stays unchanged."""
+        runner = DigitalAutoresearchRunner(design=design)
+        non_seed_entry = {
+            "eval": 1,
+            "fom": 0.0,
+            "valid": False,
+            "params": {
+                "PL_TARGET_DENSITY_PCT": 65,
+                "CLOCK_PERIOD": 40,
+            },
+            "kept": False,
+            "status": "discarded",
+            "seed": False,
+        }
+        prompt = runner._build_proposal_prompt(
+            [non_seed_entry], None, 2,
+        )
+        assert "project baseline" not in prompt.lower()

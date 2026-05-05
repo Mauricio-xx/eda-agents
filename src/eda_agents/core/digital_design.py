@@ -26,10 +26,13 @@ domain-agnostic.
 
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
+
+import yaml
 
 from eda_agents.core.stage_results import StageResults
 
@@ -325,6 +328,55 @@ class DigitalDesign(ABC):
             else:
                 result[name] = values
         return result
+
+    def baseline_params(self) -> dict[str, float | int]:
+        """Reference design point read from the project's LibreLane config.
+
+        Used by ``DigitalAutoresearchRunner`` to seed eval 1 before the
+        LLM proposal loop. The runner calls this once at start-up; the
+        returned dict is clamped against :meth:`design_space` and run
+        through the normal evaluate-then-keep pipeline as if the LLM had
+        proposed it. Subclasses may override to source the baseline
+        from elsewhere (e.g. a curated reference rather than the live
+        config).
+
+        Default behaviour: parse :meth:`librelane_config` (YAML or
+        JSON) and return ``{key: config[key]}`` for every key present
+        in :meth:`design_space`. Keys missing from the file are
+        omitted so the runner can decide whether to skip the seed
+        (empty dict) or use a partial seed.
+
+        Returns an empty dict if the config file is missing,
+        unparseable, or has an unrecognised suffix.
+        """
+        cfg_path = self.librelane_config()
+        if not cfg_path.is_file():
+            return {}
+        try:
+            text = cfg_path.read_text()
+            if cfg_path.suffix in (".yaml", ".yml"):
+                cfg = yaml.safe_load(text) or {}
+            elif cfg_path.suffix == ".json":
+                cfg = json.loads(text)
+            else:
+                return {}
+        except (yaml.YAMLError, json.JSONDecodeError, OSError):
+            return {}
+        if not isinstance(cfg, dict):
+            return {}
+        out: dict[str, float | int] = {}
+        for key, values in self.design_space().items():
+            if key not in cfg:
+                continue
+            raw = cfg[key]
+            if isinstance(values, tuple):
+                try:
+                    out[key] = float(raw)
+                except (TypeError, ValueError):
+                    continue
+            else:
+                out[key] = raw
+        return out
 
     def exploration_hints(self) -> dict[str, int | float]:
         """Hints for the autoresearch exploration loop.

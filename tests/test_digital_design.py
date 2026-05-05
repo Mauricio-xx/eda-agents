@@ -1,6 +1,9 @@
 """Tests for DigitalDesign ABC and concrete design wrappers."""
 
+import json
 from pathlib import Path
+
+import yaml
 
 from eda_agents.core.digital_design import DigitalDesign, TestbenchSpec
 from eda_agents.core.flow_metrics import FlowMetrics
@@ -157,6 +160,83 @@ class TestDigitalDesignABC:
     def test_exploration_hints_default(self):
         d = _DummyDesign()
         assert d.exploration_hints() == {}
+
+
+class _ConfigBackedDesign(_DummyDesign):
+    """Dummy that points librelane_config() at a caller-supplied path.
+
+    Lets the baseline_params() default exercise both YAML and JSON
+    inputs, missing files, and malformed payloads.
+    """
+
+    def __init__(self, config_path: Path):
+        self._config_path = config_path
+
+    def librelane_config(self) -> Path:
+        return self._config_path
+
+
+class TestBaselineParamsDefault:
+    """Exercises ``DigitalDesign.baseline_params`` ABC default."""
+
+    def test_baseline_params_default_reads_yaml(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(yaml.safe_dump({"DENSITY": 60, "CLOCK": 40.5}))
+        d = _ConfigBackedDesign(cfg)
+        out = d.baseline_params()
+        assert out == {"DENSITY": 60, "CLOCK": 40.5}
+
+    def test_baseline_params_default_reads_json(self, tmp_path):
+        cfg = tmp_path / "config.json"
+        cfg.write_text(json.dumps({"DENSITY": 50, "CLOCK": 25}))
+        d = _ConfigBackedDesign(cfg)
+        out = d.baseline_params()
+        assert out["DENSITY"] == 50
+        assert out["CLOCK"] == 25.0
+
+    def test_baseline_params_default_partial_yaml(self, tmp_path):
+        # Only one of the two design-space keys present in YAML.
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(yaml.safe_dump({"CLOCK": 30, "UNRELATED": 1}))
+        d = _ConfigBackedDesign(cfg)
+        out = d.baseline_params()
+        assert out == {"CLOCK": 30.0}
+        # The unrelated key must NOT leak through; it isn't in
+        # design_space and would corrupt _clamp_params downstream.
+        assert "UNRELATED" not in out
+
+    def test_baseline_params_default_missing_config_returns_empty(
+        self, tmp_path,
+    ):
+        d = _ConfigBackedDesign(tmp_path / "no_such_file.yaml")
+        assert d.baseline_params() == {}
+
+    def test_baseline_params_default_unparseable_yaml_returns_empty(
+        self, tmp_path,
+    ):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("not: valid: yaml: ::: ")
+        d = _ConfigBackedDesign(cfg)
+        # Empty dict, no exception. The runner uses the absence as a
+        # signal to fall back to LLM-only.
+        assert d.baseline_params() == {}
+
+    def test_baseline_params_default_non_dict_yaml_returns_empty(
+        self, tmp_path,
+    ):
+        # YAML root is a list, not a mapping.
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("- one\n- two\n")
+        d = _ConfigBackedDesign(cfg)
+        assert d.baseline_params() == {}
+
+    def test_baseline_params_default_unsupported_suffix_returns_empty(
+        self, tmp_path,
+    ):
+        cfg = tmp_path / "config.toml"
+        cfg.write_text('CLOCK = 30\n')
+        d = _ConfigBackedDesign(cfg)
+        assert d.baseline_params() == {}
 
 
 class TestTestbenchSpec:

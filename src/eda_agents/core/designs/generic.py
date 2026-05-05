@@ -289,14 +289,55 @@ class GenericDesign(DigitalDesign):
             f"characterization available. Default tuning ranges used."
         )
 
-    def design_vars_description(self) -> str:
-        ds = self.design_space()
-        lines = []
-        for key, values in ds.items():
-            if isinstance(values, list):
-                lines.append(f"- {key}: {values}")
+    def baseline_params(self) -> dict[str, float | int]:
+        """Read design-space baseline values from the cached config.
+
+        The default :class:`DigitalDesign.baseline_params` re-parses
+        the YAML/JSON on every call; ``GenericDesign`` already
+        cached the config at ``__init__`` so this override skips the
+        I/O.
+        """
+        out: dict[str, float | int] = {}
+        for key, values in self.design_space().items():
+            if key not in self._config:
+                continue
+            raw = self._config[key]
+            if isinstance(values, tuple):
+                try:
+                    out[key] = float(raw)
+                except (TypeError, ValueError):
+                    continue
             else:
-                lines.append(f"- {key}: ({values[0]}, {values[1]})")
+                out[key] = raw
+        return out
+
+    def design_vars_description(self) -> str:
+        """Describe each tunable knob with its baseline + valid range.
+
+        The baseline (read from ``self._config`` via
+        :meth:`baseline_params`) is the project's current value; the
+        range is the design-space tuple/list. The text is intentionally
+        plain prose — the LLM's "DESIGN-SPACE POLICY" cue lives in the
+        runner's system prompt and gives the directional guidance, so
+        this method only conveys the data.
+        """
+        ds = self.design_space()
+        baseline = self.baseline_params()
+        lines: list[str] = []
+        for key, values in ds.items():
+            b = baseline.get(key)
+            b_str = (
+                f"baseline {b}" if b is not None else "no baseline in config"
+            )
+            if isinstance(values, list):
+                lines.append(f"- {key}: {b_str}; choose from {values}.")
+            else:
+                lo, hi = values
+                lines.append(
+                    f"- {key}: {b_str}; valid range [{lo}, {hi}]. "
+                    f"Explore freely; bounds are a tool-level fence, not "
+                    f"a recommended target."
+                )
         return "\n".join(lines) if lines else "(none)"
 
     def specs_description(self) -> str:

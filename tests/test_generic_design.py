@@ -262,6 +262,36 @@ class TestPromptMetadata:
         desc = d.design_vars_description()
         assert "PL_TARGET_DENSITY_PCT" in desc
 
+    def test_design_vars_description_includes_baseline(self, yaml_config):
+        """SAMPLE_CONFIG has CLOCK_PERIOD=40 / PL_TARGET_DENSITY_PCT=65;
+        both must surface in the description text so the LLM has a
+        real anchor instead of guessing inside a tuple range."""
+        d = GenericDesign(yaml_config)
+        desc = d.design_vars_description()
+        assert "baseline 40" in desc
+        assert "baseline 65" in desc
+
+    def test_design_vars_description_no_literal_range_tuples(self, yaml_config):
+        """Anti-centroid: literal ``(lo, hi)`` parens must NOT appear
+        for any continuous knob. They anchor the LLM at the midpoint
+        (the Goertzel reward-hacking incident). We keep the
+        ``[lo, hi]`` form because that is in the descriptive prose."""
+        d = GenericDesign(yaml_config)
+        desc = d.design_vars_description()
+        assert "(0.1, 10000.0)" not in desc
+        assert "(1.0, 99.0)" not in desc
+
+    def test_design_vars_description_no_baseline_when_missing(self, tmp_path):
+        """When the YAML doesn't carry the design-space keys (rare in
+        practice but possible), the description falls back to a
+        placeholder rather than a confident wrong number."""
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(yaml.dump({"DESIGN_NAME": "minimal"}))
+        d = GenericDesign(cfg)
+        desc = d.design_vars_description()
+        # Neither knob has a baseline — assert the placeholder text
+        assert "no baseline in config" in desc
+
     def test_specs_description(self, yaml_config):
         d = GenericDesign(yaml_config)
         assert "WNS" in d.specs_description()
@@ -273,6 +303,47 @@ class TestPromptMetadata:
     def test_reference_description(self, yaml_config):
         d = GenericDesign(yaml_config)
         assert "baseline" in d.reference_description().lower()
+
+
+class TestBaselineParams:
+    """``GenericDesign.baseline_params`` reads the cached config."""
+
+    def test_baseline_params_uses_cached_config(self, yaml_config):
+        d = GenericDesign(yaml_config)
+        out = d.baseline_params()
+        # Both design-space keys are in SAMPLE_CONFIG.
+        assert out == {
+            "PL_TARGET_DENSITY_PCT": 65.0,
+            "CLOCK_PERIOD": 40.0,
+        }
+
+    def test_baseline_params_partial_yaml(self, tmp_path):
+        # Only one design-space key in YAML.
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(yaml.dump({
+            "DESIGN_NAME": "partial",
+            "CLOCK_PERIOD": 25,
+        }))
+        d = GenericDesign(cfg)
+        out = d.baseline_params()
+        # Density is missing -> not in baseline; no midpoint fallback.
+        assert "PL_TARGET_DENSITY_PCT" not in out
+        assert out["CLOCK_PERIOD"] == 25.0
+
+    def test_baseline_params_ignores_non_designspace_keys(self, yaml_config):
+        d = GenericDesign(yaml_config)
+        out = d.baseline_params()
+        # SAMPLE_CONFIG has DESIGN_NAME, VERILOG_FILES, etc. — none of
+        # those leak into baseline_params; only design-space keys do.
+        assert "DESIGN_NAME" not in out
+        assert "VERILOG_FILES" not in out
+
+    def test_baseline_params_empty_for_missing_keys(self, tmp_path):
+        # Minimal YAML with no design-space keys -> empty baseline.
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(yaml.dump({"DESIGN_NAME": "bare"}))
+        d = GenericDesign(cfg)
+        assert d.baseline_params() == {}
 
 
 # ---------------------------------------------------------------------------

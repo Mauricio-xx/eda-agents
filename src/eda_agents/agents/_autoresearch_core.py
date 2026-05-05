@@ -350,13 +350,17 @@ def generate_program_content(
     fom_description: str,
     specs_description: str,
     design_vars_description: str,
-    design_space_lines: str,
     reference_description: str,
 ) -> str:
     """Generate initial program.md content from metadata.
 
     This is the shared template; callers provide domain-specific text
-    for each section.
+    for each section. The ``Design Space`` body is whatever the design
+    decided to surface in :meth:`DigitalDesign.design_vars_description`
+    — the harness no longer formats range tuples on top of it because
+    literal ``[lo, hi]`` lines anchor the LLM toward the centroid (see
+    the Goertzel reward-hacking incident write-up in
+    ``.claude/plans``).
     """
     return _PROGRAM_TEMPLATE.format(
         goal=(
@@ -368,9 +372,7 @@ def generate_program_content(
             f"Constraints (all must be met for a valid design):\n"
             f"  {specs_description}"
         ),
-        design_space=(
-            f"{design_vars_description}\n\nRanges:\n{design_space_lines}"
-        ),
+        design_space=design_vars_description,
         specs=specs_description,
         reference=reference_description,
     )

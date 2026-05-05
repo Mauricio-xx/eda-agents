@@ -273,7 +273,6 @@ class TestGenerateProgramContent:
             fom_description="Higher is better.",
             specs_description="All specs met.",
             design_vars_description="- x: range [0, 10]",
-            design_space_lines="- x: [0, 10]",
             reference_description="Reference: x=5, FoM=1.0",
         )
         assert "## Goal" in content
@@ -289,12 +288,29 @@ class TestGenerateProgramContent:
             fom_description="f",
             specs_description="s",
             design_vars_description="v",
-            design_space_lines="l",
             reference_description="r",
         )
         for section in ["Goal", "Metrics", "Design Space", "Specs",
                         "Current Best", "Strategy", "Learned So Far", "Rules"]:
             assert f"## {section}" in content
+
+    def test_no_ranges_block(self):
+        """The ``Ranges:`` sub-block was the source of literal range
+        tuples that anchored the LLM at the centroid; the harness no
+        longer emits it. The design's own ``design_vars_description``
+        is the only thing under ``## Design Space`` now."""
+        content = generate_program_content(
+            domain_name="d",
+            pdk_display_name="p",
+            fom_description="f",
+            specs_description="s",
+            design_vars_description="- only-knob: baseline 42",
+            reference_description="r",
+        )
+        assert "Ranges:" not in content
+        # design_vars_description text appears verbatim under the
+        # Design Space heading
+        assert "only-knob: baseline 42" in content
 
 
 # ---------------------------------------------------------------------------

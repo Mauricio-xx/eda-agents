@@ -351,14 +351,6 @@ class DigitalAutoresearchRunner:
     # ------------------------------------------------------------------
 
     def _generate_program(self) -> str:
-        space = self.design.design_space()
-        space_lines = []
-        for name, values in space.items():
-            if isinstance(values, list):
-                space_lines.append(f"- {name}: one of {values}")
-            elif isinstance(values, tuple) and len(values) == 2:
-                space_lines.append(f"- {name}: [{values[0]}, {values[1]}]")
-
         from eda_agents.core.pdk import resolve_pdk as _resolve_pdk
         _pdk = self.design.pdk_config() or _resolve_pdk()
 
@@ -368,7 +360,6 @@ class DigitalAutoresearchRunner:
             fom_description=self.design.fom_description(),
             specs_description=self.design.specs_description(),
             design_vars_description=self.design.design_vars_description(),
-            design_space_lines="\n".join(space_lines),
             reference_description=self.design.reference_description(),
         )
 
@@ -461,6 +452,20 @@ class DigitalAutoresearchRunner:
         eval_num: int,
     ) -> str:
         parts = [f"Evaluation {eval_num}/{self.budget}.\n"]
+
+        # Anti-centroid anchor cue: when eval 1 was seeded with the
+        # project's baseline (status flag ``seed`` on the first
+        # history entry), tell the LLM explicitly so it proposes a
+        # delta instead of redundantly guessing the baseline again.
+        if (
+            eval_num == 2
+            and history
+            and history[0].get("seed")
+        ):
+            parts.append(
+                "Eval 1 is the project baseline read from "
+                "config.yaml; propose a delta, not the same point.\n"
+            )
 
         if best:
             parts.append(
@@ -1688,6 +1693,45 @@ class DigitalAutoresearchRunner:
             rtl_rationale = ""
 
             # ----------------------------------------------------------
+            # Anti-centroid seed: eval 1 = baseline from LibreLane config
+            # ----------------------------------------------------------
+            # When the very first evaluation of a fresh run targets the
+            # ``flow`` strategy, source the parameters from
+            # :meth:`DigitalDesign.baseline_params` (the project's
+            # ``config.yaml``) instead of an LLM proposal. The LLM then
+            # sees a real reference point in the history block from
+            # eval 2 onward, instead of guessing in a vacuum where it
+            # tends to anchor on the centroid of the design-space tuple.
+            is_seed_eval = False
+            if (
+                eval_num == 1
+                and not history
+                and self.strategy == "flow"
+            ):
+                # Probe ``baseline_params`` directly (not the clamped
+                # form) so an empty config produces an empty seed.
+                # ``_clamp_params({})`` would otherwise back-fill from
+                # ``default_config`` and silently re-introduce the
+                # centroid bias.
+                raw_baseline = self.design.baseline_params()
+                if raw_baseline:
+                    seed_params = self._clamp_params(raw_baseline)
+                    logger.info(
+                        "Seeded eval 1 with baseline params from "
+                        "config: %s",
+                        seed_params,
+                    )
+                    params = seed_params
+                    rtl_rationale = "baseline from librelane config"
+                    is_seed_eval = True
+                else:
+                    logger.info(
+                        "Eval 1: no usable baseline from %s; falling "
+                        "back to LLM proposal",
+                        self.design.librelane_config(),
+                    )
+
+            # ----------------------------------------------------------
             # Pre-proposal: restore best RTL for CC CLI (agent writes in-place)
             # ----------------------------------------------------------
             if snapshot_mgr and self.backend == "cc_cli":
@@ -1698,53 +1742,71 @@ class DigitalAutoresearchRunner:
                 )
 
             # ----------------------------------------------------------
-            # Propose
+            # Propose (skipped on the baseline-seeded eval 1)
             # ----------------------------------------------------------
-            try:
-                if self.strategy == "flow":
-                    params = await self._propose_params(
-                        program_content, history, best, eval_num
+            if not is_seed_eval:
+                try:
+                    if self.strategy == "flow":
+                        params = await self._propose_params(
+                            program_content, history, best, eval_num
+                        )
+                    elif self.strategy in ("rtl", "hybrid"):
+                        if self.backend == "cc_cli":
+                            proposal = await self._propose_cc_cli(
+                                program_content, history, best, eval_num
+                            )
+                        elif self.backend == "litellm":
+                            proposal = await self._propose_litellm(
+                                program_content, history, best, eval_num
+                            )
+                        elif self.backend == "opencode":
+                            proposal = await self._propose_opencode(
+                                program_content, history, best, eval_num
+                            )
+                        elif self.strategy == "rtl":
+                            proposal = await self._propose_rtl(
+                                program_content, history, best, eval_num
+                            )
+                        else:
+                            proposal = await self._propose_hybrid(
+                                program_content, history, best, eval_num
+                            )
+                        if self.strategy == "hybrid":
+                            params = self._clamp_params(
+                                proposal.get("config", {})
+                            )
+                        rtl_changes = proposal.get("rtl_changes", {})
+                        rtl_rationale = proposal.get("rationale", "")
+                except Exception as e:
+                    logger.warning(
+                        "LLM proposal failed at eval %d: %s", eval_num, e
                     )
-                elif self.strategy in ("rtl", "hybrid"):
-                    if self.backend == "cc_cli":
-                        proposal = await self._propose_cc_cli(
-                            program_content, history, best, eval_num
-                        )
-                    elif self.backend == "litellm":
-                        proposal = await self._propose_litellm(
-                            program_content, history, best, eval_num
-                        )
-                    elif self.backend == "opencode":
-                        proposal = await self._propose_opencode(
-                            program_content, history, best, eval_num
-                        )
-                    elif self.strategy == "rtl":
-                        proposal = await self._propose_rtl(
-                            program_content, history, best, eval_num
-                        )
+                    if self.strategy == "flow":
+                        # Prefer baseline_params over default_config so
+                        # the fallback never silently re-introduces the
+                        # centroid bias the seed was designed to remove.
+                        # Probe the raw return so an empty baseline
+                        # falls cleanly through to default_config.
+                        raw_baseline = self.design.baseline_params()
+                        if raw_baseline:
+                            params = self._clamp_params(raw_baseline)
+                        else:
+                            params = self._clamp_params(
+                                self.design.default_config()
+                            )
                     else:
-                        proposal = await self._propose_hybrid(
-                            program_content, history, best, eval_num
-                        )
-                    if self.strategy == "hybrid":
-                        params = self._clamp_params(proposal.get("config", {}))
-                    rtl_changes = proposal.get("rtl_changes", {})
-                    rtl_rationale = proposal.get("rationale", "")
-            except Exception as e:
-                logger.warning("LLM proposal failed at eval %d: %s", eval_num, e)
-                if self.strategy == "flow":
-                    params = self._clamp_params(self.design.default_config())
-                else:
-                    # For RTL strategies, no fallback -- skip this eval
-                    entry = {
-                        "eval": eval_num, "params": {},
-                        "success": False, "error": f"Proposal failed: {e}",
-                        "fom": 0.0, "valid": False, "violations": [],
-                        "status": "proposal_fail",
-                    }
-                    history.append(entry)
-                    tsv_logger.append_row(entry)
-                    continue
+                        # For RTL strategies, no fallback -- skip this eval
+                        entry = {
+                            "eval": eval_num, "params": {},
+                            "success": False,
+                            "error": f"Proposal failed: {e}",
+                            "fom": 0.0, "valid": False, "violations": [],
+                            "status": "proposal_fail",
+                            "seed": False,
+                        }
+                        history.append(entry)
+                        tsv_logger.append_row(entry)
+                        continue
 
             # ----------------------------------------------------------
             # Dedup check
@@ -1760,6 +1822,7 @@ class DigitalAutoresearchRunner:
                     "success": False, "error": "duplicate",
                     "fom": 0.0, "valid": False, "violations": [],
                     "status": "dedup", "rtl_hash": rtl_hash,
+                    "seed": is_seed_eval,
                 }
                 history.append(entry)
                 tsv_logger.append_row(entry)
@@ -1869,6 +1932,7 @@ class DigitalAutoresearchRunner:
                     "success": False, "error": str(e),
                     "fom": 0.0, "valid": False, "violations": [],
                     "status": "crash",
+                    "seed": is_seed_eval,
                 }
                 history.append(entry)
                 tsv_logger.append_row(entry)
@@ -1876,9 +1940,10 @@ class DigitalAutoresearchRunner:
                     snapshot_mgr.restore_best(self.design.rtl_sources())
                 continue
 
-            # Add RTL metadata to entry
+            # Add RTL + seed metadata to entry
             entry["rtl_rationale"] = rtl_rationale
             entry["rtl_hash"] = rtl_hash
+            entry["seed"] = is_seed_eval
             if rtl_changes:
                 entry["rtl_files_changed"] = list(rtl_changes.keys())
 
