@@ -1,0 +1,4 @@
+{
+  "cycles_per_sample": 200,
+  "_note": "8 kHz target. At 5000 ns clock period -> throughput = 1e9/(5000*200) = 1 kSPS, below fs_target=8000 -> Nyquist gate FAIL."
+}

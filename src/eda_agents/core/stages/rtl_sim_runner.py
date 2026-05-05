@@ -141,6 +141,20 @@ class CocotbDriver(SimDriver):
 
         success = proc.returncode == 0 and failed == 0
 
+        # Surface a cocotb sidecar ``meas.json`` artefact when the
+        # testbench dropped one. This is the convention domain-specific
+        # designs (e.g. ``GoertzelDspDesign``) use to expose a
+        # measured ``cycles_per_sample`` to ``extract_measurements``;
+        # the runner stays agnostic about the file's contents.
+        artifacts: dict[str, Path] = {}
+        for candidate in (
+            work_dir / "meas.json",
+            work_dir / "sim_build" / "meas.json",
+        ):
+            if candidate.is_file():
+                artifacts["meas.json"] = candidate
+                break
+
         return StageResult(
             stage=FlowStage.RTL_SIM,
             success=success,
@@ -150,6 +164,7 @@ class CocotbDriver(SimDriver):
                 "sim_fail": failed,
                 "sim_skip": skipped,
             },
+            artifacts=artifacts,
             log_tail=combined[-2000:],
             run_time_s=elapsed,
             error=f"{failed}/{tests} tests failed" if failed > 0 else (

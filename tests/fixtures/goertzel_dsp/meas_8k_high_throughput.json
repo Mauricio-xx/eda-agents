@@ -1,0 +1,4 @@
+{
+  "cycles_per_sample": 100,
+  "_note": "8 kHz target. At 10 ns clock period -> throughput = 1e9/(10*100) = 1 MSPS = 125x margin over fs_target=8000."
+}
