@@ -48,6 +48,7 @@ from pathlib import Path
 from eda_agents.core.digital_design import (
     DEFAULT_PPA_COLUMNS,
     DigitalDesign,
+    TestbenchSpec,
 )
 from eda_agents.core.flow_metrics import FlowMetrics
 from eda_agents.core.stage_results import StageResults
@@ -77,6 +78,13 @@ class GoertzelDspDesign(DigitalDesign):
     pdk_root
         Optional PDK root path. Required for live LibreLane runs;
         unit tests leave this ``None``.
+    tb_module
+        cocotb test module name (without ``.py``) the runner asks
+        ``make`` to load via ``MODULE=<name>``. Default is the
+        throughput sidecar tb the autoresearch loop expects.
+    tb_dir
+        Sub-directory of ``project_dir`` where ``make sim`` runs (the
+        directory holding the cocotb Makefile). Default ``"tb"``.
     """
 
     def __init__(
@@ -86,6 +94,8 @@ class GoertzelDspDesign(DigitalDesign):
         fs_target: float = 8000.0,
         dsp_w: float = 2.0,
         pdk_root: Path | str | None = None,
+        tb_module: str = "test_demo_goertzel_throughput",
+        tb_dir: str = "tb",
     ):
         if fs_target <= 0:
             raise ValueError(
@@ -97,6 +107,8 @@ class GoertzelDspDesign(DigitalDesign):
         self._fs_target = float(fs_target)
         self._dsp_w = float(dsp_w)
         self._pdk_root = Path(pdk_root) if pdk_root else None
+        self._tb_module = str(tb_module)
+        self._tb_dir = str(tb_dir)
 
     # ------------------------------------------------------------------
     # Identity / metadata
@@ -137,6 +149,19 @@ class GoertzelDspDesign(DigitalDesign):
 
     def pdk_root(self) -> Path | None:
         return self._pdk_root
+
+    def testbench(self) -> TestbenchSpec | None:
+        # The throughput sidecar tb writes ``meas.json`` next to the
+        # cocotb work dir; ``RtlSimRunner`` searches ``work_dir/meas.json``
+        # then ``work_dir/sim_build/meas.json`` and surfaces it as
+        # ``StageResult.artifacts["meas.json"]``. ``MODULE`` is plumbed
+        # to ``make`` via the env-override path in CocotbDriver.
+        return TestbenchSpec(
+            driver="cocotb",
+            target="sim",
+            env_overrides={"MODULE": self._tb_module},
+            work_dir_relative=self._tb_dir,
+        )
 
     # ------------------------------------------------------------------
     # Domain-specific measurement & FoM
@@ -232,13 +257,30 @@ class GoertzelDspDesign(DigitalDesign):
         )
 
     def design_vars_description(self) -> str:
+        # Anti-centroid: avoid parens-form ``(lo, hi)`` literal tuples;
+        # they anchor the LLM at the midpoint. Show the project's
+        # baseline (read from config.yaml via the ABC default) plus
+        # square-bracket ranges so the prose reads naturally.
+        baseline = self.baseline_params()
+        density_b = baseline.get("PL_TARGET_DENSITY_PCT")
+        clock_b = baseline.get("CLOCK_PERIOD")
+        density_str = (
+            f"baseline {density_b}" if density_b is not None
+            else "no baseline in config"
+        )
+        clock_str = (
+            f"baseline {clock_b}" if clock_b is not None
+            else "no baseline in config"
+        )
         return (
-            "- PL_TARGET_DENSITY_PCT: (1.0, 99.0). Placement density "
-            "for LibreLane; ranges outside crash floorplan but neither "
-            "endpoint hangs the tool.\n"
-            "- CLOCK_PERIOD: (0.1, 10000.0) ns. Tool-level fence; the "
-            "spec gate (Nyquist floor) rejects clocks too slow to keep "
-            "up with the input sample rate, so feel free to explore.\n"
+            f"- PL_TARGET_DENSITY_PCT: {density_str}; valid range "
+            "[1.0, 99.0]. Placement density for LibreLane; ranges "
+            "outside crash floorplan but neither endpoint hangs the "
+            "tool.\n"
+            f"- CLOCK_PERIOD: {clock_str}; valid range "
+            "[0.1, 10000.0] ns. Tool-level fence; the spec gate "
+            "(Nyquist floor) rejects clocks too slow to keep up with "
+            "the input sample rate, so feel free to explore.\n"
             "\nDerived (not a knob): throughput_sps = "
             "1e9 / (CLOCK_PERIOD_ns * cycles_per_sample). "
             "cycles_per_sample is MEASURED post-flow by cocotb; the "

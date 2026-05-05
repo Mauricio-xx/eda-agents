@@ -15,7 +15,10 @@ from pathlib import Path
 import pytest
 
 from eda_agents.core.designs.goertzel_dsp import GoertzelDspDesign
-from eda_agents.core.digital_design import DEFAULT_PPA_COLUMNS
+from eda_agents.core.digital_design import (
+    DEFAULT_PPA_COLUMNS,
+    TestbenchSpec as _TestbenchSpec,  # alias: pytest skips imported "Test*" names
+)
 from eda_agents.core.flow_metrics import FlowMetrics
 from eda_agents.core.flow_stage import FlowStage, StageResult
 from eda_agents.core.stage_results import StageResults
@@ -97,6 +100,71 @@ class TestConstructor:
     def test_rejects_negative_dsp_w(self, tmp_path):
         with pytest.raises(ValueError, match="dsp_w"):
             GoertzelDspDesign(project_dir=tmp_path, dsp_w=-1.0)
+
+
+# ---------------------------------------------------------------------------
+# testbench() override: cocotb plumbing for the throughput sidecar tb
+# ---------------------------------------------------------------------------
+
+
+class TestTestbench:
+    def test_default_returns_cocotb_spec(self, tmp_path):
+        d = GoertzelDspDesign(project_dir=tmp_path)
+        spec = d.testbench()
+        assert isinstance(spec, _TestbenchSpec)
+        assert spec.driver == "cocotb"
+        assert spec.target == "sim"
+        assert spec.env_overrides == {
+            "MODULE": "test_demo_goertzel_throughput",
+        }
+        assert spec.work_dir_relative == "tb"
+
+    def test_custom_tb_module(self, tmp_path):
+        d = GoertzelDspDesign(
+            project_dir=tmp_path,
+            tb_module="test_throughput_variant",
+        )
+        spec = d.testbench()
+        assert spec.env_overrides["MODULE"] == "test_throughput_variant"
+
+    def test_custom_tb_dir(self, tmp_path):
+        d = GoertzelDspDesign(project_dir=tmp_path, tb_dir="alt_tb")
+        spec = d.testbench()
+        assert spec.work_dir_relative == "alt_tb"
+
+
+# ---------------------------------------------------------------------------
+# design_vars_description: anti-centroid format
+# ---------------------------------------------------------------------------
+
+
+class TestDesignVarsDescription:
+    """Anti-centroid commitment: parens-form ``(lo, hi)`` must not
+    appear because it anchors the LLM at the midpoint. Square-bracket
+    form ``[lo, hi]`` is fine -- it reads as descriptive prose."""
+
+    def test_no_paren_tuple_form(self, tmp_path):
+        d = GoertzelDspDesign(project_dir=tmp_path)
+        desc = d.design_vars_description()
+        assert "(0.1, 10000.0)" not in desc
+        assert "(1.0, 99.0)" not in desc
+
+    def test_baseline_placeholder_when_config_missing(self, tmp_path):
+        # tmp_path has no config.yaml -> ABC baseline_params() returns {}.
+        d = GoertzelDspDesign(project_dir=tmp_path)
+        desc = d.design_vars_description()
+        # Both knobs fall back to the placeholder, never to a wrong number.
+        assert desc.count("no baseline in config") == 2
+
+    def test_baseline_surfaces_when_config_present(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "PL_TARGET_DENSITY_PCT: 50\nCLOCK_PERIOD: 1300\n"
+        )
+        d = GoertzelDspDesign(project_dir=tmp_path)
+        desc = d.design_vars_description()
+        assert "baseline 50" in desc
+        assert "baseline 1300" in desc
 
 
 # ---------------------------------------------------------------------------
