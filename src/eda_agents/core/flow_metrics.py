@@ -241,6 +241,50 @@ class FlowMetrics:
         return (len(violations) == 0, violations)
 
     @classmethod
+    def from_measurements(
+        cls, measurements: dict[str, float | int | bool | None]
+    ) -> FlowMetrics:
+        """Build a partial :class:`FlowMetrics` from a measurements dict.
+
+        Inverse of the default :meth:`DigitalDesign.extract_measurements`:
+        accepts the five PPA keys (and a small set of optional ones)
+        and returns a populated dataclass that
+        :meth:`weighted_fom` and :meth:`validity_check` can consume.
+
+        Used by ``GenericDesign`` / ``FazyRvHachureDesign`` /
+        ``SystolicMacDftDesign`` so the dict-based ``compute_fom``
+        signature can stay a one-liner that delegates to the
+        existing PPA helper without re-implementing the formula.
+
+        Recognized keys (others are silently ignored):
+
+        * ``wns_worst_ns`` -> ``wns_worst_ns``
+        * ``cell_count`` -> ``synth_cell_count``
+        * ``die_area_um2`` -> ``die_area_um2``
+        * ``power_mw`` -> ``power_total_w`` (converted mW -> W)
+        * ``wire_length_um`` -> ``wire_length_um``
+        * ``clock_period_ns`` -> ``clock_period_ns``
+        * ``drc_clean`` -> ``drc_clean``
+        * ``lvs_match`` -> ``lvs_match``
+        """
+        kwargs: dict = {}
+        for key, target in (
+            ("wns_worst_ns", "wns_worst_ns"),
+            ("cell_count", "synth_cell_count"),
+            ("die_area_um2", "die_area_um2"),
+            ("wire_length_um", "wire_length_um"),
+            ("clock_period_ns", "clock_period_ns"),
+            ("drc_clean", "drc_clean"),
+            ("lvs_match", "lvs_match"),
+        ):
+            if key in measurements and measurements[key] is not None:
+                kwargs[target] = measurements[key]
+        # power_mw is the runner-facing key; FlowMetrics stores watts.
+        if measurements.get("power_mw") is not None:
+            kwargs["power_total_w"] = float(measurements["power_mw"]) / 1000.0
+        return cls(**kwargs)
+
+    @classmethod
     def from_librelane_run_dir(cls, run_dir: Path | str) -> FlowMetrics:
         """Build FlowMetrics from a LibreLane run directory.
 

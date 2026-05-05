@@ -192,10 +192,13 @@ class GenericDesign(DigitalDesign):
     def librelane_config(self) -> Path:
         return self._config_path
 
-    def compute_fom(self, metrics: FlowMetrics) -> float:
-        valid, _ = self.check_validity(metrics)
+    def compute_fom(
+        self, measurements: dict[str, float | int | None]
+    ) -> float:
+        valid, _ = self.check_validity(measurements)
         if not valid:
             return 0.0
+        metrics = FlowMetrics.from_measurements(measurements)
         return metrics.weighted_fom(
             timing_w=self._fom_w["timing_w"],
             perf_w=self._fom_w["perf_w"],
@@ -203,8 +206,10 @@ class GenericDesign(DigitalDesign):
             power_w=self._fom_w["power_w"],
         )
 
-    def check_validity(self, metrics: FlowMetrics) -> tuple[bool, list[str]]:
-        return metrics.validity_check()
+    def check_validity(
+        self, measurements: dict[str, float | int | None]
+    ) -> tuple[bool, list[str]]:
+        return FlowMetrics.from_measurements(measurements).validity_check()
 
     # ------------------------------------------------------------------
     # Optional overrides

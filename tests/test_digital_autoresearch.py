@@ -14,10 +14,10 @@ import pytest
 
 from eda_agents.agents.digital_autoresearch import (
     DigitalAutoresearchRunner,
-    _DIGITAL_MEASUREMENT_COLS,
     _detect_librelane_venv_pythonpath,
     detect_nix_eda_tool_dirs,
 )
+from eda_agents.core.digital_design import DEFAULT_PPA_COLUMNS
 from eda_agents.core.flow_stage import FlowStage
 
 
@@ -54,18 +54,38 @@ def _make_design():
     from eda_agents.core.pdk import GF180MCU_D
     design.pdk_config.return_value = GF180MCU_D
 
-    # FoM: valid designs get positive FoM
-    def compute_fom(metrics):
-        if metrics.wns_worst_ns is not None and metrics.wns_worst_ns >= 0:
-            return metrics.wns_worst_ns + 1.0
+    # Domain-agnostic API: design declares its measurement columns and
+    # extracts them from the StageResults bag the runner builds. This
+    # mock mirrors the default ABC behavior so the runner sees a real
+    # dict (not a MagicMock auto-generated value).
+    design.measurement_columns.return_value = list(DEFAULT_PPA_COLUMNS)
+
+    def extract_measurements(stage_results):
+        m = stage_results.flow_metrics
+        if m is None:
+            return {col: None for col in DEFAULT_PPA_COLUMNS}
+        return {
+            "wns_worst_ns": m.wns_worst_ns,
+            "cell_count": m.synth_cell_count,
+            "die_area_um2": m.die_area_um2,
+            "power_mw": m.power_total_mw,
+            "wire_length_um": m.wire_length_um,
+        }
+
+    def compute_fom(measurements):
+        wns = measurements.get("wns_worst_ns")
+        if wns is not None and wns >= 0:
+            return wns + 1.0
         return 0.0
 
-    def check_validity(metrics):
+    def check_validity(measurements):
         violations = []
-        if metrics.wns_worst_ns is not None and metrics.wns_worst_ns < 0:
+        wns = measurements.get("wns_worst_ns")
+        if wns is not None and wns < 0:
             violations.append("Timing not closed")
         return (len(violations) == 0, violations)
 
+    design.extract_measurements.side_effect = extract_measurements
     design.compute_fom.side_effect = compute_fom
     design.check_validity.side_effect = check_validity
     return design
@@ -774,20 +794,32 @@ class TestNixEdaToolDetection:
 
 
 class TestTsvColumns:
-    def test_measurement_cols_defined(self):
-        assert "wns_worst_ns" in _DIGITAL_MEASUREMENT_COLS
-        assert "cell_count" in _DIGITAL_MEASUREMENT_COLS
-        assert "die_area_um2" in _DIGITAL_MEASUREMENT_COLS
-        assert "power_mw" in _DIGITAL_MEASUREMENT_COLS
-        assert "wire_length_um" in _DIGITAL_MEASUREMENT_COLS
+    def test_default_ppa_columns_defined(self):
+        # Domain-agnostic API: the canonical PPA tuple lives on
+        # ``digital_design`` (single source of truth) and any design
+        # that doesn't override ``measurement_columns()`` ships these
+        # five names to the TSV.
+        assert "wns_worst_ns" in DEFAULT_PPA_COLUMNS
+        assert "cell_count" in DEFAULT_PPA_COLUMNS
+        assert "die_area_um2" in DEFAULT_PPA_COLUMNS
+        assert "power_mw" in DEFAULT_PPA_COLUMNS
+        assert "wire_length_um" in DEFAULT_PPA_COLUMNS
 
-    def test_header_has_digital_cols(self, design, tmp_path):
+    def test_header_uses_design_measurement_columns(self, design, tmp_path):
         runner = DigitalAutoresearchRunner(design=design)
         tsv_logger = runner._make_tsv_logger(tmp_path / "test.tsv")
         tsv_logger.write_header()
         header = (tmp_path / "test.tsv").read_text().strip()
-        for col in _DIGITAL_MEASUREMENT_COLS:
+        for col in design.measurement_columns():
             assert col in header
+
+    def test_runner_reads_columns_from_design(self, design):
+        # Domain-agnostic invariant: the runner copies whatever the
+        # design declares in ``measurement_columns()`` into its own
+        # ``measurement_cols`` list. Future designs that add columns
+        # therefore propagate without a runner edit.
+        runner = DigitalAutoresearchRunner(design=design)
+        assert runner.measurement_cols == list(design.measurement_columns())
 
 
 # ---------------------------------------------------------------------------

@@ -12,7 +12,16 @@ DigitalAutoresearchRunner (Phase 3) and the ADK digital sub-agents
 needed — zero changes to runners, harnesses, or prompt code.
 
 Evaluation pipeline:
-    config overrides -> LibreLane flow -> FlowMetrics -> FoM
+    config overrides -> LibreLane flow -> StageResults -> measurements -> FoM
+
+The FoM contract is dict-based: a design declares which columns it
+emits via :meth:`measurement_columns`, populates them via
+:meth:`extract_measurements` (which receives the full
+:class:`StageResults` bag, not just :class:`FlowMetrics`), and
+consumes the dict in :meth:`compute_fom` / :meth:`check_validity`.
+This keeps every domain concern (specs, FoM formula, columns,
+validity gates) inside the design subclass and lets the harness stay
+domain-agnostic.
 """
 
 from __future__ import annotations
@@ -22,10 +31,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from eda_agents.core.flow_metrics import FlowMetrics
+from eda_agents.core.stage_results import StageResults
 
 if TYPE_CHECKING:
     from eda_agents.core.pdk import PdkConfig
+
+
+# Default measurement columns the runner emits for a vanilla
+# PPA-style flow. Subclasses with domain-specific metrics (DSP
+# throughput, crypto bits-per-cycle, etc.) extend or override
+# :meth:`DigitalDesign.measurement_columns`.
+DEFAULT_PPA_COLUMNS: tuple[str, ...] = (
+    "wns_worst_ns",
+    "cell_count",
+    "die_area_um2",
+    "power_mw",
+    "wire_length_um",
+)
 
 
 @dataclass
@@ -117,19 +139,71 @@ class DigitalDesign(ABC):
         """Path to the primary LibreLane config file (YAML or JSON)."""
         ...
 
-    @abstractmethod
-    def compute_fom(self, metrics: FlowMetrics) -> float:
-        """Design-specific figure of merit from flow metrics.
+    def measurement_columns(self) -> list[str]:
+        """TSV column names for the measurement section, in order.
 
-        Higher is better.  Return 0.0 for invalid/failed runs.
+        The runner uses this list for the TSV header and the
+        per-eval row layout. Default reproduces the five PPA columns
+        (timing, area, cell count, power, wire length) the autoresearch
+        loop emitted before the dict-based API switch. Subclasses with
+        domain-specific metrics extend the list (e.g. append
+        ``"throughput_sps"`` for DSP) or fully override.
+        """
+        return list(DEFAULT_PPA_COLUMNS)
+
+    def extract_measurements(
+        self, stage_results: StageResults
+    ) -> dict[str, float | int | None]:
+        """Map per-eval stage outputs into the measurement dict.
+
+        The runner builds a :class:`StageResults` bag containing the
+        LibreLane :class:`FlowMetrics`, optional pre-flow lint/sim
+        results, optional GL sim outcomes, and the per-eval params.
+        The design returns a dict whose keys are a subset (or
+        superset) of :meth:`measurement_columns`; missing keys map to
+        ``None`` in the TSV row and in :meth:`compute_fom`.
+
+        Default implementation pulls the five PPA fields from
+        ``stage_results.flow_metrics``. Subclasses typically call
+        ``super().extract_measurements(stage_results)`` and append
+        their own keys, or fully override when the FoM does not need
+        any of the PPA defaults.
+        """
+        m = stage_results.flow_metrics
+        if m is None:
+            return {col: None for col in DEFAULT_PPA_COLUMNS}
+        return {
+            "wns_worst_ns": m.wns_worst_ns,
+            "cell_count": m.synth_cell_count,
+            "die_area_um2": m.die_area_um2,
+            "power_mw": m.power_total_mw,
+            "wire_length_um": m.wire_length_um,
+        }
+
+    @abstractmethod
+    def compute_fom(
+        self, measurements: dict[str, float | int | None]
+    ) -> float:
+        """Design-specific figure of merit from a measurements dict.
+
+        ``measurements`` is the output of
+        :meth:`extract_measurements` for one evaluation; designs
+        consume the keys they declared in :meth:`measurement_columns`.
+        Higher is better. Return 0.0 for invalid/failed runs.
         """
         ...
 
     @abstractmethod
-    def check_validity(self, metrics: FlowMetrics) -> tuple[bool, list[str]]:
-        """Check whether flow metrics meet design constraints.
+    def check_validity(
+        self, measurements: dict[str, float | int | None]
+    ) -> tuple[bool, list[str]]:
+        """Check whether a measurements dict meets the design specs.
 
-        Returns (is_valid, list_of_violations).
+        Returns ``(is_valid, list_of_violations)``. The runner gates
+        FoM scoring on this — invalid evals contribute 0.0. Subclasses
+        may add domain gates (Nyquist for DSP, throughput floor for
+        streaming, key strength for crypto) on top of the PPA gates
+        provided by :meth:`FlowMetrics.validity_check`.
         """
         ...
 

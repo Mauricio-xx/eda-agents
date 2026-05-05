@@ -140,19 +140,24 @@ class FazyRvHachureDesign(DigitalDesign):
     def flow_type(self):
         return "Chip" if not self._macro else "Classic"
 
-    def compute_fom(self, metrics: FlowMetrics) -> float:
+    def compute_fom(
+        self, measurements: dict[str, float | int | None]
+    ) -> float:
         """Weighted FoM: timing (1.0) + area (0.5) + power (0.3).
 
         Returns 0.0 for invalid designs (negative WNS).
         """
-        valid, _ = self.check_validity(metrics)
+        valid, _ = self.check_validity(measurements)
         if not valid:
             return 0.0
+        metrics = FlowMetrics.from_measurements(measurements)
         return metrics.weighted_fom(timing_w=1.0, area_w=0.5, power_w=0.3)
 
-    def check_validity(self, metrics: FlowMetrics) -> tuple[bool, list[str]]:
+    def check_validity(
+        self, measurements: dict[str, float | int | None]
+    ) -> tuple[bool, list[str]]:
         """Design is valid iff timing is closed and DRC is clean."""
-        return metrics.validity_check()
+        return FlowMetrics.from_measurements(measurements).validity_check()
 
     def testbench(self) -> TestbenchSpec | None:
         # Sim runs from repo root (Makefile `sim:` target does `cd cocotb;`)

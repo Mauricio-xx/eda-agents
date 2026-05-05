@@ -68,14 +68,19 @@ class SystolicMacDftDesign(DigitalDesign):
         # Tiny Tapeout template uses a different config structure
         return self._repo_dir / "config.yaml"
 
-    def compute_fom(self, metrics: FlowMetrics) -> float:
-        valid, _ = self.check_validity(metrics)
+    def compute_fom(
+        self, measurements: dict[str, float | int | None]
+    ) -> float:
+        valid, _ = self.check_validity(measurements)
         if not valid:
             return 0.0
+        metrics = FlowMetrics.from_measurements(measurements)
         return metrics.weighted_fom(timing_w=1.0, area_w=0.5, power_w=0.3)
 
-    def check_validity(self, metrics: FlowMetrics) -> tuple[bool, list[str]]:
-        return metrics.validity_check()
+    def check_validity(
+        self, measurements: dict[str, float | int | None]
+    ) -> tuple[bool, list[str]]:
+        return FlowMetrics.from_measurements(measurements).validity_check()
 
     def pdk_config(self):
         from eda_agents.core.pdk import GF180MCU_D

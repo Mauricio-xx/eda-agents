@@ -138,30 +138,28 @@ class TestAutoDerivation:
 
 class TestFomAndValidity:
     def test_compute_fom_valid(self, yaml_config):
-        from eda_agents.core.flow_metrics import FlowMetrics
-
         d = GenericDesign(yaml_config)
-        m = FlowMetrics(
-            wns_worst_ns=5.0,
-            die_area_um2=100000,
-            power_total_w=0.01,
-            drc_clean=True,
-            lvs_match=True,
-        )
-        fom = d.compute_fom(m)
+        measurements = {
+            "wns_worst_ns": 5.0,
+            "die_area_um2": 100000,
+            "power_mw": 10.0,
+            "drc_clean": True,
+            "lvs_match": True,
+        }
+        fom = d.compute_fom(measurements)
         assert fom > 0
 
     def test_compute_fom_invalid_timing(self, yaml_config):
-        from eda_agents.core.flow_metrics import FlowMetrics
-
         d = GenericDesign(yaml_config)
-        m = FlowMetrics(wns_worst_ns=-1.0, drc_clean=True, lvs_match=True)
-        fom = d.compute_fom(m)
+        measurements = {
+            "wns_worst_ns": -1.0,
+            "drc_clean": True,
+            "lvs_match": True,
+        }
+        fom = d.compute_fom(measurements)
         assert fom == 0.0
 
     def test_custom_fom_weights(self, yaml_config):
-        from eda_agents.core.flow_metrics import FlowMetrics
-
         # Drop every weight to zero except timing_met to verify the
         # weight dict is honoured; the remaining FoM should be exactly
         # the binary timing-met indicator.
@@ -174,23 +172,25 @@ class TestFomAndValidity:
                 "power_w": 0.0,
             },
         )
-        m = FlowMetrics(
-            wns_worst_ns=10.0,
-            die_area_um2=100000,
-            power_total_w=0.01,
-            clock_period_ns=40.0,
-            drc_clean=True,
-            lvs_match=True,
-        )
-        fom = d.compute_fom(m)
+        measurements = {
+            "wns_worst_ns": 10.0,
+            "die_area_um2": 100000,
+            "power_mw": 10.0,
+            "clock_period_ns": 40.0,
+            "drc_clean": True,
+            "lvs_match": True,
+        }
+        fom = d.compute_fom(measurements)
         assert abs(fom - 2.0) < 1e-6
 
     def test_check_validity_delegates(self, yaml_config):
-        from eda_agents.core.flow_metrics import FlowMetrics
-
         d = GenericDesign(yaml_config)
-        m = FlowMetrics(wns_worst_ns=5.0, drc_clean=True, lvs_match=True)
-        valid, violations = d.check_validity(m)
+        measurements = {
+            "wns_worst_ns": 5.0,
+            "drc_clean": True,
+            "lvs_match": True,
+        }
+        valid, violations = d.check_validity(measurements)
         assert valid
         assert violations == []
 
@@ -357,19 +357,17 @@ class TestAutoresearchChain:
 
     def test_custom_fom_weights_propagate(self, yaml_config, tmp_path):
         """FoM weights set on GenericDesign propagate to compute_fom."""
-        from eda_agents.core.flow_metrics import FlowMetrics
-
         d_default = GenericDesign(yaml_config)
         d_custom = GenericDesign(yaml_config, fom_weights={"area_w": 5.0})
 
-        metrics = FlowMetrics(
-            wns_worst_ns=0.5,
-            die_area_um2=90000.0,
-            power_total_w=0.01,
-        )
+        measurements = {
+            "wns_worst_ns": 0.5,
+            "die_area_um2": 90000.0,
+            "power_mw": 10.0,
+        }
 
-        fom_default = d_default.compute_fom(metrics)
-        fom_custom = d_custom.compute_fom(metrics)
+        fom_default = d_default.compute_fom(measurements)
+        fom_custom = d_custom.compute_fom(measurements)
         # Higher area_w should change the result
         assert fom_custom != fom_default
         assert fom_custom > fom_default  # area_w 5.0 > 0.5

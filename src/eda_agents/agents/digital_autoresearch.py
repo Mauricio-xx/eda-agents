@@ -62,6 +62,7 @@ from eda_agents.agents.phase_results import AutoresearchResult
 from eda_agents.core.digital_design import DigitalDesign
 from eda_agents.core.flow_metrics import FlowMetrics
 from eda_agents.core.flow_stage import FlowStage
+from eda_agents.core.stage_results import StageResults
 from eda_agents.core.stages.physical_slice_runner import STAGE_TO_LIBRELANE
 from eda_agents.skills.registry import render_relevant_skills
 
@@ -254,16 +255,6 @@ def detect_nix_eda_tool_dirs() -> list[str]:
 
     return nix_dirs
 
-# Digital measurement columns for TSV logging
-_DIGITAL_MEASUREMENT_COLS = [
-    "wns_worst_ns",
-    "cell_count",
-    "die_area_um2",
-    "power_mw",
-    "wire_length_um",
-]
-
-
 class DigitalAutoresearchRunner:
     """Autonomous greedy exploration for digital RTL-to-GDS flows.
 
@@ -343,6 +334,12 @@ class DigitalAutoresearchRunner:
         else:
             self.run_rtl_sim = run_rtl_sim
 
+        # Measurement columns are sourced from the design (domain
+        # concern). The TSV header and per-eval rows use this exact
+        # ordering; designs override ``measurement_columns()`` to
+        # extend the default PPA set with domain-specific metrics.
+        self.measurement_cols = list(self.design.measurement_columns())
+
         # Cumulative token counter populated by ``_propose_params`` from
         # the LLM backend's ``response.usage``. Reset at the start of
         # every ``run()`` so repeated calls don't leak across runs; the
@@ -382,7 +379,7 @@ class DigitalAutoresearchRunner:
         return TsvLogger(
             tsv_path=tsv_path,
             param_cols=list(self.design.design_space().keys()),
-            measurement_cols=_DIGITAL_MEASUREMENT_COLS,
+            measurement_cols=self.measurement_cols,
         )
 
     # ------------------------------------------------------------------
@@ -1429,8 +1426,18 @@ class DigitalAutoresearchRunner:
             }
 
         metrics = FlowMetrics.from_librelane_run_dir(run_dir)
-        fom = self.design.compute_fom(metrics)
-        valid, violations = self.design.check_validity(metrics)
+        stage_results = StageResults(
+            eval_idx=eval_num,
+            params=params,
+            work_dir=work_dir,
+            flow_metrics=metrics,
+            run_dir=run_dir,
+            gl_sim_post_synth=gl_synth,
+            gl_sim_post_pnr=gl_pnr,
+        )
+        measurements = self.design.extract_measurements(stage_results)
+        fom = self.design.compute_fom(measurements)
+        valid, violations = self.design.check_validity(measurements)
 
         result: dict = {
             "eval": eval_num,
@@ -1439,13 +1446,9 @@ class DigitalAutoresearchRunner:
             "fom": fom,
             "valid": valid,
             "violations": violations,
-            "wns_worst_ns": metrics.wns_worst_ns,
-            "cell_count": metrics.synth_cell_count,
-            "die_area_um2": metrics.die_area_um2,
-            "power_mw": metrics.power_total_mw,
-            "wire_length_um": metrics.wire_length_um,
             "run_dir": str(run_dir),
             "run_time_s": flow_result.run_time_s,
+            **measurements,
         }
         if gl_synth is not None:
             result["gl_sim_post_synth_ok"] = gl_synth["success"]
@@ -1537,12 +1540,25 @@ class DigitalAutoresearchRunner:
         else:
             data = raw
 
+        # Mock fixtures use ``FlowMetrics`` field names directly
+        # (e.g. ``synth_cell_count``); wrap them in a synthetic
+        # ``StageResults`` so the dict-based design API still applies.
+        # Designs that read fields beyond ``flow_metrics`` (lint, sim,
+        # cocotb sidecars) will see ``None`` here, which is the
+        # correct semantic for a mock LibreLane-only path.
         metrics = FlowMetrics(**{
             k: v for k, v in data.items()
             if k in FlowMetrics.__dataclass_fields__
         })
-        fom = self.design.compute_fom(metrics)
-        valid, violations = self.design.check_validity(metrics)
+        stage_results = StageResults(
+            eval_idx=eval_num,
+            params=params,
+            work_dir=self.use_mock_metrics.parent,
+            flow_metrics=metrics,
+        )
+        measurements = self.design.extract_measurements(stage_results)
+        fom = self.design.compute_fom(measurements)
+        valid, violations = self.design.check_validity(measurements)
 
         return {
             "eval": eval_num,
@@ -1551,11 +1567,7 @@ class DigitalAutoresearchRunner:
             "fom": fom,
             "valid": valid,
             "violations": violations,
-            "wns_worst_ns": metrics.wns_worst_ns,
-            "cell_count": metrics.synth_cell_count,
-            "die_area_um2": metrics.die_area_um2,
-            "power_mw": metrics.power_total_mw,
-            "wire_length_um": metrics.wire_length_um,
+            **measurements,
         }
 
     # ------------------------------------------------------------------

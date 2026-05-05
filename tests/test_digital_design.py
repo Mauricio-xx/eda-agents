@@ -30,13 +30,14 @@ class _DummyDesign(DigitalDesign):
     def librelane_config(self):
         return Path("/tmp/dummy/config.yaml")
 
-    def compute_fom(self, metrics):
-        if metrics.wns_worst_ns is None or metrics.wns_worst_ns < 0:
+    def compute_fom(self, measurements):
+        wns = measurements.get("wns_worst_ns")
+        if wns is None or wns < 0:
             return 0.0
-        return metrics.weighted_fom()
+        return FlowMetrics.from_measurements(measurements).weighted_fom()
 
-    def check_validity(self, metrics):
-        return metrics.validity_check()
+    def check_validity(self, measurements):
+        return FlowMetrics.from_measurements(measurements).validity_check()
 
     def prompt_description(self):
         return "Dummy design for unit tests."
@@ -100,30 +101,32 @@ class TestDigitalDesignABC:
 
     def test_compute_fom_valid(self):
         d = _DummyDesign()
-        m = FlowMetrics(
-            wns_worst_ns=5.0,
-            die_area_um2=256_175,
-            power_total_w=0.052,
-        )
-        fom = d.compute_fom(m)
+        measurements = {
+            "wns_worst_ns": 5.0,
+            "die_area_um2": 256_175,
+            "power_mw": 52.0,
+        }
+        fom = d.compute_fom(measurements)
         assert fom > 0
 
     def test_compute_fom_invalid(self):
         d = _DummyDesign()
-        m = FlowMetrics(wns_worst_ns=-1.0)
-        assert d.compute_fom(m) == 0.0
+        assert d.compute_fom({"wns_worst_ns": -1.0}) == 0.0
 
     def test_check_validity_pass(self):
         d = _DummyDesign()
-        m = FlowMetrics(wns_worst_ns=5.0, drc_clean=True, lvs_match=True)
-        valid, violations = d.check_validity(m)
+        measurements = {
+            "wns_worst_ns": 5.0,
+            "drc_clean": True,
+            "lvs_match": True,
+        }
+        valid, violations = d.check_validity(measurements)
         assert valid
         assert violations == []
 
     def test_check_validity_fail_timing(self):
         d = _DummyDesign()
-        m = FlowMetrics(wns_worst_ns=-0.5)
-        valid, violations = d.check_validity(m)
+        valid, violations = d.check_validity({"wns_worst_ns": -0.5})
         assert not valid
         assert any("Timing" in v for v in violations)
 
