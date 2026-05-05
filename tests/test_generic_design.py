@@ -21,6 +21,13 @@ SAMPLE_CONFIG = {
     "DIE_AREA": [0.0, 0.0, 300.0, 250.0],
     "VDD_NETS": ["VDD"],
     "GND_NETS": ["VSS"],
+    # Testbench is mandatory in DigitalDesign; SAMPLE_CONFIG declares
+    # a cocotb stub so prompt-builder / runner tests can call
+    # ``testbench()`` without tripping the no-source error path.
+    "EDA_AGENTS_TB_DRIVER": "cocotb",
+    "EDA_AGENTS_TB_TARGET": "sim",
+    "EDA_AGENTS_TB_DIR": "tb",
+    "EDA_AGENTS_TB_ENV": {"MODULE": "test_counter"},
 }
 
 
@@ -229,6 +236,62 @@ class TestPdkAndShellWrapper:
     def test_shell_wrapper_none_explicit(self, yaml_config):
         d = GenericDesign(yaml_config, shell_wrapper=None)
         assert d.shell_wrapper() is None
+
+
+# ---------------------------------------------------------------------------
+# Testbench resolution
+# ---------------------------------------------------------------------------
+
+
+class TestTestbench:
+    """``GenericDesign.testbench()`` resolves from config keys, then
+    iverilog auto-detect, then raises. ``DigitalDesign.testbench``
+    is mandatory; silent ``None`` fallbacks are not allowed."""
+
+    def test_testbench_from_explicit_config_keys(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(yaml.dump({
+            "DESIGN_NAME": "explicit_tb",
+            "EDA_AGENTS_TB_DRIVER": "cocotb",
+            "EDA_AGENTS_TB_TARGET": "sim",
+            "EDA_AGENTS_TB_DIR": "tb",
+            "EDA_AGENTS_TB_ENV": {"MODULE": "test_throughput"},
+        }))
+        d = GenericDesign(cfg)
+        spec = d.testbench()
+        assert spec.driver == "cocotb"
+        assert spec.target == "sim"
+        assert spec.work_dir_relative == "tb"
+        assert spec.env_overrides == {"MODULE": "test_throughput"}
+
+    def test_testbench_falls_back_to_iverilog_autodetect(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(yaml.dump({"DESIGN_NAME": "auto_tb"}))
+        tb_dir = tmp_path / "tb"
+        tb_dir.mkdir()
+        (tb_dir / "tb_top.v").write_text("// stub\n")
+        d = GenericDesign(cfg)
+        spec = d.testbench()
+        assert spec.driver == "iverilog"
+        assert spec.target == "tb/tb_top.v"
+        assert spec.work_dir_relative == "."
+
+    def test_testbench_raises_when_no_source(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(yaml.dump({"DESIGN_NAME": "no_tb"}))
+        d = GenericDesign(cfg)
+        with pytest.raises(RuntimeError, match="EDA_AGENTS_TB_DRIVER"):
+            d.testbench()
+
+    def test_testbench_raises_when_target_missing(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(yaml.dump({
+            "DESIGN_NAME": "incomplete",
+            "EDA_AGENTS_TB_DRIVER": "cocotb",
+        }))
+        d = GenericDesign(cfg)
+        with pytest.raises(ValueError, match="EDA_AGENTS_TB_TARGET"):
+            d.testbench()
 
 
 # ---------------------------------------------------------------------------

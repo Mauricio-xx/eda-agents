@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from eda_agents.core.digital_design import DigitalDesign
+from eda_agents.core.digital_design import DigitalDesign, TestbenchSpec
 from eda_agents.core.flow_metrics import FlowMetrics
 
 
@@ -26,8 +26,11 @@ _DEFAULT_DESIGNS_DIR = "/home/montanares/git"
 class SystolicMacDftDesign(DigitalDesign):
     """Systolic MAC + DFT design (stub, deferred to Phase 6).
 
-    All run-related methods raise ``NotImplementedError``.
-    Metadata methods work for dry-run and prompt-generation tests.
+    Metadata methods plus :meth:`testbench` (which points at the
+    upstream cocotb suite under ``Systolic_MAC_with_DFT/test/``)
+    satisfy the abstract :class:`DigitalDesign` contract; the stage
+    runners (lint / sim / synth / signoff) remain stubbed pending
+    Phase 6.
     """
 
     def __init__(self, designs_dir: Path | str | None = None):
@@ -85,6 +88,18 @@ class SystolicMacDftDesign(DigitalDesign):
     def pdk_config(self):
         from eda_agents.core.pdk import GF180MCU_D
         return GF180MCU_D
+
+    def testbench(self) -> TestbenchSpec:
+        # Upstream Systolic_MAC_with_DFT ships a cocotb suite under
+        # ``test/`` with a ``Makefile`` that drives icarus and toggles
+        # GATES=yes for gate-level. We point at it so the abstract
+        # contract is satisfied and ``RtlSimRunner`` can drive it
+        # once the stage wiring lands in Phase 6.
+        return TestbenchSpec(
+            driver="cocotb",
+            target="sim",
+            work_dir_relative="test",
+        )
 
     # ------------------------------------------------------------------
     # Prompt metadata

@@ -241,18 +241,39 @@ class GenericDesign(DigitalDesign):
             sources.append(p)
         return sources
 
-    def testbench(self) -> TestbenchSpec | None:
-        """Auto-detect testbench in project directory.
+    def testbench(self) -> TestbenchSpec:
+        """Resolve the design's testbench from config or auto-detect.
 
-        Looks for ``tb/tb_*.v`` or ``testbench/*.v`` patterns. Returns
-        an iverilog-based :class:`TestbenchSpec` pointing at the first
-        matching file, or ``None`` when none is found.
+        Resolution order:
 
-        The ``target`` is the project-relative path to the testbench
-        file only — downstream runners (``GlSimRunner``, ``RtlSimRunner``)
-        wire the RTL / post-synth netlist in separately from
-        :meth:`rtl_sources`.
+        1. ``EDA_AGENTS_TB_DRIVER`` + ``EDA_AGENTS_TB_TARGET`` (with
+           optional ``EDA_AGENTS_TB_DIR`` and ``EDA_AGENTS_TB_ENV``)
+           explicitly declared in the LibreLane config.
+        2. Iverilog auto-detect: first match of ``tb/tb_*.v``,
+           ``testbench/*.v``, or ``tb/*.v`` under the project
+           directory.
+
+        Raises ``RuntimeError`` when neither path resolves a spec —
+        :class:`DigitalDesign.testbench` is mandatory and silent
+        ``None`` fallbacks defeat the framework's verification
+        contract.
         """
+        driver = self._config.get("EDA_AGENTS_TB_DRIVER")
+        if driver is not None:
+            target = self._config.get("EDA_AGENTS_TB_TARGET")
+            if not target:
+                raise ValueError(
+                    "EDA_AGENTS_TB_DRIVER requires EDA_AGENTS_TB_TARGET "
+                    "in the config (cocotb make target or iverilog "
+                    f".v path). Config: {self._config_path}"
+                )
+            return TestbenchSpec(
+                driver=str(driver),
+                target=str(target),
+                env_overrides=self._env_overrides_from_config(),
+                work_dir_relative=str(self._config.get("EDA_AGENTS_TB_DIR", ".")),
+            )
+
         project = self._config_path.parent
         for pattern in ["tb/tb_*.v", "testbench/*.v", "tb/*.v"]:
             matches = sorted(project.glob(pattern))
@@ -262,7 +283,25 @@ class GenericDesign(DigitalDesign):
                     target=str(matches[0].relative_to(project)),
                     work_dir_relative=".",
                 )
-        return None
+
+        raise RuntimeError(
+            "GenericDesign.testbench(): no testbench resolved for "
+            f"{self._config_path}. Either declare "
+            "EDA_AGENTS_TB_DRIVER + EDA_AGENTS_TB_TARGET (with "
+            "optional EDA_AGENTS_TB_DIR / EDA_AGENTS_TB_ENV) in the "
+            "config, or place a Verilog testbench at "
+            "tb/tb_*.v, testbench/*.v, or tb/*.v under the project "
+            "directory."
+        )
+
+    def _env_overrides_from_config(self) -> dict[str, str]:
+        raw = self._config.get("EDA_AGENTS_TB_ENV", {}) or {}
+        if not isinstance(raw, dict):
+            raise ValueError(
+                "EDA_AGENTS_TB_ENV must be a mapping of env var "
+                f"names to string values (got {type(raw).__name__})."
+            )
+        return {str(k): str(v) for k, v in raw.items()}
 
     def validate_clone(self) -> list[str]:
         problems: list[str] = []
