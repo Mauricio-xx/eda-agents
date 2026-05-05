@@ -78,13 +78,6 @@ class TestCocotbDriver:
         assert result.metrics_delta["sim_fail"] == 2
         assert "2/7" in result.error
 
-    def test_no_testbench_defined(self):
-        env = _make_env()
-        driver = CocotbDriver(_make_design(tb=None), env)
-        result = driver.run()
-        assert not result.success
-        assert "testbench" in result.error.lower()
-
     def test_pdk_env_injected(self):
         tb = TestbenchSpec(driver="cocotb", target="make sim")
         env = _make_env(proc_stdout="** TESTS=1 PASS=1 FAIL=0 SKIP=0 **")
@@ -189,15 +182,6 @@ class TestRtlSimRunner:
             proc_stdout="All tests passed\n",
         )
         runner = RtlSimRunner(_make_design(tb=tb), env)
-        result = runner.run()
-        assert result.success
-
-    def test_no_testbench_falls_back_to_iverilog(self):
-        env = _make_env(
-            tools={"iverilog": Path("/usr/bin/iverilog")},
-            proc_stdout="All tests passed\n",
-        )
-        runner = RtlSimRunner(_make_design(tb=None), env)
         result = runner.run()
         assert result.success
 

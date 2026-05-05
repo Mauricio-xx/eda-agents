@@ -484,11 +484,18 @@ class TestFullLoop:
 
     @pytest.mark.anyio
     async def test_crash_handled(self, design, tmp_path):
-        """Evaluation crash should be caught, not stop the loop."""
+        """Evaluation crash should be caught, not stop the loop.
+
+        ``run_rtl_sim=False`` skips the cocotb gate so the test can
+        focus on ``_evaluate``'s crash-handling path. With the gate
+        on, the mock design's MagicMock testbench would short-circuit
+        before ``_evaluate`` runs.
+        """
         runner = DigitalAutoresearchRunner(
             design=design,
             model="test-model",
             budget=2,
+            run_rtl_sim=False,
         )
 
         with patch.object(runner, "_propose_params", new_callable=AsyncMock) as mock_propose, \

@@ -282,8 +282,11 @@ class DigitalAutoresearchRunner:
         Optimization strategy: ``"flow"`` (config-only, default),
         ``"rtl"`` (RTL micro-edits), ``"hybrid"`` (RTL + config).
     run_rtl_sim : bool
-        Run RTL simulation after lint for ``rtl``/``hybrid`` strategies.
-        Defaults to True for RTL strategies when testbench exists.
+        Run cocotb / iverilog RTL simulation after lint, regardless
+        of strategy. Defaults to ``True``: every digital design is
+        required to ship a testbench (``DigitalDesign.testbench`` is
+        abstract), so the gate runs by default. Pass ``False``
+        explicitly to skip cocotb during fast-iteration loops.
     """
 
     def __init__(
@@ -328,11 +331,10 @@ class DigitalAutoresearchRunner:
         self.opencode_cli_path = opencode_cli_path
         self.opencode_model = opencode_model
 
-        # Default run_rtl_sim: True for RTL strategies (if testbench exists)
-        if run_rtl_sim is None:
-            self.run_rtl_sim = strategy in ("rtl", "hybrid")
-        else:
-            self.run_rtl_sim = run_rtl_sim
+        # ``DigitalDesign.testbench`` is mandatory, so the RTL sim
+        # gate runs by default for every strategy (flow / rtl /
+        # hybrid). Callers opt out explicitly with ``run_rtl_sim=False``.
+        self.run_rtl_sim = True if run_rtl_sim is None else run_rtl_sim
 
         # Measurement columns are sourced from the design (domain
         # concern). The TSV header and per-eval rows use this exact
@@ -1881,14 +1883,12 @@ class DigitalAutoresearchRunner:
                     rtl_hash = snapshot_mgr.content_hash(self.design.rtl_sources())
 
             # ----------------------------------------------------------
-            # RTL simulation gate (rtl/hybrid, if testbench exists)
+            # RTL simulation gate — runs for every strategy when
+            # ``run_rtl_sim`` is on and we are not in mock mode.
+            # ``DigitalDesign.testbench`` is abstract, so the spec is
+            # always present.
             # ----------------------------------------------------------
-            if (
-                self.strategy in ("rtl", "hybrid")
-                and self.run_rtl_sim
-                and self.design.testbench() is not None
-                and not self.use_mock_metrics
-            ):
+            if self.run_rtl_sim and not self.use_mock_metrics:
                 from eda_agents.core.stages.rtl_sim_runner import RtlSimRunner
                 from eda_agents.core.tool_environment import LocalToolEnvironment
 

@@ -80,13 +80,6 @@ class CocotbDriver(SimDriver):
         t0 = time.monotonic()
 
         tb = self.design.testbench()
-        if tb is None:
-            return StageResult(
-                stage=FlowStage.RTL_SIM,
-                success=False,
-                error="Design does not define a testbench (testbench() returned None)",
-                run_time_s=time.monotonic() - t0,
-            )
 
         # Build the command from TestbenchSpec
         # target is typically "make sim" or a python script
@@ -327,13 +320,6 @@ class RtlSimRunner:
     def run(self) -> StageResult:
         """Run simulation using the driver specified by the design's testbench."""
         tb = self.design.testbench()
-
-        if tb is None:
-            # No testbench defined — try iverilog if sources exist
-            driver = IVerilogDriver(
-                self.design, self.env, timeout_s=self.timeout_s
-            )
-            return driver.run()
 
         if tb.driver == "cocotb":
             driver = CocotbDriver(
