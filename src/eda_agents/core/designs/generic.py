@@ -72,8 +72,16 @@ class GenericDesign(DigitalDesign):
         self._config_path = Path(config_path).resolve()
         self._pdk_root = Path(pdk_root) if pdk_root else None
         self._ds_overrides = design_space_overrides or {}
+        # FoM weights for ``FlowMetrics.weighted_fom`` (PPA: Performance,
+        # Power, Area). The defaults (0.5/1.0/1.0/1.0) match the
+        # reference formula in ``flow_metrics.py``, which includes a
+        # Performance term (achievable frequency) so that clock
+        # relaxation alone cannot win the optimizer trivially.
         self._fom_w = {
-            "timing_w": 1.0, "area_w": 0.5, "power_w": 0.3,
+            "timing_w": 0.5,
+            "perf_w": 1.0,
+            "area_w": 1.0,
+            "power_w": 1.0,
             **(fom_weights or {}),
         }
         self._pdk = resolve_pdk(pdk_config)
@@ -134,29 +142,44 @@ class GenericDesign(DigitalDesign):
         )
 
     def design_space(self) -> dict[str, list | tuple]:
-        ds: dict[str, list | tuple] = {}
+        """Return the design space as continuous (lo, hi) tuples.
 
-        # PL_TARGET_DENSITY_PCT: center around config value
-        density = self._config.get("PL_TARGET_DENSITY_PCT", 65)
-        density = int(density)
-        ds["PL_TARGET_DENSITY_PCT"] = sorted({
-            _clamp(density - 20, 30, 90),
-            _clamp(density - 10, 30, 90),
-            density,
-            _clamp(density + 10, 30, 90),
-            _clamp(density + 15, 30, 90),
-        })
+        The bounds reflect what LibreLane accepts (a tool-level fence,
+        not an autoresearch policy cap). The optimizer sees these as
+        the search range; it is free to land anywhere inside, including
+        values that previously sat far outside the discrete grid we
+        used to ship.
 
-        # CLOCK_PERIOD: 0.8x, 1.0x, 1.25x of config value
-        clock = self._config.get("CLOCK_PERIOD", 50)
-        clock = float(clock)
-        ds["CLOCK_PERIOD"] = sorted({
-            round(clock * 0.8, 1),
-            round(clock, 1),
-            round(clock * 1.25, 1),
-        })
+        Rationale (user direction): the LLM should have maximum
+        freedom to experiment within tool-imposed limits. The only
+        things the optimizer cannot change are the spec assertions
+        (``check_validity``) and the FoM definition (``compute_fom``),
+        both of which live in the ``DigitalDesign`` subclass and are
+        out of band from ``design_space``. Anything else, including
+        clock relaxation beyond 1.25x of baseline, is fair game.
 
-        # Apply overrides
+        Bounds:
+
+        * ``CLOCK_PERIOD``: ``(0.1, 10000.0)`` ns. The lower bound is
+          a sanity floor (sub-100 ps clocks are unphysical at
+          GF180MCU 5V0); the upper bound lets the LLM relax timing
+          to ~100 kHz if it needs to (well past any reasonable
+          design point). LibreLane accepts arbitrary positive floats
+          here.
+        * ``PL_TARGET_DENSITY_PCT``: ``(1.0, 99.0)``. Densities at
+          the extremes are degenerate (1% leaves the placer with
+          almost no constraints; 99% will fail legalization on any
+          real design) but neither crashes the tool, so we let the
+          LLM see them and learn from the failure feedback.
+
+        Override via ``GenericDesign(design_space_overrides=...)``
+        is still honoured for callers that want to pin a narrower
+        range.
+        """
+        ds: dict[str, list | tuple] = {
+            "PL_TARGET_DENSITY_PCT": (1.0, 99.0),
+            "CLOCK_PERIOD": (0.1, 10000.0),
+        }
         ds.update(self._ds_overrides)
         return ds
 
@@ -175,6 +198,7 @@ class GenericDesign(DigitalDesign):
             return 0.0
         return metrics.weighted_fom(
             timing_w=self._fom_w["timing_w"],
+            perf_w=self._fom_w["perf_w"],
             area_w=self._fom_w["area_w"],
             power_w=self._fom_w["power_w"],
         )
@@ -275,12 +299,21 @@ class GenericDesign(DigitalDesign):
 
     def fom_description(self) -> str:
         tw = self._fom_w["timing_w"]
+        pw_perf = self._fom_w["perf_w"]
         aw = self._fom_w["area_w"]
         pw = self._fom_w["power_w"]
         return (
-            f"FoM = {tw} * WNS_worst_ns + {aw} * (1e6/die_area_um2) + "
-            f"{pw} * (1/power_W). Higher is better. Returns 0.0 for "
-            f"designs that fail timing."
+            f"FoM (PPA: Performance, Power, Area) = "
+            f"{tw} * timing_met"  # binary 0/1; not a slack-stuffer
+            f" + {pw_perf} * (1000 / clock_period_ns)"  # MHz achievable
+            f" + {aw} * (1e6 / die_area_um2)"           # smaller area better
+            f" + {pw} * (1 / (power_W * clock_period_ns))"  # 1/(nJ per cycle)
+            f". Higher is better. Returns 0.0 for designs that fail "
+            f"timing/DRC/LVS. The Performance term (frequency in MHz) "
+            f"prevents trivial wins by clock relaxation; the energy/cycle "
+            f"term replaces 1/power so that slowing down the clock does "
+            f"not pretend to be a power optimization (P scales linearly "
+            f"with f in CMOS, so P*period is roughly clock-invariant)."
         )
 
     def reference_description(self) -> str:

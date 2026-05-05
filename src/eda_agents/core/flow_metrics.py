@@ -129,45 +129,92 @@ class FlowMetrics:
 
     def weighted_fom(
         self,
-        timing_w: float = 1.0,
-        area_w: float = 0.5,
-        power_w: float = 0.3,
+        timing_w: float = 0.5,
+        perf_w: float = 1.0,
+        area_w: float = 1.0,
+        power_w: float = 1.0,
     ) -> float:
-        """Compute a weighted figure of merit.
+        """Compute a weighted figure of merit (PPA: Performance, Power, Area).
 
-        Higher is better.  Returns 0.0 if essential metrics are missing.
+        Higher is better. Returns 0.0 if essential metrics are missing.
 
-        Components:
-        - Timing: WNS in ns (worst corner).  Negative = penalty.
-        - Area: inverse of die area (smaller is better).
-        - Power: inverse of total power (lower is better).
+        Components (all normalized to roughly the same magnitude so that
+        none dominates by accident):
 
-        Each component is normalized and weighted.  The formula is
-        intentionally simple — ``DigitalDesign.compute_fom()`` can
-        override with a design-specific formula.
+        * **Timing-met**: binary 1.0 / 0.0. ``check_validity`` already
+          rejects WNS < 0 designs, so by the time the FoM is computed
+          the timing is met. The bonus is small (default ``timing_w =
+          0.5``); excessive slack is NOT rewarded because that would
+          reduce to "relax clock to win", which gamed the previous
+          formula. Use the Performance term for actual frequency.
+        * **Performance**: achievable frequency in MHz at the synth
+          clock period. ``1000 / clock_period_ns``. Baseline GF180MCU
+          designs land at 5-50 MHz; this term carries the throughput
+          signal that a relax-everything optimizer used to evade.
+        * **Area**: inverse die area, ``1e6 / area_um2``. Roughly
+          unitless and ~1.5 for a 640k-um2 design.
+        * **Power**: inverse energy-per-cycle, ``1 / (power_W * period_ns)``
+          (units: 1 / nJ-per-cycle). Power scales linearly with
+          frequency in synchronous logic, so plain ``1/power`` rewarded
+          slow clocks trivially. Energy per cycle (~1 nJ for a 25k-cell
+          GF180MCU design) is roughly clock-invariant for a fixed RTL,
+          which is what we want: the FoM rewards genuine power
+          improvements (smaller cells, lower-leakage VTs, clock
+          gating), not clock relaxation.
+
+        Defaults give all three PPA components roughly equal pull:
+
+            FoM = 0.5 * timing_met + 1.0 * freq_MHz
+                + 1.0 * area_score + 1.0 * energy_eff_score
+
+        ``DigitalDesign.compute_fom()`` can override with a
+        design-specific formula. The defaults are tuned for the
+        Goertzel FP32 / fazyrv class of educational designs on
+        GF180MCU; for vastly different speed targets (e.g. a kHz IoT
+        controller) the ``perf_w`` weight should be reduced or the
+        ``perf_score`` re-scaled.
         """
         if self.wns_worst_ns is None:
             return 0.0
 
-        # Timing component: positive WNS is good, negative is bad
-        timing_score = self.wns_worst_ns
+        # Timing met (binary): 1.0 if WNS >= 0, 0.0 otherwise.
+        # ``check_validity`` already gates WNS < 0 -> FoM=0 in
+        # ``GenericDesign.compute_fom``, so this is mostly a defensive
+        # echo of the same gate when the FoM is called directly.
+        timing_score = 1.0 if self.wns_worst_ns >= 0 else 0.0
 
-        # Area component: normalized inverse (1e6 / area).
-        # 256k um2 -> ~3.9, smaller area -> higher score
+        # Performance: achievable frequency in MHz. The synth clock
+        # period IS the achievable period (positive WNS means there is
+        # additional headroom we are not exploiting yet).
+        perf_score = 0.0
+        if self.clock_period_ns and self.clock_period_ns > 0:
+            perf_score = 1000.0 / self.clock_period_ns
+
+        # Area: inverse area, scaled.
         area_score = 0.0
         if self.die_area_um2 and self.die_area_um2 > 0:
             area_score = 1e6 / self.die_area_um2
 
-        # Power component: normalized inverse (1 / power_w).
-        # 0.052 W -> ~19.2, lower power -> higher score
-        power_score = 0.0
-        if self.power_total_w and self.power_total_w > 0:
-            power_score = 1.0 / self.power_total_w
+        # Energy efficiency: 1 / energy-per-cycle (in nJ).
+        # nJ_per_cycle = power_W * period_ns. That product is
+        # roughly constant for a fixed RTL across clock periods
+        # (P scales linearly with f in CMOS), so this term is NOT
+        # gameable by clock relaxation alone.
+        energy_eff_score = 0.0
+        if (
+            self.power_total_w
+            and self.power_total_w > 0
+            and self.clock_period_ns
+            and self.clock_period_ns > 0
+        ):
+            nj_per_cycle = self.power_total_w * self.clock_period_ns
+            energy_eff_score = 1.0 / nj_per_cycle
 
         return (
             timing_w * timing_score
+            + perf_w * perf_score
             + area_w * area_score
-            + power_w * power_score
+            + power_w * energy_eff_score
         )
 
     def validity_check(self) -> tuple[bool, list[str]]:
@@ -211,6 +258,25 @@ class FlowMetrics:
         """
         run_dir = Path(run_dir)
         all_metrics = _collect_metrics(run_dir)
+
+        # ``resolved.json`` holds the LibreLane-resolved config (the
+        # config that the run actually used after merging defaults +
+        # template + overrides). LibreLane does not echo
+        # ``CLOCK_PERIOD`` (or other config values) into the run-time
+        # ``metrics.json``, so we have to source them from
+        # ``resolved.json`` to get the achievable-frequency signal in
+        # ``FlowMetrics.clock_period_ns``. Without this, the
+        # PPA-style FoM falls back to ``area + timing-met`` and the
+        # LLM can game it by relaxing clock without paying any
+        # Performance penalty.
+        resolved = run_dir / "resolved.json"
+        if resolved.is_file():
+            try:
+                cfg = json.loads(resolved.read_text())
+                if isinstance(cfg, dict) and "CLOCK_PERIOD" in cfg:
+                    all_metrics.setdefault("CLOCK_PERIOD", cfg["CLOCK_PERIOD"])
+            except (json.JSONDecodeError, OSError):
+                pass
 
         kwargs: dict = {"raw_metrics": dict(all_metrics)}
 

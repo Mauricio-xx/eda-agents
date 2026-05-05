@@ -87,16 +87,65 @@ class TestFlowMetrics:
             wns_worst_ns=1.407,
             die_area_um2=256175.0,
             power_total_w=0.05185,
+            clock_period_ns=40.0,
         )
         fom = m.weighted_fom()
         assert fom > 0
-        # Verify components contribute
-        fom_timing_only = m.weighted_fom(timing_w=1.0, area_w=0.0, power_w=0.0)
-        assert abs(fom_timing_only - 1.407) < 0.001
+        # Timing-met component is binary (1.0 when WNS >= 0); set
+        # the other weights to zero to isolate it.
+        fom_timing_only = m.weighted_fom(
+            timing_w=1.0, perf_w=0.0, area_w=0.0, power_w=0.0,
+        )
+        assert abs(fom_timing_only - 1.0) < 0.001
+
+    def test_weighted_fom_perf_uses_clock(self):
+        """Performance term must scale with achievable frequency. The
+        regression here is the bug that let the LLM win by relaxing
+        clock to 5000 ns: with the old FoM, slow clocks produced
+        a higher score; with the new PPA FoM, a slow clock produces
+        a low Performance contribution.
+        """
+        baseline = FlowMetrics(
+            wns_worst_ns=0.28,
+            die_area_um2=640000.0,
+            power_total_w=0.021,
+            clock_period_ns=55.0,
+        )
+        relaxed = FlowMetrics(
+            wns_worst_ns=4900.0,    # huge slack from clock relax
+            die_area_um2=640000.0,  # same RTL
+            power_total_w=0.0002,   # P scales with f
+            clock_period_ns=5000.0,
+        )
+        baseline_fom = baseline.weighted_fom()
+        relaxed_fom = relaxed.weighted_fom()
+        # With proper PPA, baseline must beat trivial relax.
+        assert baseline_fom > relaxed_fom, (
+            f"Expected baseline FoM > relax FoM, got "
+            f"baseline={baseline_fom:.2f} vs relaxed={relaxed_fom:.2f}. "
+            f"This means the FoM is gameable by clock relaxation, the "
+            f"exact regression we introduced the Performance term to "
+            f"prevent."
+        )
 
     def test_weighted_fom_missing_wns(self):
         m = FlowMetrics(die_area_um2=256175.0)
         assert m.weighted_fom() == 0.0
+
+    def test_weighted_fom_no_clock_period_skips_perf_and_energy(self):
+        """When clock_period_ns is missing the Performance and energy/
+        cycle terms drop out; the FoM is still callable and returns a
+        positive value driven by area + timing-met."""
+        m = FlowMetrics(
+            wns_worst_ns=1.0,
+            die_area_um2=640000.0,
+            power_total_w=0.021,
+        )
+        fom = m.weighted_fom()
+        assert fom > 0
+        # Without clock period, perf_score and energy_eff_score are 0.
+        # FoM = timing_w*1 + area_w*(1e6/640000) = 0.5 + 1.0*1.5625
+        assert abs(fom - (0.5 + 1.0 * 1.5625)) < 1e-6
 
     def test_validity_check_pass(self):
         m = FlowMetrics(
@@ -277,3 +326,65 @@ class TestFlowMetricsFromRunDir:
         # Should use final/metrics.json value, not state_in.json
         assert m.synth_cell_count == 99999
         assert m.power_total_w == 0.060
+
+    def test_clock_period_from_resolved_json(self, tmp_path):
+        """``CLOCK_PERIOD`` comes from ``resolved.json``, not from
+        ``metrics.json``. LibreLane writes the resolved config (after
+        defaults + template merge) to ``resolved.json`` at the run-dir
+        root; the per-step ``state_in.json`` files only carry runtime
+        metrics, not config values.
+
+        Without this fallback, the PPA FoM degenerates to area +
+        timing-met for any run because ``clock_period_ns`` stays
+        ``None``. That bug masked the Performance term and let the
+        LLM trivially win by relaxing the clock period.
+        """
+        run_dir = tmp_path / "RUN_clk"
+        run_dir.mkdir()
+        # resolved.json carries CLOCK_PERIOD
+        (run_dir / "resolved.json").write_text(json.dumps({
+            "DESIGN_NAME": "demo",
+            "CLOCK_PERIOD": 55.0,
+            "PL_TARGET_DENSITY_PCT": 50,
+        }))
+        # final/metrics.json carries everything else but NOT clock period
+        final_dir = run_dir / "final"
+        final_dir.mkdir()
+        (final_dir / "metrics.json").write_text(json.dumps({
+            "design__instance__count": 25000,
+            "design__die__area": 640000,
+            "timing__setup__ws": 0.28,
+            "power__total": 0.021,
+        }))
+
+        m = FlowMetrics.from_librelane_run_dir(run_dir)
+        assert m.clock_period_ns == 55.0
+        # PPA FoM components must all be active when clock is known.
+        # baseline FoM at 25 MHz, 21 mW, 640k um2 with default weights
+        # is ~21 (timing 0.5 + perf 18.18 + area 1.56 + energy 0.866).
+        assert m.weighted_fom() > 15.0, (
+            f"PPA FoM should be ~21 with clock present, got "
+            f"{m.weighted_fom():.2f}. If <5, clock_period_ns is "
+            f"likely None and the perf/energy terms are zeroed out, "
+            f"which is the regression we are guarding against."
+        )
+
+    def test_clock_period_explicit_metric_overrides_resolved(self, tmp_path):
+        """If both ``resolved.json`` and ``metrics.json`` carry
+        ``CLOCK_PERIOD``, the metrics value wins. Defensive: in
+        practice LibreLane only writes it in resolved, but if that
+        ever changes we want the runtime-emitted value (closer to
+        what the synth actually saw) to take precedence."""
+        run_dir = tmp_path / "RUN_clk_both"
+        run_dir.mkdir()
+        (run_dir / "resolved.json").write_text(json.dumps({
+            "CLOCK_PERIOD": 100.0,  # config value
+        }))
+        final_dir = run_dir / "final"
+        final_dir.mkdir()
+        (final_dir / "metrics.json").write_text(json.dumps({
+            "CLOCK_PERIOD": 55.0,  # actual run-time value
+        }))
+
+        m = FlowMetrics.from_librelane_run_dir(run_dir)
+        assert m.clock_period_ns == 55.0  # metrics wins

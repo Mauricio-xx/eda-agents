@@ -59,23 +59,48 @@ class TestAutoDerivation:
         assert d.librelane_config() == yaml_config
 
     def test_design_space_has_density(self, yaml_config):
+        """Density is exposed as an open ``(lo, hi)`` tuple. The
+        baseline value (65) must sit inside the range so the LLM can
+        actually propose it."""
         d = GenericDesign(yaml_config)
         ds = d.design_space()
         assert "PL_TARGET_DENSITY_PCT" in ds
-        assert 65 in ds["PL_TARGET_DENSITY_PCT"]
+        rng = ds["PL_TARGET_DENSITY_PCT"]
+        assert isinstance(rng, tuple) and len(rng) == 2
+        lo, hi = rng
+        assert lo < 65 < hi
 
     def test_design_space_has_clock(self, yaml_config):
+        """Clock period is exposed as an open ``(lo, hi)`` tuple. The
+        config baseline (40 ns) must sit inside the range, and the
+        upper bound must be far above 1.25x baseline so the LLM can
+        relax timing past the prior policy cap."""
         d = GenericDesign(yaml_config)
         ds = d.design_space()
         assert "CLOCK_PERIOD" in ds
-        assert 40.0 in ds["CLOCK_PERIOD"]
+        rng = ds["CLOCK_PERIOD"]
+        assert isinstance(rng, tuple) and len(rng) == 2
+        lo, hi = rng
+        assert lo < 40.0 < hi
+        assert hi >= 40.0 * 5, (
+            "Clock upper bound must allow >5x relaxation; the prior "
+            "1.25x cap is the policy we explicitly removed (LLM should "
+            "have full freedom to experiment with timing)."
+        )
 
-    def test_design_space_density_range(self, yaml_config):
+    def test_design_space_density_range_is_libelane_valid(self, yaml_config):
+        """The density bound is the LibreLane-valid window, not a
+        narrow grid. ``(1.0, 99.0)`` is the floor/ceiling LibreLane
+        accepts; values outside crash floorplan but neither endpoint
+        crashes the tool."""
         d = GenericDesign(yaml_config)
         ds = d.design_space()
-        # Should be centered around 65, all between 30-90
-        for v in ds["PL_TARGET_DENSITY_PCT"]:
-            assert 30 <= v <= 90
+        lo, hi = ds["PL_TARGET_DENSITY_PCT"]
+        assert lo >= 0.0 and hi <= 100.0
+        assert hi - lo > 90.0, (
+            "Density window must span almost the full LibreLane-valid "
+            "range, not the prior baseline +/-20 strip."
+        )
 
     def test_design_space_overrides(self, yaml_config):
         d = GenericDesign(
@@ -137,19 +162,28 @@ class TestFomAndValidity:
     def test_custom_fom_weights(self, yaml_config):
         from eda_agents.core.flow_metrics import FlowMetrics
 
+        # Drop every weight to zero except timing_met to verify the
+        # weight dict is honoured; the remaining FoM should be exactly
+        # the binary timing-met indicator.
         d = GenericDesign(
             yaml_config,
-            fom_weights={"timing_w": 2.0, "area_w": 0.0, "power_w": 0.0},
+            fom_weights={
+                "timing_w": 2.0,
+                "perf_w": 0.0,
+                "area_w": 0.0,
+                "power_w": 0.0,
+            },
         )
         m = FlowMetrics(
             wns_worst_ns=10.0,
             die_area_um2=100000,
             power_total_w=0.01,
+            clock_period_ns=40.0,
             drc_clean=True,
             lvs_match=True,
         )
         fom = d.compute_fom(m)
-        assert fom > 0
+        assert abs(fom - 2.0) < 1e-6
 
     def test_check_validity_delegates(self, yaml_config):
         from eda_agents.core.flow_metrics import FlowMetrics
