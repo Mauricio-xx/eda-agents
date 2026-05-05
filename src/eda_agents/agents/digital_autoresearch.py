@@ -1480,11 +1480,10 @@ class DigitalAutoresearchRunner:
         or :meth:`GlSimRunner.run_post_pnr` (``"post_pnr"``). Returns a
         dict with ``success``/``error``/``log_tail``/``run_time_s`` (and
         ``sdf_warnings`` for ``post_pnr``), or ``None`` when GL sim is
-        not applicable (no testbench, no stdcell glob, no PDK root).
+        not applicable (no stdcell glob, no PDK root). Both iverilog and
+        cocotb testbenches are dispatched by :class:`GlSimRunner`'s own
+        flavour detection.
         """
-        tb = self.design.testbench()
-        if tb is None or tb.driver != "iverilog":
-            return None
         if not pdk_cfg.stdcell_verilog_models_glob and not self.design.gl_sim_cells_glob():
             logger.info(
                 "[eval %s] GL sim (%s) skipped: no stdcell_verilog_models_glob "

@@ -1615,3 +1615,92 @@ class TestSeedEval:
             [non_seed_entry], None, 2,
         )
         assert "project baseline" not in prompt.lower()
+
+
+class TestGlSimGating:
+    """``_run_gl_sim`` no longer filters out cocotb tbs.
+
+    Pre-Commit-5 the gate returned ``None`` whenever the testbench
+    spec was anything other than iverilog, which silently skipped GL
+    sim for designs like Goertzel. ``GlSimRunner`` already supports
+    cocotb internally, so the filter is dropped and ``_run_gl_sim``
+    instantiates the runner regardless of driver.
+    """
+
+    def _make_pdk_with_glob(self):
+        from eda_agents.core.pdk import GF180MCU_D
+        return GF180MCU_D
+
+    def test_run_gl_sim_invokes_runner_for_cocotb_tb(
+        self, design, tmp_path, monkeypatch,
+    ):
+        from eda_agents.core.digital_design import TestbenchSpec
+        from eda_agents.core.flow_stage import FlowStage
+        from eda_agents.core.flow_stage import StageResult
+
+        cocotb_tb = TestbenchSpec(
+            driver="cocotb", target="sim", work_dir_relative="tb",
+        )
+        design.testbench.return_value = cocotb_tb
+        design.gl_sim_cells_glob.return_value = "cells/*.v"
+
+        invoked = {"count": 0}
+
+        class _FakeGlSimRunner:
+            def __init__(self, **kwargs):  # noqa: ARG002
+                pass
+
+            def run_post_synth(self):
+                invoked["count"] += 1
+                return StageResult(
+                    stage=FlowStage.POST_SYNTH_SIM,
+                    success=True,
+                    metrics_delta={},
+                    log_tail="ok",
+                    run_time_s=0.1,
+                )
+
+            def run_post_pnr(self):  # pragma: no cover - not used here
+                raise AssertionError("post_pnr not expected in this test")
+
+        monkeypatch.setattr(
+            "eda_agents.core.stages.gl_sim_runner.GlSimRunner",
+            _FakeGlSimRunner,
+        )
+        monkeypatch.setattr(
+            "eda_agents.core.pdk.resolve_pdk_root",
+            lambda _cfg, explicit_root=None: Path("/fake/pdk"),
+        )
+
+        runner = DigitalAutoresearchRunner(design=design)
+        out = runner._run_gl_sim(
+            tmp_path / "run", eval_num=1,
+            pdk_cfg=self._make_pdk_with_glob(),
+            mode="post_synth",
+        )
+
+        assert out is not None
+        assert out["success"] is True
+        assert invoked["count"] == 1
+
+    def test_run_gl_sim_skips_when_no_stdcell_glob(
+        self, design, tmp_path,
+    ):
+        """The PDK-glob skip is preserved post-Commit-5; the iverilog
+        filter is dropped, but stdcell glob requirements still hold."""
+        from eda_agents.core.digital_design import TestbenchSpec
+
+        empty_pdk = MagicMock()
+        empty_pdk.stdcell_verilog_models_glob = ""
+        empty_pdk.name = "empty"
+        design.testbench.return_value = TestbenchSpec(
+            driver="cocotb", target="sim", work_dir_relative="tb",
+        )
+        design.gl_sim_cells_glob.return_value = None
+
+        runner = DigitalAutoresearchRunner(design=design)
+        out = runner._run_gl_sim(
+            tmp_path / "run", eval_num=1, pdk_cfg=empty_pdk,
+            mode="post_synth",
+        )
+        assert out is None

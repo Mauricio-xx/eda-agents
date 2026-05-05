@@ -429,12 +429,13 @@ class GlSimRunner:
     def _detect_tb_flavour(self) -> Literal["iverilog", "cocotb", "none"]:
         """Detect whether the agent wrote an iverilog or cocotb testbench.
 
-        The detection is filesystem-based and cheap on purpose: GL sim
-        runs once we know the LibreLane flow finished, by which point
-        the agent's ``tb/`` directory is fully written. No need to
-        consult ``design.testbench()`` (which is what the iverilog
-        path uses) — for cocotb the design's testbench spec returns
-        ``make sim`` and is opaque to us.
+        Resolution honours the design's :class:`TestbenchSpec` when
+        present: ``work_dir_relative`` chooses the tb directory and
+        ``env_overrides["MODULE"]`` the cocotb test module name.
+        Designs that omit those fields (or pre-Commit-1 mocks that
+        return ``None`` from :meth:`testbench`) fall back to the
+        legacy convention ``tb/test_<design_name>.py`` +
+        ``tb/Makefile``.
 
         Order of precedence: cocotb beats iverilog when both are
         present. This is intentional — the bench tasks pin one
@@ -442,14 +443,28 @@ class GlSimRunner:
         produce both, but if it ever does, cocotb is the higher-
         fidelity check (cocotb assertions are typed Python).
         """
-        tb_dir = self.design.project_dir() / "tb"
-        cocotb_test = tb_dir / f"test_{self.design_name}.py"
+        tb = self.design.testbench()
+        if tb and tb.work_dir_relative and tb.work_dir_relative != ".":
+            work_dir_rel = tb.work_dir_relative
+        else:
+            work_dir_rel = "tb"
+        tb_dir = self.design.project_dir() / work_dir_rel
+        module = (
+            tb.env_overrides.get("MODULE")
+            if tb and tb.env_overrides
+            else None
+        ) or f"test_{self.design_name}"
+
+        cocotb_test = tb_dir / f"{module}.py"
         cocotb_makefile = tb_dir / "Makefile"
         if cocotb_test.is_file() and cocotb_makefile.is_file():
+            self._tb_resolution = (tb_dir, module)
             return "cocotb"
         iverilog_tb = tb_dir / f"tb_{self.design_name}.v"
         if iverilog_tb.is_file():
+            self._tb_resolution = None
             return "iverilog"
+        self._tb_resolution = None
         return "none"
 
     def _cells_glob(self) -> str:
@@ -523,9 +538,21 @@ class GlSimRunner:
         pre-synth cocotb runs. ``tests == 0`` is treated as a failure
         (silent test skipping is a common cocotb misconfiguration).
         """
-        cocotb_test_src = (
-            self.design.project_dir() / "tb" / f"test_{self.design_name}.py"
-        )
+        # ``_detect_tb_flavour`` ran upstream and stashed the (tb_dir,
+        # module) pair on ``self._tb_resolution`` so we don't re-derive
+        # it here. The resolution honours the design's TestbenchSpec
+        # (work_dir_relative + env_overrides["MODULE"]) with a fall
+        # back to the legacy ``tb/test_<name>`` layout.
+        resolution = getattr(self, "_tb_resolution", None)
+        if resolution is None:
+            return self._fail(
+                stage,
+                "cocotb test resolution missing — _detect_tb_flavour must "
+                "run first to populate self._tb_resolution",
+                t0,
+            )
+        tb_dir, module = resolution
+        cocotb_test_src = tb_dir / f"{module}.py"
         if not cocotb_test_src.is_file():
             return self._fail(
                 stage,
@@ -538,7 +565,7 @@ class GlSimRunner:
         # exporting PYTHONPATH and isolates the GL sim from any
         # pre-synth conftest the agent might have written next to its
         # cocotb test.
-        cocotb_test_dst = work_dir / f"test_{self.design_name}.py"
+        cocotb_test_dst = work_dir / f"{module}.py"
         cocotb_test_dst.write_text(cocotb_test_src.read_text())
 
         sdf_flags = "-gspecify -ginterconnect" if sdf_path is not None else ""
@@ -552,7 +579,7 @@ class GlSimRunner:
             "SIM ?= icarus\n"
             "TOPLEVEL_LANG ?= verilog\n"
             f"TOPLEVEL = {self.design_name}\n"
-            f"MODULE = test_{self.design_name}\n"
+            f"MODULE = {module}\n"
             "\n"
             f"VERILOG_SOURCES = {verilog_sources}\n"
             f"COMPILE_ARGS += {compile_args}\n"

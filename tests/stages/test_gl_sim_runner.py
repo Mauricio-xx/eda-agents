@@ -563,6 +563,56 @@ class TestDetectTbFlavour:
         )
         assert runner._detect_tb_flavour() == "iverilog"  # noqa: SLF001
 
+    def test_detects_cocotb_via_design_testbench_spec(self, tmp_path, pdk_config):
+        """When the design's TestbenchSpec specifies a non-default
+        MODULE and work_dir_relative, the resolver honours both."""
+        project = tmp_path / "project"
+        custom_dir = project / "dv"
+        custom_dir.mkdir(parents=True)
+        (custom_dir / "test_throughput.py").write_text("import cocotb\n")
+        (custom_dir / "Makefile").write_text(
+            "include $(shell cocotb-config --makefiles)/Makefile.sim\n"
+        )
+        # The legacy ``tb/test_dut_top.py`` does NOT exist, so the
+        # spec-driven path is the only way the resolver can succeed.
+        run_dir = _make_run_dir(tmp_path, "dut_top")
+        spec = TestbenchSpec(
+            driver="cocotb",
+            target="sim",
+            env_overrides={"MODULE": "test_throughput"},
+            work_dir_relative="dv",
+        )
+        design = _make_design(project_dir=project, tb=spec)
+
+        runner = GlSimRunner(
+            design=design, env=_make_env(),
+            run_dir=run_dir, pdk_config=pdk_config, pdk_root=tmp_path,
+        )
+        assert runner._detect_tb_flavour() == "cocotb"  # noqa: SLF001
+        # Resolution caches the (tb_dir, module) pair for _run_cocotb_gl_sim.
+        tb_dir, module = runner._tb_resolution  # noqa: SLF001
+        assert tb_dir == custom_dir
+        assert module == "test_throughput"
+
+    def test_detects_cocotb_falls_back_when_spec_silent(self, tmp_path, pdk_config):
+        """A design whose TestbenchSpec leaves work_dir_relative at
+        the default ``.`` and omits MODULE still resolves the legacy
+        ``tb/test_<design_name>.py`` + ``tb/Makefile`` layout."""
+        project = tmp_path / "project"
+        _make_cocotb_project(project, "dut_top")
+        run_dir = _make_run_dir(tmp_path, "dut_top")
+        spec = TestbenchSpec(driver="cocotb", target="sim")
+        design = _make_design(project_dir=project, tb=spec)
+
+        runner = GlSimRunner(
+            design=design, env=_make_env(),
+            run_dir=run_dir, pdk_config=pdk_config, pdk_root=tmp_path,
+        )
+        assert runner._detect_tb_flavour() == "cocotb"  # noqa: SLF001
+        tb_dir, module = runner._tb_resolution  # noqa: SLF001
+        assert tb_dir == project / "tb"
+        assert module == "test_dut_top"
+
 
 class TestCocotbPostSynth:
     """Cocotb backend dispatch from run_post_synth."""
@@ -697,6 +747,53 @@ class TestCocotbPostSynth:
         assert "dut_top.nl.v" in makefile
         # No SDF flags for post-synth.
         assert "-gspecify" not in makefile
+
+    def test_makefile_module_honours_design_testbench_spec(
+        self, tmp_path, pdk_config,
+    ):
+        """When the design's TestbenchSpec carries a custom MODULE
+        (e.g. ``test_throughput`` for Goertzel), the generated GL-sim
+        Makefile uses that name verbatim, and the cocotb test source
+        copied into the work dir is the corresponding file under the
+        spec's work_dir_relative."""
+        project = tmp_path / "project"
+        custom_dir = project / "dv"
+        custom_dir.mkdir(parents=True)
+        (custom_dir / "test_throughput.py").write_text(
+            "# custom cocotb test\nimport cocotb\n"
+        )
+        (custom_dir / "Makefile").write_text(
+            "include $(shell cocotb-config --makefiles)/Makefile.sim\n"
+        )
+        cell_dir = (
+            tmp_path
+            / "fake_pdk"
+            / pdk_config.stdcell_verilog_models_glob.rsplit("/", 1)[0]
+        )
+        cell_dir.mkdir(parents=True)
+        (cell_dir / "stub.v").write_text("// stub\n")
+        run_dir = _make_run_dir(tmp_path, "dut_top")
+        spec = TestbenchSpec(
+            driver="cocotb",
+            target="sim",
+            env_overrides={"MODULE": "test_throughput"},
+            work_dir_relative="dv",
+        )
+        design = _make_design(project_dir=project, tb=spec)
+        env = _make_cocotb_env(stdout="** TESTS=1 PASS=1 FAIL=0 SKIP=0 **\n")
+
+        runner = GlSimRunner(
+            design=design, env=env, run_dir=run_dir,
+            pdk_config=pdk_config, pdk_root=tmp_path / "fake_pdk",
+        )
+        runner.run_post_synth()
+
+        makefile = (run_dir / "gl_sim" / "post_synth" / "Makefile").read_text()
+        assert "MODULE = test_throughput" in makefile
+        assert "MODULE = test_dut_top" not in makefile
+        copied = run_dir / "gl_sim" / "post_synth" / "test_throughput.py"
+        assert copied.is_file()
+        assert "custom cocotb test" in copied.read_text()
 
     def test_copies_cocotb_test_into_workdir(self, tmp_path, pdk_config):
         project, design, run_dir, pdk_root = self._setup(tmp_path, pdk_config)
