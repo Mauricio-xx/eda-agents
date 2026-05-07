@@ -1,0 +1,64 @@
+{
+  "iterations": [
+    {
+      "turn": 1,
+      "success": false,
+      "all_passed": false,
+      "sim_status": "fail",
+      "flow_status": "missing",
+      "gl_sim_status": "missing",
+      "failure_excerpt": "AssertionError: counter rollover off by one",
+      "cost_usd": 0.45,
+      "duration_s": 120.5,
+      "num_turns": 5,
+      "work_subdir": "runs/RUN_2026-04-13-10-00-00",
+      "error": null
+    },
+    {
+      "turn": 2,
+      "success": false,
+      "all_passed": false,
+      "sim_status": "pass",
+      "flow_status": "fail",
+      "gl_sim_status": "missing",
+      "failure_excerpt": "OpenROAD detailed routing congestion exceeded",
+      "cost_usd": 0.78,
+      "duration_s": 410.2,
+      "num_turns": 9,
+      "work_subdir": "runs/RUN_2026-04-13-10-15-00",
+      "error": null
+    },
+    {
+      "turn": 3,
+      "success": false,
+      "all_passed": false,
+      "sim_status": "pass",
+      "flow_status": "pass",
+      "gl_sim_status": "fail",
+      "failure_excerpt": "Post-PnR GL sim mismatch on count[3] after reset",
+      "cost_usd": 0.91,
+      "duration_s": 535.0,
+      "num_turns": 11,
+      "work_subdir": "runs/RUN_2026-04-13-10-30-00",
+      "error": null
+    },
+    {
+      "turn": 4,
+      "success": true,
+      "all_passed": true,
+      "sim_status": "pass",
+      "flow_status": "pass",
+      "gl_sim_status": "pass",
+      "failure_excerpt": "",
+      "cost_usd": 0.98,
+      "duration_s": 580.7,
+      "num_turns": 12,
+      "work_subdir": "runs/RUN_2026-04-13-10-50-00",
+      "error": null
+    }
+  ],
+  "total_cost_usd": 3.12,
+  "converged_turn": 4,
+  "budget_exhausted": false,
+  "reason": "converged"
+}
