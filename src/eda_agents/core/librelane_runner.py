@@ -170,6 +170,29 @@ class LibreLaneRunner:
         else:
             self.config_path.write_text(json.dumps(config, indent=4) + "\n")
 
+    def _write_librelane_config(self) -> Path:
+        """Materialise a LibreLane-only view of the config.
+
+        ``GenericDesign.testbench()`` reads ``EDA_AGENTS_TB_*`` keys from
+        the same config file LibreLane is asked to load. LibreLane v3
+        rejects unknown keys, so we strip the eda-agents-only namespace
+        into a sibling file and pass that to the subprocess. ``dir::``
+        relative paths still resolve correctly because the sibling file
+        sits in the same project directory as the original.
+        """
+        config = self._read_config()
+        stripped = {k: v for k, v in config.items() if not str(k).startswith("EDA_AGENTS_")}
+        out_path = self.config_path.with_name(
+            f"{self.config_path.stem}.librelane{self.config_path.suffix}"
+        )
+        if self._is_yaml:
+            out_path.write_text(
+                yaml.dump(stripped, default_flow_style=False, sort_keys=False)
+            )
+        else:
+            out_path.write_text(json.dumps(stripped, indent=4) + "\n")
+        return out_path
+
     def modify_config(self, key: str, value, force: bool = False) -> dict:
         """Safely modify a config parameter.
 
@@ -244,11 +267,18 @@ class LibreLaneRunner:
                 error=f"Config not found: {self.config_path}",
             )
 
+        # Strip eda-agents-only keys (e.g. EDA_AGENTS_TB_*) from the
+        # config LibreLane sees, so its strict schema validator does not
+        # reject them with "Unknown key". The stripped sibling file
+        # lives next to the original so ``dir::`` paths resolve
+        # identically.
+        config_for_librelane = self._write_librelane_config()
+
         # Build the inner librelane command parts
         inner_parts = [
             self.python_cmd,
             "-m", "librelane",
-            str(self.config_path),
+            str(config_for_librelane),
         ]
 
         if tag:

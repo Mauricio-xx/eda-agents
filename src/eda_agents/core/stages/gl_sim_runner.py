@@ -128,7 +128,16 @@ class GlSimRunner:
         self.run_dir = Path(run_dir)
         self.pdk_config = pdk_config
         self.pdk_root = Path(pdk_root)
-        self.design_name = design_name or design.project_name()
+        # ``design_name`` is used as a Verilog top-module identifier
+        # (Makefile ``TOPLEVEL``, netlist filename) and as the LibreLane
+        # output filename stem (which mirrors ``DESIGN_NAME`` from the
+        # config). ``DigitalDesign.project_name()`` historically returns
+        # the kebab spelling ("foo-bar") for human-readable display, but
+        # Verilog identifiers cannot contain hyphens and LibreLane
+        # writes filenames using the raw ``DESIGN_NAME`` (snake).
+        # Normalise to snake so a single value works for both contracts.
+        raw_name = design_name or design.project_name()
+        self.design_name = raw_name.replace("-", "_")
         self.timeout_s = timeout_s
         self.librelane_python = librelane_python
         # SDF annotation requires iverilog ``-gspecify -ginterconnect``.
@@ -236,13 +245,26 @@ class GlSimRunner:
             )
 
         sdf = self._find_sdf(corner)
-        if sdf is None:
+        if sdf is None and self.enable_sdf_annotation:
             return self._fail(
                 FlowStage.GL_SIM_POST_PNR,
                 "Post-PnR SDF not found under "
                 f"{self.run_dir}/final/sdf/ (tried corner "
-                f"{corner or self.pdk_config.default_sta_corner!r})",
+                f"{corner or self.pdk_config.default_sta_corner!r}); "
+                "enable_sdf_annotation=True requires the SDF.",
                 t0,
+            )
+        # When enable_sdf_annotation is False (default), the runner
+        # performs functional-only post-PnR GL sim and the SDF is not
+        # consumed. A missing SDF — typically because the LibreLane
+        # config has ``OpenROAD.STAPostPNR: null`` — is therefore
+        # acceptable: we log a debug note and continue with sdf=None.
+        if sdf is None:
+            logger.debug(
+                "Post-PnR SDF not found under %s/final/sdf/; proceeding "
+                "with functional-only GL sim because "
+                "enable_sdf_annotation=False.",
+                self.run_dir,
             )
 
         cell_sources = self._resolve_cell_sources()
@@ -309,19 +331,48 @@ class GlSimRunner:
     # ------------------------------------------------------------------
 
     def _find_post_synth_netlist(self) -> Path | None:
-        """Glob for ``<run>/*-yosys-synthesis/<design>.nl.v``."""
-        pattern = str(
-            self.run_dir / "*-yosys-synthesis" / f"{self.design_name}.nl.v"
-        )
-        matches = sorted(glob.glob(pattern))
-        if not matches:
-            return None
-        if len(matches) > 1:
-            logger.warning(
-                "Multiple post-synth netlists matched %s; using %s",
-                pattern, matches[-1],
+        """Glob for ``<run>/*-yosys-synthesis/<design>.nl.v``.
+
+        ``design_name`` defaults to :meth:`DigitalDesign.project_name`,
+        which downcases and converts ``_`` to ``-`` (kebab). LibreLane
+        writes the netlist using ``DESIGN_NAME`` from the config (often
+        snake-case). Try both spellings before falling back to a generic
+        ``*.nl.v`` glob inside the synthesis directory so the runner is
+        not coupled to any one naming convention.
+        """
+        candidates = [self.design_name]
+        snake = self.design_name.replace("-", "_")
+        if snake != self.design_name:
+            candidates.append(snake)
+        kebab = self.design_name.replace("_", "-")
+        if kebab not in candidates:
+            candidates.append(kebab)
+
+        for name in candidates:
+            pattern = str(
+                self.run_dir / "*-yosys-synthesis" / f"{name}.nl.v"
             )
-        return Path(matches[-1])
+            matches = sorted(glob.glob(pattern))
+            if matches:
+                if len(matches) > 1:
+                    logger.warning(
+                        "Multiple post-synth netlists matched %s; using %s",
+                        pattern, matches[-1],
+                    )
+                return Path(matches[-1])
+
+        # Last-resort glob: any .nl.v under the yosys-synthesis dir.
+        fallback = sorted(
+            glob.glob(str(self.run_dir / "*-yosys-synthesis" / "*.nl.v"))
+        )
+        if fallback:
+            logger.warning(
+                "Falling back to generic *-yosys-synthesis/*.nl.v glob; "
+                "design_name=%r did not match exactly.",
+                self.design_name,
+            )
+            return Path(fallback[-1])
+        return None
 
     def _find_post_pnr_netlist(self) -> Path | None:
         """Locate the power-stripped post-PnR netlist.
@@ -343,9 +394,10 @@ class GlSimRunner:
         nets — the SDF carries gate delays tied to cell instances
         that exist in both netlists.
         """
-        candidate = self.run_dir / "final" / "nl" / f"{self.design_name}.nl.v"
-        if candidate.is_file():
-            return candidate
+        for name in {self.design_name, self.design_name.replace("-", "_"), self.design_name.replace("_", "-")}:
+            candidate = self.run_dir / "final" / "nl" / f"{name}.nl.v"
+            if candidate.is_file():
+                return candidate
         for pattern in (
             "final/verilog/gl/*.nl.v",
             "final/nl/*.v",
