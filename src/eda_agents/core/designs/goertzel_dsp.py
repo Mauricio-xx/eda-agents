@@ -50,7 +50,7 @@ from eda_agents.core.digital_design import (
     DigitalDesign,
     TestbenchSpec,
 )
-from eda_agents.core.flow_metrics import FlowMetrics
+from eda_agents.core.flow_metrics import GF180_EDUCATIONAL, FlowMetrics
 from eda_agents.core.stage_results import StageResults
 
 logger = logging.getLogger(__name__)
@@ -231,9 +231,7 @@ class GoertzelDspDesign(DigitalDesign):
         # carries the performance signal below, so rewarding
         # ``1000/period_ns`` would double-count and re-introduce the
         # clock-relaxation attack.
-        ppa = metrics.weighted_fom(
-            timing_w=0.5, perf_w=0.0, area_w=1.0, power_w=1.0,
-        )
+        ppa = metrics.weighted_fom(GF180_EDUCATIONAL, perf_w=0.0)
 
         throughput = measurements.get("throughput_sps")
         if throughput is None or throughput <= 0:

@@ -356,11 +356,12 @@ def generate_program_content(
 
     This is the shared template; callers provide domain-specific text
     for each section. The ``Design Space`` body is whatever the design
-    decided to surface in :meth:`DigitalDesign.design_vars_description`
-    — the harness no longer formats range tuples on top of it because
-    literal ``[lo, hi]`` lines anchor the LLM toward the centroid (see
-    the Goertzel reward-hacking incident write-up in
-    ``.claude/plans``).
+    decided to surface in :meth:`DigitalDesign.design_vars_description`;
+    the harness no longer formats range tuples on top of it because
+    literal ``[lo, hi]`` lines anchor LLM proposals toward the centroid
+    of the range, which has shown up empirically as reward hacking
+    (the optimiser proposes the midpoint repeatedly and pretends to be
+    "exploring"). Letting the design own the framing avoids that.
     """
     return _PROGRAM_TEMPLATE.format(
         goal=(

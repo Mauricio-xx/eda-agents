@@ -17,7 +17,7 @@ import os
 from pathlib import Path
 
 from eda_agents.core.digital_design import DigitalDesign, TestbenchSpec
-from eda_agents.core.flow_metrics import FlowMetrics
+from eda_agents.core.flow_metrics import GF180_EDUCATIONAL, FlowMetrics
 
 
 _DEFAULT_DESIGNS_DIR = "/home/montanares/git"
@@ -78,7 +78,12 @@ class SystolicMacDftDesign(DigitalDesign):
         if not valid:
             return 0.0
         metrics = FlowMetrics.from_measurements(measurements)
-        return metrics.weighted_fom(timing_w=1.0, area_w=0.5, power_w=0.3)
+        return metrics.weighted_fom(
+            GF180_EDUCATIONAL,
+            timing_w=1.0,
+            area_w=0.5,
+            power_w=0.3,
+        )
 
     def check_validity(
         self, measurements: dict[str, float | int | None]

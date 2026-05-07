@@ -6,7 +6,7 @@ from pathlib import Path
 import yaml
 
 from eda_agents.core.digital_design import DigitalDesign, TestbenchSpec
-from eda_agents.core.flow_metrics import FlowMetrics
+from eda_agents.core.flow_metrics import GF180_EDUCATIONAL, FlowMetrics
 
 
 class _DummyDesign(DigitalDesign):
@@ -37,7 +37,9 @@ class _DummyDesign(DigitalDesign):
         wns = measurements.get("wns_worst_ns")
         if wns is None or wns < 0:
             return 0.0
-        return FlowMetrics.from_measurements(measurements).weighted_fom()
+        return FlowMetrics.from_measurements(measurements).weighted_fom(
+            GF180_EDUCATIONAL
+        )
 
     def check_validity(self, measurements):
         return FlowMetrics.from_measurements(measurements).validity_check()

@@ -2,12 +2,17 @@
 
 Wraps the flat metric dict produced by LibreLaneMetricsParser into a
 typed dataclass with named fields, a weighted FoM computation, and a
-validity gate.  Field names and semantics are grounded in Phase 0
-observations on GF180MCU / fazyrv-hachure (see
-``docs/digital_flow_field_notes.md`` sections 4.3 and 5.2).
+validity gate. Field names and semantics are grounded in Phase 0
+observations from the bring-up educational designs that calibrated
+the digital pipeline (see ``docs/digital_flow_field_notes.md``
+sections 4.3 and 5.2 and :data:`GF180_EDUCATIONAL` for the canonical
+calibration assumptions). New design classes whose normalisation
+constants differ materially (e.g. kHz IoT, large GPUs) should declare
+their own :class:`PpaProfile` rather than re-tuning the shipped
+defaults.
 
 The canonical data source is ``final/metrics.json`` or the accumulated
-``state_in.json`` chain from a LibreLane run directory.  Per-corner
+``state_in.json`` chain from a LibreLane run directory. Per-corner
 ``.rpt`` files may differ for power (pre- vs post-RCX); this class
 uses the RCX-corrected final values.
 """
@@ -48,6 +53,66 @@ _KEY_MAP: dict[str, list[str]] = {
     "antenna_violations": ["antenna__violating__nets"],
     "clock_period_ns": ["CLOCK_PERIOD"],
 }
+
+
+@dataclass(frozen=True)
+class PpaProfile:
+    """Named PPA weight profile for :meth:`FlowMetrics.weighted_fom`.
+
+    A profile bundles the four PPA pulls (timing, performance, area,
+    power) so the call site declares which calibration class the FoM
+    is using rather than carrying loose magic numbers. Define a new
+    profile when a design class with materially different scaling
+    (clock target, area target, power budget) is introduced; the
+    discoverable profile name is the entry point for understanding
+    what the FoM is optimising for.
+    """
+
+    timing_w: float
+    perf_w: float
+    area_w: float
+    power_w: float
+    name: str = ""
+
+
+GF180_EDUCATIONAL = PpaProfile(
+    timing_w=0.5,
+    perf_w=1.0,
+    area_w=1.0,
+    power_w=1.0,
+    name="GF180_EDUCATIONAL",
+)
+"""Profile carried by the bring-up educational designs that brought up
+the digital pipeline. Roughly equal pull on timing-met (0.5), MHz
+performance (1.0), inverse die area (1.0), and inverse energy-per-cycle
+(1.0); see ``PpaProfile`` for the formula. Suitable for designs whose
+performance signal is dominated by raw MHz throughput within the few-MHz
+to tens-of-MHz range.
+
+Calibration notes (GF180MCU 5V0 stdcells, the bring-up corner):
+  - Baseline designs land at 5-50 MHz, so the ``1000 / period_ns``
+    perf score sits in [20, 200].
+  - The ``1e6 / area_um2`` area normalisation puts a 640k-um2 design
+    at ~1.5, comparable to the timing-met bonus.
+  - Energy per cycle for a 25k-cell GF180 design is ~1 nJ, so the
+    ``1 / (P * period)`` term is ~1 - roughly clock-invariant by
+    construction.
+
+A new profile should redo this calibration so all four terms are
+commensurate at the new design's operating point; otherwise one
+component swamps the FoM."""
+
+LOW_POWER_KHZ = PpaProfile(
+    timing_w=1.0,
+    perf_w=0.0,
+    area_w=0.5,
+    power_w=2.0,
+    name="LOW_POWER_KHZ",
+)
+"""Profile for kHz-class IoT controllers where MHz frequency is irrelevant
+once timing is met. ``perf_w`` is zero so the formula does not reward
+clock speed beyond the timing-met binary; ``power_w`` is doubled so
+energy-per-cycle is the dominant FoM driver."""
 
 
 @dataclass
@@ -129,53 +194,58 @@ class FlowMetrics:
 
     def weighted_fom(
         self,
-        timing_w: float = 0.5,
-        perf_w: float = 1.0,
-        area_w: float = 1.0,
-        power_w: float = 1.0,
+        profile: PpaProfile,
+        *,
+        timing_w: float | None = None,
+        perf_w: float | None = None,
+        area_w: float | None = None,
+        power_w: float | None = None,
     ) -> float:
         """Compute a weighted figure of merit (PPA: Performance, Power, Area).
 
         Higher is better. Returns 0.0 if essential metrics are missing.
+
+        The four PPA pulls are taken from ``profile`` unless the caller
+        overrides any of them via the keyword arguments. Overrides act
+        per-key: passing ``timing_w`` only replaces ``profile.timing_w``;
+        the other three weights still come from the profile. Designs
+        whose FoM target differs materially from any shipped profile
+        should declare a new :class:`PpaProfile` rather than re-tuning
+        weights ad-hoc, so the calibration intent stays discoverable.
 
         Components (all normalized to roughly the same magnitude so that
         none dominates by accident):
 
         * **Timing-met**: binary 1.0 / 0.0. ``check_validity`` already
           rejects WNS < 0 designs, so by the time the FoM is computed
-          the timing is met. The bonus is small (default ``timing_w =
-          0.5``); excessive slack is NOT rewarded because that would
-          reduce to "relax clock to win", which gamed the previous
-          formula. Use the Performance term for actual frequency.
+          the timing is met. Excessive slack is NOT rewarded because
+          that would reduce to "relax clock to win", which gamed an
+          earlier formula. The Performance term carries the actual
+          frequency.
         * **Performance**: achievable frequency in MHz at the synth
-          clock period. ``1000 / clock_period_ns``. Baseline GF180MCU
-          designs land at 5-50 MHz; this term carries the throughput
-          signal that a relax-everything optimizer used to evade.
+          clock period. ``1000 / clock_period_ns``; this term carries
+          the throughput signal that a relax-everything optimizer
+          used to evade.
         * **Area**: inverse die area, ``1e6 / area_um2``. Roughly
-          unitless and ~1.5 for a 640k-um2 design.
+          unitless.
         * **Power**: inverse energy-per-cycle, ``1 / (power_W * period_ns)``
           (units: 1 / nJ-per-cycle). Power scales linearly with
           frequency in synchronous logic, so plain ``1/power`` rewarded
-          slow clocks trivially. Energy per cycle (~1 nJ for a 25k-cell
-          GF180MCU design) is roughly clock-invariant for a fixed RTL,
-          which is what we want: the FoM rewards genuine power
-          improvements (smaller cells, lower-leakage VTs, clock
-          gating), not clock relaxation.
+          slow clocks trivially. Energy per cycle is roughly clock-
+          invariant for a fixed RTL, which is what we want: the FoM
+          rewards genuine power improvements (smaller cells, lower-
+          leakage VTs, clock gating), not clock relaxation.
 
-        Defaults give all three PPA components roughly equal pull:
-
-            FoM = 0.5 * timing_met + 1.0 * freq_MHz
-                + 1.0 * area_score + 1.0 * energy_eff_score
-
-        ``DigitalDesign.compute_fom()`` can override with a
-        design-specific formula. The defaults are tuned for the
-        Goertzel FP32 / fazyrv class of educational designs on
-        GF180MCU; for vastly different speed targets (e.g. a kHz IoT
-        controller) the ``perf_w`` weight should be reduced or the
-        ``perf_score`` re-scaled.
+            FoM = timing_w * timing_met + perf_w * freq_MHz
+                + area_w * area_score + power_w * energy_eff_score
         """
         if self.wns_worst_ns is None:
             return 0.0
+
+        timing_w_used = timing_w if timing_w is not None else profile.timing_w
+        perf_w_used = perf_w if perf_w is not None else profile.perf_w
+        area_w_used = area_w if area_w is not None else profile.area_w
+        power_w_used = power_w if power_w is not None else profile.power_w
 
         # Timing met (binary): 1.0 if WNS >= 0, 0.0 otherwise.
         # ``check_validity`` already gates WNS < 0 -> FoM=0 in
@@ -211,10 +281,10 @@ class FlowMetrics:
             energy_eff_score = 1.0 / nj_per_cycle
 
         return (
-            timing_w * timing_score
-            + perf_w * perf_score
-            + area_w * area_score
-            + power_w * energy_eff_score
+            timing_w_used * timing_score
+            + perf_w_used * perf_score
+            + area_w_used * area_score
+            + power_w_used * energy_eff_score
         )
 
     def validity_check(self) -> tuple[bool, list[str]]:
@@ -251,10 +321,9 @@ class FlowMetrics:
         and returns a populated dataclass that
         :meth:`weighted_fom` and :meth:`validity_check` can consume.
 
-        Used by ``GenericDesign`` / ``FazyRvHachureDesign`` /
-        ``SystolicMacDftDesign`` so the dict-based ``compute_fom``
-        signature can stay a one-liner that delegates to the
-        existing PPA helper without re-implementing the formula.
+        Used by digital design subclasses so the dict-based
+        ``compute_fom`` signature can stay a one-liner that delegates
+        to the existing PPA helper without re-implementing the formula.
 
         Recognized keys (others are silently ignored):
 

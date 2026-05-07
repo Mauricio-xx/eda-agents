@@ -5,7 +5,11 @@ import json
 import pytest
 
 from eda_agents.core.flow_stage import FlowStage, StageResult
-from eda_agents.core.flow_metrics import FlowMetrics
+from eda_agents.core.flow_metrics import (
+    GF180_EDUCATIONAL,
+    LOW_POWER_KHZ,
+    FlowMetrics,
+)
 
 
 class TestFlowStage:
@@ -89,11 +93,12 @@ class TestFlowMetrics:
             power_total_w=0.05185,
             clock_period_ns=40.0,
         )
-        fom = m.weighted_fom()
+        fom = m.weighted_fom(GF180_EDUCATIONAL)
         assert fom > 0
         # Timing-met component is binary (1.0 when WNS >= 0); set
         # the other weights to zero to isolate it.
         fom_timing_only = m.weighted_fom(
+            GF180_EDUCATIONAL,
             timing_w=1.0, perf_w=0.0, area_w=0.0, power_w=0.0,
         )
         assert abs(fom_timing_only - 1.0) < 0.001
@@ -117,8 +122,8 @@ class TestFlowMetrics:
             power_total_w=0.0002,   # P scales with f
             clock_period_ns=5000.0,
         )
-        baseline_fom = baseline.weighted_fom()
-        relaxed_fom = relaxed.weighted_fom()
+        baseline_fom = baseline.weighted_fom(GF180_EDUCATIONAL)
+        relaxed_fom = relaxed.weighted_fom(GF180_EDUCATIONAL)
         # With proper PPA, baseline must beat trivial relax.
         assert baseline_fom > relaxed_fom, (
             f"Expected baseline FoM > relax FoM, got "
@@ -130,7 +135,7 @@ class TestFlowMetrics:
 
     def test_weighted_fom_missing_wns(self):
         m = FlowMetrics(die_area_um2=256175.0)
-        assert m.weighted_fom() == 0.0
+        assert m.weighted_fom(GF180_EDUCATIONAL) == 0.0
 
     def test_weighted_fom_no_clock_period_skips_perf_and_energy(self):
         """When clock_period_ns is missing the Performance and energy/
@@ -141,11 +146,67 @@ class TestFlowMetrics:
             die_area_um2=640000.0,
             power_total_w=0.021,
         )
-        fom = m.weighted_fom()
+        fom = m.weighted_fom(GF180_EDUCATIONAL)
         assert fom > 0
         # Without clock period, perf_score and energy_eff_score are 0.
         # FoM = timing_w*1 + area_w*(1e6/640000) = 0.5 + 1.0*1.5625
         assert abs(fom - (0.5 + 1.0 * 1.5625)) < 1e-6
+
+    def test_weighted_fom_low_power_khz_profile_flips_ranking(self):
+        """The ``LOW_POWER_KHZ`` profile must rank designs differently
+        from ``GF180_EDUCATIONAL`` when the trade-off is "high frequency
+        + high power" vs "low frequency + low power, energy-equal RTL".
+
+        Two synthetic points share the same area and the same energy
+        budget per cycle, so under ``GF180_EDUCATIONAL`` (perf_w=1.0,
+        power_w=1.0) the high-frequency point wins on raw MHz. Under
+        ``LOW_POWER_KHZ`` (perf_w=0.0, power_w=2.0) the energy term
+        dominates and the relative ranking should change.
+        """
+        fast_high_p = FlowMetrics(
+            wns_worst_ns=0.1,
+            die_area_um2=200000.0,
+            power_total_w=0.5,           # high power
+            clock_period_ns=10.0,        # 100 MHz; nJ/cycle = 5
+        )
+        slow_low_p = FlowMetrics(
+            wns_worst_ns=0.1,
+            die_area_um2=200000.0,
+            power_total_w=0.0001,        # very low power
+            clock_period_ns=10000.0,     # 100 kHz; nJ/cycle = 1
+        )
+        fom_fast_edu = fast_high_p.weighted_fom(GF180_EDUCATIONAL)
+        fom_slow_edu = slow_low_p.weighted_fom(GF180_EDUCATIONAL)
+        fom_fast_iot = fast_high_p.weighted_fom(LOW_POWER_KHZ)
+        fom_slow_iot = slow_low_p.weighted_fom(LOW_POWER_KHZ)
+
+        assert fom_fast_edu > fom_slow_edu, (
+            "GF180_EDUCATIONAL must reward MHz throughput; the fast "
+            "point should beat the kHz point."
+        )
+        assert fom_slow_iot > fom_fast_iot, (
+            "LOW_POWER_KHZ must reward energy efficiency over raw "
+            "frequency; the kHz low-power point should beat the "
+            "high-frequency high-power point."
+        )
+
+    def test_weighted_fom_profile_with_per_key_override(self):
+        """Per-key keyword overrides replace only the named profile
+        weight; the other three are still taken from the profile."""
+        m = FlowMetrics(
+            wns_worst_ns=0.1,
+            die_area_um2=200000.0,
+            power_total_w=0.001,
+            clock_period_ns=20.0,
+        )
+        fom_pure = m.weighted_fom(LOW_POWER_KHZ)
+        fom_with_perf = m.weighted_fom(LOW_POWER_KHZ, perf_w=2.0)
+        # Overriding perf_w (was 0.0 in LOW_POWER_KHZ) to 2.0 must add
+        # exactly perf_w * (1000 / clock_period_ns) = 2.0 * 50 = 100.
+        assert abs((fom_with_perf - fom_pure) - 100.0) < 1e-6, (
+            f"Per-key override should add exactly the new weight times "
+            f"the perf score; got delta = {fom_with_perf - fom_pure}."
+        )
 
     def test_validity_check_pass(self):
         m = FlowMetrics(
@@ -291,7 +352,7 @@ class TestFlowMetricsFromRunDir:
 
     def test_fom_on_parsed(self, fake_run_dir):
         m = FlowMetrics.from_librelane_run_dir(fake_run_dir)
-        fom = m.weighted_fom()
+        fom = m.weighted_fom(GF180_EDUCATIONAL)
         assert fom > 0
 
     def test_empty_run_dir(self, tmp_path):
@@ -360,13 +421,15 @@ class TestFlowMetricsFromRunDir:
         m = FlowMetrics.from_librelane_run_dir(run_dir)
         assert m.clock_period_ns == 55.0
         # PPA FoM components must all be active when clock is known.
-        # baseline FoM at 25 MHz, 21 mW, 640k um2 with default weights
-        # is ~21 (timing 0.5 + perf 18.18 + area 1.56 + energy 0.866).
-        assert m.weighted_fom() > 15.0, (
+        # baseline FoM at 25 MHz, 21 mW, 640k um2 with the
+        # GF180_EDUCATIONAL profile is ~21 (timing 0.5 + perf 18.18
+        # + area 1.56 + energy 0.866).
+        assert m.weighted_fom(GF180_EDUCATIONAL) > 15.0, (
             f"PPA FoM should be ~21 with clock present, got "
-            f"{m.weighted_fom():.2f}. If <5, clock_period_ns is "
-            f"likely None and the perf/energy terms are zeroed out, "
-            f"which is the regression we are guarding against."
+            f"{m.weighted_fom(GF180_EDUCATIONAL):.2f}. If <5, "
+            f"clock_period_ns is likely None and the perf/energy "
+            f"terms are zeroed out, which is the regression we are "
+            f"guarding against."
         )
 
     def test_clock_period_explicit_metric_overrides_resolved(self, tmp_path):

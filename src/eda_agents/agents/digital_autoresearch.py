@@ -26,7 +26,7 @@ Design space handling differs from analog:
 
 Usage:
     runner = DigitalAutoresearchRunner(
-        design=FazyRvHachureDesign(),
+        design=GenericDesign(config_path="path/to/config.yaml"),
         model="openrouter/anthropic/claude-haiku-4.5",
         budget=5,
     )
@@ -34,7 +34,7 @@ Usage:
 
 Mock mode (no LibreLane, for testing):
     runner = DigitalAutoresearchRunner(
-        design=FazyRvHachureDesign(),
+        design=GenericDesign(config_path="path/to/config.yaml"),
         model="test-model",
         budget=3,
         use_mock_metrics=Path("fixtures/mock_flow_metrics.json"),
@@ -876,12 +876,11 @@ class DigitalAutoresearchRunner:
             return False, f"{error}\n{log[:500]}", 0
 
         # ``StageResult`` exposes lint metrics via ``metrics_delta`` (the
-        # canonical name across the digital flow stages). The previous
-        # version reached for ``lint_result.metrics`` which does not
-        # exist on the dataclass and crashed the very first hybrid eval
-        # for every non-cc_cli backend (opencode hit it on demo_goertzel
-        # FP32; cc_cli skips this code path because the agent already
-        # wrote files and the call site lints inline).
+        # canonical name across the digital flow stages); reaching for
+        # ``lint_result.metrics`` would AttributeError. The cc_cli
+        # backend typically lints inline as part of its file-writing
+        # turn, so this code path runs primarily for the opencode,
+        # litellm, and adk backends.
         warnings = lint_result.metrics_delta.get("lint_warnings", 0)
         return True, None, int(warnings)
 
@@ -1329,10 +1328,10 @@ class DigitalAutoresearchRunner:
         self._prepend_nix_tools(env_extra)
 
         # Flags come from two layers: PDK-level (e.g. ``--manual-pdk``
-        # for GF180MCU) plus design-level (e.g. fazyrv skips KLayout
-        # and Magic DRC because its leo/gf180mcu LibreLane pin has a
-        # broken deck). Keep both, PDK flags first so a design can
-        # append overrides deterministically.
+        # for GF180MCU) plus design-level overrides supplied by the
+        # design subclass (e.g. skipping a signoff stage when the
+        # PDK pin has a known-broken deck). Keep both, PDK flags
+        # first so a design can append overrides deterministically.
         design_flags = (
             list(self.design.librelane_extra_flags())
             if hasattr(self.design, "librelane_extra_flags")

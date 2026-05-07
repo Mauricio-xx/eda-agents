@@ -24,7 +24,7 @@ from pathlib import Path
 import yaml
 
 from eda_agents.core.digital_design import DigitalDesign, TestbenchSpec
-from eda_agents.core.flow_metrics import FlowMetrics
+from eda_agents.core.flow_metrics import GF180_EDUCATIONAL, FlowMetrics
 from eda_agents.core.pdk import PdkConfig, resolve_pdk
 
 logger = logging.getLogger(__name__)
@@ -200,6 +200,7 @@ class GenericDesign(DigitalDesign):
             return 0.0
         metrics = FlowMetrics.from_measurements(measurements)
         return metrics.weighted_fom(
+            GF180_EDUCATIONAL,
             timing_w=self._fom_w["timing_w"],
             perf_w=self._fom_w["perf_w"],
             area_w=self._fom_w["area_w"],

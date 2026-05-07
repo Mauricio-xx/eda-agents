@@ -18,6 +18,7 @@ from eda_agents.agents.digital_adk_prompts import (
     verification_engineer_prompt,
 )
 from eda_agents.core.digital_design import DigitalDesign, TestbenchSpec
+from eda_agents.core.flow_metrics import GF180_EDUCATIONAL
 from eda_agents.core.tool_environment import ToolEnvironment
 
 
@@ -52,7 +53,7 @@ def _make_design() -> DigitalDesign:
             return Path("/tmp/test-design/librelane/config.yaml")
 
         def compute_fom(self, metrics):
-            return metrics.weighted_fom()
+            return metrics.weighted_fom(GF180_EDUCATIONAL)
 
         def check_validity(self, metrics):
             return metrics.validity_check()
