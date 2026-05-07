@@ -370,21 +370,21 @@ class ProjectManager:
 
     Usage::
 
+        from pathlib import Path
         from eda_agents.agents.digital_adk_agents import ProjectManager
-        from eda_agents.core.designs.fazyrv_hachure import FazyRvHachureDesign
+        from eda_agents.core.designs import GenericDesign
+
+        design = GenericDesign(config_path=Path("path/to/config.yaml"))
 
         # ADK backend (default)
         pm = ProjectManager(
-            design=FazyRvHachureDesign(),
+            design=design,
             model="openrouter/anthropic/claude-haiku-4.5",
         )
         result = await pm.run(work_dir=Path("./results"))
 
         # Claude Code CLI backend
-        pm = ProjectManager(
-            design=FazyRvHachureDesign(),
-            backend="cc_cli",
-        )
+        pm = ProjectManager(design=design, backend="cc_cli")
         result = await pm.run(work_dir=Path("./results"))
     """
 

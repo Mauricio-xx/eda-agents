@@ -7,11 +7,12 @@ reports, and modify config.
 
 Usage::
 
+    from pathlib import Path
     from eda_agents.agents.digital_cc_runner import DigitalClaudeCodeRunner
-    from eda_agents.core.designs.fazyrv_hachure import FazyRvHachureDesign
+    from eda_agents.core.designs import GenericDesign
 
     runner = DigitalClaudeCodeRunner(
-        design=FazyRvHachureDesign(),
+        design=GenericDesign(config_path=Path("path/to/config.yaml")),
         work_dir=Path("./cc_results"),
     )
     result = await runner.run()

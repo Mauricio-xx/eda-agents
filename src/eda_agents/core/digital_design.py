@@ -2,9 +2,10 @@
 
 Defines the interface for digital RTL-to-GDS designs, parallel to
 ``CircuitTopology`` for analog circuits.  Concrete implementations
-wrap specific projects (e.g., fazyrv-hachure, Systolic_MAC) and
-expose their design space, flow configuration, FoM computation, and
-prompt metadata.
+wrap concrete designs (see ``core/designs/`` for subclasses, with
+``GenericDesign`` as the data-only entry point) and expose their
+design space, flow configuration, FoM computation, and prompt
+metadata.
 
 This is the extension point for supporting new digital designs in the
 DigitalAutoresearchRunner (Phase 3) and the ADK digital sub-agents
@@ -90,7 +91,7 @@ class DigitalDesign(ABC):
 
     @abstractmethod
     def project_name(self) -> str:
-        """Short identifier (e.g., 'fazyrv-hachure')."""
+        """Short identifier used in logs and result records (e.g., 'my-counter')."""
         ...
 
     @abstractmethod
