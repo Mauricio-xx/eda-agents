@@ -1,0 +1,38 @@
+# DSP-class data-only design intent.
+#
+# References ``throughput_sps`` as a measurement, which requires a
+# DigitalDesign subclass (or augmented extract_measurements) to
+# populate from a cocotb sidecar; the fixture is the canonical
+# demonstration of the EDA_AGENTS_DESIGN_INTENT contract for
+# domains where the FoM gate is "throughput must clear a
+# Nyquist-style floor". Synthetic measurements drive the unit
+# tests directly so the fixture does not depend on a flow run.
+
+DESIGN_NAME: example_dsp
+VERILOG_FILES:
+  - "dir::../src/dsp.v"
+CLOCK_PORT: clk
+CLOCK_PERIOD: 100
+PL_TARGET_DENSITY_PCT: 60
+FP_SIZING: absolute
+DIE_AREA: [0.0, 0.0, 300.0, 300.0]
+VDD_NETS: ["VDD"]
+GND_NETS: ["VSS"]
+
+EDA_AGENTS_TB_DRIVER: cocotb
+EDA_AGENTS_TB_TARGET: sim
+EDA_AGENTS_TB_DIR: tb
+
+EDA_AGENTS_FOM_WEIGHTS:
+  timing_w: 0.5
+  perf_w: 0.0
+  area_w: 1.0
+  power_w: 1.0
+
+EDA_AGENTS_DESIGN_INTENT:
+  constants:
+    fs_target_hz: 8000.0
+  constraints:
+    - name: nyquist_floor
+      expr: "throughput_sps >= fs_target_hz"
+      message: "Throughput {throughput_sps:.0f} sps below floor {fs_target_hz:.0f} sps"

@@ -1,0 +1,28 @@
+# Pure-area gate data-only design intent.
+#
+# Uses only default measurement columns produced by
+# ``DigitalDesign.extract_measurements`` (``die_area_um2``), so this
+# fixture is directly usable in production with no Python subclass.
+
+DESIGN_NAME: example_area_bounded
+VERILOG_FILES:
+  - "dir::../src/top.v"
+CLOCK_PORT: clk
+CLOCK_PERIOD: 50
+PL_TARGET_DENSITY_PCT: 70
+FP_SIZING: absolute
+DIE_AREA: [0.0, 0.0, 250.0, 250.0]
+VDD_NETS: ["VDD"]
+GND_NETS: ["VSS"]
+
+EDA_AGENTS_TB_DRIVER: cocotb
+EDA_AGENTS_TB_TARGET: sim
+EDA_AGENTS_TB_DIR: tb
+
+EDA_AGENTS_DESIGN_INTENT:
+  constants:
+    max_um2: 100000.0
+  constraints:
+    - name: area_budget
+      expr: "die_area_um2 <= max_um2"
+      message: "die area {die_area_um2:.0f} um2 exceeds budget {max_um2:.0f} um2"

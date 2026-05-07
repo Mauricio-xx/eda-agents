@@ -1,0 +1,39 @@
+# IoT kHz controller data-only design intent.
+#
+# Pairs a tight power budget with a minimum-throughput floor so the
+# autoresearch loop cannot win by relaxing both. ``samples_per_sec``
+# is a sidecar measurement (subclass-provided) for tests; the
+# constraint format is the relevant artefact.
+
+DESIGN_NAME: example_iot
+VERILOG_FILES:
+  - "dir::../src/iot.v"
+CLOCK_PORT: clk
+CLOCK_PERIOD: 1000
+PL_TARGET_DENSITY_PCT: 50
+FP_SIZING: absolute
+DIE_AREA: [0.0, 0.0, 200.0, 200.0]
+VDD_NETS: ["VDD"]
+GND_NETS: ["VSS"]
+
+EDA_AGENTS_TB_DRIVER: cocotb
+EDA_AGENTS_TB_TARGET: sim
+EDA_AGENTS_TB_DIR: tb
+
+EDA_AGENTS_FOM_WEIGHTS:
+  timing_w: 1.0
+  perf_w: 0.0
+  area_w: 0.5
+  power_w: 2.0
+
+EDA_AGENTS_DESIGN_INTENT:
+  constants:
+    min_throughput_sps: 1000.0
+    max_power_mw: 5.0
+  constraints:
+    - name: throughput_floor
+      expr: "samples_per_sec >= min_throughput_sps"
+      message: "samples_per_sec {samples_per_sec:.0f} below floor {min_throughput_sps:.0f}"
+    - name: power_budget
+      expr: "power_mw <= max_power_mw"
+      message: "power {power_mw:.2f} mW exceeds budget {max_power_mw:.2f} mW"

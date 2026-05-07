@@ -201,6 +201,257 @@ class TestFomAndValidity:
         assert valid
         assert violations == []
 
+    def test_fom_weights_from_config(self, tmp_path):
+        """``EDA_AGENTS_FOM_WEIGHTS`` must override the
+        GF180_EDUCATIONAL defaults per-key when no constructor weights
+        are passed."""
+        cfg = SAMPLE_CONFIG | {
+            "EDA_AGENTS_FOM_WEIGHTS": {
+                "timing_w": 2.0,
+                "perf_w": 0.0,
+                "area_w": 0.0,
+                "power_w": 0.0,
+            }
+        }
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text(yaml.dump(cfg))
+        d = GenericDesign(cfg_path)
+        measurements = {
+            "wns_worst_ns": 10.0,
+            "die_area_um2": 100000,
+            "power_mw": 10.0,
+            "clock_period_ns": 40.0,
+            "drc_clean": True,
+            "lvs_match": True,
+        }
+        # Only the timing-met (1.0) component active, scaled by 2.0.
+        assert abs(d.compute_fom(measurements) - 2.0) < 1e-6
+
+    def test_fom_weights_constructor_overrides_config(self, tmp_path):
+        """Constructor ``fom_weights`` wins over ``EDA_AGENTS_FOM_WEIGHTS``
+        per-key. Keys absent from the constructor still come from the
+        config; absent from both, the GF180_EDUCATIONAL profile."""
+        cfg = SAMPLE_CONFIG | {
+            "EDA_AGENTS_FOM_WEIGHTS": {
+                "timing_w": 5.0,
+                "perf_w": 5.0,
+                "area_w": 5.0,
+                "power_w": 5.0,
+            }
+        }
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text(yaml.dump(cfg))
+        d = GenericDesign(
+            cfg_path,
+            fom_weights={
+                "timing_w": 2.0,
+                "perf_w": 0.0,
+                "area_w": 0.0,
+                "power_w": 0.0,
+            },
+        )
+        measurements = {
+            "wns_worst_ns": 10.0,
+            "die_area_um2": 100000,
+            "power_mw": 10.0,
+            "clock_period_ns": 40.0,
+            "drc_clean": True,
+            "lvs_match": True,
+        }
+        # Constructor weights win: timing=2.0, others=0.0 -> FoM=2.0.
+        assert abs(d.compute_fom(measurements) - 2.0) < 1e-6
+
+
+# ---------------------------------------------------------------------------
+# DESIGN_INTENT contract (data-only constraints + constants)
+# ---------------------------------------------------------------------------
+
+
+_INTENT_FIXTURES = Path(__file__).parent / "fixtures" / "intent"
+
+
+def _load_fixture(name: str, tmp_path: Path) -> Path:
+    """Copy a fixture YAML into ``tmp_path`` so each test has its own
+    project dir (GenericDesign anchors paths to the config parent)."""
+    src = _INTENT_FIXTURES / name
+    dst = tmp_path / name
+    dst.write_text(src.read_text())
+    return dst
+
+
+class TestDesignIntent:
+    def test_intent_dsp_nyquist_below_floor(self, tmp_path):
+        cfg = _load_fixture("dsp.yaml", tmp_path)
+        d = GenericDesign(cfg)
+        measurements = {
+            "wns_worst_ns": 5.0,
+            "die_area_um2": 90000,
+            "power_mw": 8.0,
+            "clock_period_ns": 100.0,
+            "drc_clean": True,
+            "lvs_match": True,
+            "throughput_sps": 4000.0,  # below 8 kHz floor
+        }
+        valid, violations = d.check_validity(measurements)
+        assert not valid
+        joined = " ".join(violations)
+        assert "nyquist_floor" in joined
+        assert "4000" in joined
+
+    def test_intent_dsp_nyquist_meets_floor(self, tmp_path):
+        cfg = _load_fixture("dsp.yaml", tmp_path)
+        d = GenericDesign(cfg)
+        measurements = {
+            "wns_worst_ns": 5.0,
+            "die_area_um2": 90000,
+            "power_mw": 8.0,
+            "clock_period_ns": 100.0,
+            "drc_clean": True,
+            "lvs_match": True,
+            "throughput_sps": 12000.0,  # above 8 kHz floor
+        }
+        valid, violations = d.check_validity(measurements)
+        assert valid, f"unexpected violations: {violations}"
+
+    def test_intent_iot_throughput_and_power(self, tmp_path):
+        cfg = _load_fixture("iot.yaml", tmp_path)
+        d = GenericDesign(cfg)
+        # Below throughput floor + over power budget -> two violations.
+        measurements = {
+            "wns_worst_ns": 5.0,
+            "die_area_um2": 50000,
+            "power_mw": 8.0,
+            "clock_period_ns": 1000.0,
+            "drc_clean": True,
+            "lvs_match": True,
+            "samples_per_sec": 500.0,
+        }
+        valid, violations = d.check_validity(measurements)
+        assert not valid
+        joined = " ".join(violations)
+        assert "throughput_floor" in joined
+        assert "power_budget" in joined
+
+    def test_intent_iot_meets_both(self, tmp_path):
+        cfg = _load_fixture("iot.yaml", tmp_path)
+        d = GenericDesign(cfg)
+        measurements = {
+            "wns_worst_ns": 5.0,
+            "die_area_um2": 50000,
+            "power_mw": 3.0,
+            "clock_period_ns": 1000.0,
+            "drc_clean": True,
+            "lvs_match": True,
+            "samples_per_sec": 2000.0,
+        }
+        valid, violations = d.check_validity(measurements)
+        assert valid, f"unexpected violations: {violations}"
+
+    def test_intent_area_budget_below(self, tmp_path):
+        cfg = _load_fixture("area_budget.yaml", tmp_path)
+        d = GenericDesign(cfg)
+        measurements = {
+            "wns_worst_ns": 5.0,
+            "die_area_um2": 80000,
+            "power_mw": 5.0,
+            "clock_period_ns": 50.0,
+            "drc_clean": True,
+            "lvs_match": True,
+        }
+        valid, _ = d.check_validity(measurements)
+        assert valid
+
+    def test_intent_area_budget_above(self, tmp_path):
+        cfg = _load_fixture("area_budget.yaml", tmp_path)
+        d = GenericDesign(cfg)
+        measurements = {
+            "wns_worst_ns": 5.0,
+            "die_area_um2": 150000,
+            "power_mw": 5.0,
+            "clock_period_ns": 50.0,
+            "drc_clean": True,
+            "lvs_match": True,
+        }
+        valid, violations = d.check_validity(measurements)
+        assert not valid
+        assert any("area_budget" in v for v in violations)
+        assert any("150000" in v for v in violations)
+
+    def test_intent_unknown_var_yields_violation_not_exception(self, tmp_path):
+        """If an expression references a measurement that is None /
+        absent, the constraint must report a violation (not crash)."""
+        cfg = _load_fixture("dsp.yaml", tmp_path)
+        d = GenericDesign(cfg)
+        measurements = {
+            "wns_worst_ns": 5.0,
+            "die_area_um2": 90000,
+            "power_mw": 8.0,
+            "clock_period_ns": 100.0,
+            "drc_clean": True,
+            "lvs_match": True,
+            "throughput_sps": None,  # missing measurement
+        }
+        valid, violations = d.check_validity(measurements)
+        assert not valid
+        assert any("nyquist_floor" in v for v in violations)
+        assert any("Unknown" in v or "throughput_sps" in v for v in violations)
+
+    def test_intent_invalid_expr_raises_at_load(self, tmp_path):
+        """A syntax error or disallowed AST node in an expression must
+        fail at GenericDesign(...) construction, not 30 minutes into a
+        flow."""
+        cfg = SAMPLE_CONFIG | {
+            "EDA_AGENTS_DESIGN_INTENT": {
+                "constraints": [
+                    {"name": "bad", "expr": "abs(-1) >= 0"},  # call rejected
+                ]
+            }
+        }
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text(yaml.dump(cfg))
+        with pytest.raises(ValueError, match="bad"):
+            GenericDesign(cfg_path)
+
+    def test_intent_constants_collision_with_measurement_rejected(self, tmp_path):
+        cfg = SAMPLE_CONFIG | {
+            "EDA_AGENTS_DESIGN_INTENT": {
+                "constants": {"wns_worst_ns": 1.0},
+            }
+        }
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text(yaml.dump(cfg))
+        with pytest.raises(ValueError, match="collide with measurement"):
+            GenericDesign(cfg_path)
+
+    def test_intent_specs_description_lists_constraint_names(self, tmp_path):
+        cfg = _load_fixture("iot.yaml", tmp_path)
+        d = GenericDesign(cfg)
+        spec = d.specs_description()
+        assert "throughput_floor" in spec
+        assert "power_budget" in spec
+
+    def test_intent_compute_fom_zero_when_constraint_violated(self, tmp_path):
+        """A constraint failure must zero the FoM via the existing
+        validity gate, not report a positive number with violations."""
+        cfg = _load_fixture("area_budget.yaml", tmp_path)
+        d = GenericDesign(cfg)
+        measurements = {
+            "wns_worst_ns": 5.0,
+            "die_area_um2": 150000,  # exceeds 100k budget
+            "power_mw": 5.0,
+            "clock_period_ns": 50.0,
+            "drc_clean": True,
+            "lvs_match": True,
+        }
+        assert d.compute_fom(measurements) == 0.0
+
+    def test_intent_no_keys_means_no_change(self, yaml_config):
+        """Configs without the new EDA_AGENTS_* keys must behave
+        exactly as before (back-compat)."""
+        d = GenericDesign(yaml_config)
+        assert d._intent_compiled == []
+        assert d._intent_constants == {}
+
 
 # ---------------------------------------------------------------------------
 # PDK and shell wrapper

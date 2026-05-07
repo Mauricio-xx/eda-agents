@@ -17,12 +17,20 @@ Usage::
 
 from __future__ import annotations
 
+import ast
 import json
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 
 import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from eda_agents.core._constraint_eval import (
+    ConstraintEvalError,
+    compile_expr,
+    eval_expr,
+)
 from eda_agents.core.digital_design import DigitalDesign, TestbenchSpec
 from eda_agents.core.flow_metrics import GF180_EDUCATIONAL, FlowMetrics
 from eda_agents.core.pdk import PdkConfig, resolve_pdk
@@ -33,6 +41,61 @@ logger = logging.getLogger(__name__)
 def _clamp(val: int | float, lo: int | float, hi: int | float):
     """Clamp a value to [lo, hi]."""
     return max(lo, min(hi, val))
+
+
+class FomWeights(BaseModel):
+    """Schema for ``EDA_AGENTS_FOM_WEIGHTS`` in a LibreLane config.
+
+    Each weight is optional and acts as a per-key override on top of
+    :data:`eda_agents.core.flow_metrics.GF180_EDUCATIONAL`. The
+    constructor argument ``fom_weights`` of :class:`GenericDesign` wins
+    over this config block when both are present.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    timing_w: float | None = None
+    perf_w: float | None = None
+    area_w: float | None = None
+    power_w: float | None = None
+
+
+class Constraint(BaseModel):
+    """A single named gate inside ``EDA_AGENTS_DESIGN_INTENT.constraints``.
+
+    ``expr`` is parsed by :func:`eda_agents.core._constraint_eval.compile_expr`
+    at design construction time, so a syntax error or a disallowed AST
+    node fails fast (not 30 minutes into a flow). ``message`` may
+    contain ``str.format`` placeholders that reference any variable in
+    the eval scope; format failures fall back to the raw ``expr``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    expr: str
+    message: str | None = None
+
+
+class DesignIntent(BaseModel):
+    """Schema for ``EDA_AGENTS_DESIGN_INTENT`` in a LibreLane config.
+
+    ``constants`` are floats reachable from constraint expressions
+    (e.g. ``fs_target_hz: 8000.0``). Names must not collide with any
+    measurement column produced by
+    :meth:`DigitalDesign.measurement_columns`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    constants: dict[str, float] = Field(default_factory=dict)
+    constraints: list[Constraint] = Field(default_factory=list)
+
+
+def _format_safe(template: str, scope: Mapping[str, object], fallback: str) -> str:
+    """Format ``template`` against ``scope`` via ``str.format_map``;
+    return ``fallback`` if any placeholder is missing or invalid."""
+    try:
+        return template.format_map(scope)
+    except (KeyError, ValueError, TypeError, IndexError):
+        return fallback
 
 
 class GenericDesign(DigitalDesign):
@@ -52,12 +115,23 @@ class GenericDesign(DigitalDesign):
         Override the default design space. Keys are config knob names,
         values are lists (discrete) or tuples (min, max).
     fom_weights : dict, optional
-        Override FoM weights. Keys: ``timing_w``, ``area_w``, ``power_w``.
-        Defaults: 1.0, 0.5, 0.3.
+        Per-key overrides on top of
+        :data:`eda_agents.core.flow_metrics.GF180_EDUCATIONAL`. Keys:
+        ``timing_w``, ``perf_w``, ``area_w``, ``power_w``. Constructor
+        values win over ``EDA_AGENTS_FOM_WEIGHTS`` from the config.
     shell_wrapper : str, optional
         Explicit shell wrapper command. If ``None`` (default),
         auto-detects ``shell.nix`` or ``flake.nix`` in the project
         directory and sets ``"nix-shell <dir> --run"``.
+
+    The LibreLane config may also declare:
+
+    * ``EDA_AGENTS_FOM_WEIGHTS`` -- see :class:`FomWeights`.
+    * ``EDA_AGENTS_DESIGN_INTENT`` -- see :class:`DesignIntent`. Adds
+      domain-specific constraints expressed as boolean expressions over
+      the measurements dict, evaluated by
+      :meth:`check_validity`. Each constraint's ``expr`` is compiled at
+      construction time so a syntax error fails fast.
     """
 
     def __init__(
@@ -72,28 +146,88 @@ class GenericDesign(DigitalDesign):
         self._config_path = Path(config_path).resolve()
         self._pdk_root = Path(pdk_root) if pdk_root else None
         self._ds_overrides = design_space_overrides or {}
-        # FoM weights for ``FlowMetrics.weighted_fom`` (PPA: Performance,
-        # Power, Area). The defaults (0.5/1.0/1.0/1.0) match the
-        # reference formula in ``flow_metrics.py``, which includes a
-        # Performance term (achievable frequency) so that clock
-        # relaxation alone cannot win the optimizer trivially.
-        self._fom_w = {
-            "timing_w": 0.5,
-            "perf_w": 1.0,
-            "area_w": 1.0,
-            "power_w": 1.0,
-            **(fom_weights or {}),
-        }
         self._pdk = resolve_pdk(pdk_config)
 
-        # Read and cache the config
+        # Read and cache the config (needed before parsing the
+        # EDA_AGENTS_* design-intent keys below).
         self._config = self._read_config()
+
+        # FoM weights: GF180_EDUCATIONAL profile by default; config
+        # ``EDA_AGENTS_FOM_WEIGHTS`` overrides per-key; constructor
+        # ``fom_weights`` overrides per-key on top of that. The result
+        # is a full 4-key dict so callers do not need to remember
+        # which keys were "user-set" vs "profile default".
+        config_fom_overrides = self._parse_fom_weights_from_config()
+        self._fom_w = {
+            "timing_w": GF180_EDUCATIONAL.timing_w,
+            "perf_w": GF180_EDUCATIONAL.perf_w,
+            "area_w": GF180_EDUCATIONAL.area_w,
+            "power_w": GF180_EDUCATIONAL.power_w,
+            **config_fom_overrides,
+            **(fom_weights or {}),
+        }
+
+        # DESIGN_INTENT: constants + compiled constraints. The compile
+        # is done up-front so a typo or disallowed AST node fails at
+        # construction, not after a long flow run.
+        intent = self._parse_design_intent_from_config()
+        self._intent_constants: dict[str, float] = dict(intent.constants)
+        self._intent_compiled: list[tuple[Constraint, ast.Expression]] = []
+        for c in intent.constraints:
+            try:
+                node = compile_expr(c.expr)
+            except ConstraintEvalError as e:
+                raise ValueError(
+                    f"EDA_AGENTS_DESIGN_INTENT.constraints[{c.name!r}] "
+                    f"in {self._config_path}: {e}"
+                ) from e
+            self._intent_compiled.append((c, node))
 
         # Shell wrapper: auto-detect if sentinel (...), explicit otherwise
         if shell_wrapper is ...:
             self._shell_wrapper = self._detect_shell_wrapper()
         else:
             self._shell_wrapper = shell_wrapper
+
+    def _parse_fom_weights_from_config(self) -> dict[str, float]:
+        """Return per-key overrides parsed from ``EDA_AGENTS_FOM_WEIGHTS``.
+
+        Returns an empty dict if the key is absent or null. Raises
+        ``ValueError`` (with the config path) on Pydantic validation
+        failure so a typo surfaces at construction.
+        """
+        raw = self._config.get("EDA_AGENTS_FOM_WEIGHTS")
+        if raw is None:
+            return {}
+        try:
+            parsed = FomWeights.model_validate(raw)
+        except ValidationError as e:
+            raise ValueError(
+                f"EDA_AGENTS_FOM_WEIGHTS in {self._config_path}: {e}"
+            ) from e
+        return parsed.model_dump(exclude_none=True)
+
+    def _parse_design_intent_from_config(self) -> DesignIntent:
+        """Return the parsed design intent. Empty intent if absent."""
+        raw = self._config.get("EDA_AGENTS_DESIGN_INTENT")
+        if raw is None:
+            return DesignIntent()
+        try:
+            intent = DesignIntent.model_validate(raw)
+        except ValidationError as e:
+            raise ValueError(
+                f"EDA_AGENTS_DESIGN_INTENT in {self._config_path}: {e}"
+            ) from e
+        reserved = set(self.measurement_columns())
+        collision = sorted(set(intent.constants.keys()) & reserved)
+        if collision:
+            raise ValueError(
+                f"EDA_AGENTS_DESIGN_INTENT.constants in "
+                f"{self._config_path}: keys {collision} collide with "
+                "measurement column names; choose different names so "
+                "the constants do not shadow live measurements."
+            )
+        return intent
 
     def _read_config(self) -> dict:
         """Read the config file (JSON or YAML)."""
@@ -210,7 +344,34 @@ class GenericDesign(DigitalDesign):
     def check_validity(
         self, measurements: dict[str, float | int | None]
     ) -> tuple[bool, list[str]]:
-        return FlowMetrics.from_measurements(measurements).validity_check()
+        valid, violations = FlowMetrics.from_measurements(
+            measurements
+        ).validity_check()
+
+        if not self._intent_compiled:
+            return (len(violations) == 0, violations)
+
+        scope: dict[str, float | int] = {
+            k: v for k, v in measurements.items() if v is not None
+        }
+        scope.update(self._intent_constants)
+
+        for constraint, node in self._intent_compiled:
+            try:
+                ok = eval_expr(node, scope)
+            except ConstraintEvalError as e:
+                violations.append(f"{constraint.name}: {e}")
+                continue
+            if not ok:
+                if constraint.message:
+                    msg = _format_safe(
+                        constraint.message, scope, constraint.expr
+                    )
+                else:
+                    msg = constraint.expr
+                violations.append(f"{constraint.name}: {msg}")
+
+        return (len(violations) == 0, violations)
 
     # ------------------------------------------------------------------
     # Optional overrides
@@ -381,7 +542,11 @@ class GenericDesign(DigitalDesign):
         return "\n".join(lines) if lines else "(none)"
 
     def specs_description(self) -> str:
-        return "WNS >= 0 at all corners, DRC clean, LVS match"
+        base = "WNS >= 0 at all corners, DRC clean, LVS match"
+        if self._intent_compiled:
+            names = ", ".join(c.name for c, _ in self._intent_compiled)
+            return f"{base}. Domain gates: {names}."
+        return base
 
     def fom_description(self) -> str:
         tw = self._fom_w["timing_w"]
