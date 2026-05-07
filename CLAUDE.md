@@ -153,7 +153,11 @@ for analytical sizing) or a full `CircuitTopology` subclass. Current:
   Constructor: `GenericDesign(config_path, pdk_root=None)`. The tb
   is declared via `EDA_AGENTS_TB_DRIVER` / `EDA_AGENTS_TB_TARGET`
   (with optional `EDA_AGENTS_TB_DIR` / `EDA_AGENTS_TB_ENV`) in the
-  config; iverilog auto-detect is the fallback.
+  config; iverilog auto-detect is the fallback. Custom FoM weights
+  (`EDA_AGENTS_FOM_WEIGHTS`) and domain gates expressed as boolean
+  expressions (`EDA_AGENTS_DESIGN_INTENT`) are also config-driven;
+  see `docs/design_intent_contract.md` for the contract and the
+  starter fixtures under `tests/fixtures/intent/`.
 - `fazyrv_hachure.py` — GF180 RISC-V SoC (primary design, nix-shell)
 - `systolic_mac_dft.py` — CI fixture (simpler, faster)
 
