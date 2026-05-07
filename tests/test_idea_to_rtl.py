@@ -314,6 +314,96 @@ class TestGenerateRtlDraftLivePaths:
         assert result.design_name == "widget"
 
 
+class TestBackendDispatch:
+    """Backend selection (cc_cli vs opencode) inside generate_rtl_draft."""
+
+    @staticmethod
+    def _record_factory(monkeypatch, attr_name: str):
+        """Replace mod.<attr_name> with a recorder that captures kwargs."""
+        from eda_agents.agents import idea_to_rtl as mod
+        from eda_agents.agents.claude_code_harness import HarnessResult
+
+        captured: dict = {}
+
+        class _Recorder:
+            def __init__(self, **kwargs):
+                captured["init_kwargs"] = kwargs
+
+            async def run(self):
+                return HarnessResult(
+                    success=True,
+                    result_text="OK",
+                    duration_ms=1.0,
+                    num_turns=1,
+                    total_cost_usd=0.0,
+                    error=None,
+                )
+
+        monkeypatch.setattr(mod, attr_name, _Recorder)
+        return captured
+
+    async def test_default_backend_is_cc_cli(self, tmp_path, monkeypatch):
+        captured = self._record_factory(monkeypatch, "ClaudeCodeHarness")
+        result = await generate_rtl_draft(
+            description="x",
+            design_name="d",
+            work_dir=tmp_path / "work",
+            pdk="gf180mcu",
+            pdk_root="/tmp/fake_pdk",
+            skip_gl_sim=True,
+        )
+        assert result.success is True
+        assert captured["init_kwargs"]["cli_path"] == "claude"
+
+    async def test_backend_opencode_uses_opencode_harness(self, tmp_path, monkeypatch):
+        captured = self._record_factory(monkeypatch, "OpenCodeHarness")
+        result = await generate_rtl_draft(
+            description="x",
+            design_name="d",
+            work_dir=tmp_path / "work",
+            pdk="gf180mcu",
+            pdk_root="/tmp/fake_pdk",
+            backend="opencode",
+            model="anthropic/claude-sonnet-4-6",
+            skip_gl_sim=True,
+        )
+        assert result.success is True
+        kwargs = captured["init_kwargs"]
+        assert kwargs["cli_path"] == "opencode"
+        assert kwargs["model"] == "anthropic/claude-sonnet-4-6"
+        # OpenCodeHarness must NOT receive cc_cli-only kwargs.
+        assert "allow_dangerous" not in kwargs
+        assert "max_budget_usd" not in kwargs
+
+    async def test_backend_invalid_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="Unknown backend"):
+            await generate_rtl_draft(
+                description="x",
+                design_name="d",
+                work_dir=tmp_path / "work",
+                pdk="gf180mcu",
+                pdk_root="/tmp/fake_pdk",
+                backend="grok",  # type: ignore[arg-type]
+                skip_gl_sim=True,
+            )
+
+    async def test_explicit_cli_path_overrides_backend_default(
+        self, tmp_path, monkeypatch
+    ):
+        captured = self._record_factory(monkeypatch, "ClaudeCodeHarness")
+        result = await generate_rtl_draft(
+            description="x",
+            design_name="d",
+            work_dir=tmp_path / "work",
+            pdk="gf180mcu",
+            pdk_root="/tmp/fake_pdk",
+            cli_path="/usr/local/bin/my-claude",
+            skip_gl_sim=True,
+        )
+        assert result.success is True
+        assert captured["init_kwargs"]["cli_path"] == "/usr/local/bin/my-claude"
+
+
 # ---------------------------------------------------------------------------
 # Artifact path population
 # ---------------------------------------------------------------------------

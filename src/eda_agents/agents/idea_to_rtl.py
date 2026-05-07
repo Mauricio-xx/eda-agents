@@ -37,6 +37,7 @@ from typing import Any, Literal
 import yaml
 
 from eda_agents.agents.claude_code_harness import ClaudeCodeHarness
+from eda_agents.agents.opencode_harness import OpenCodeHarness
 from eda_agents.agents.tool_defs import build_from_spec_prompt
 from eda_agents.core.pdk import PdkConfig, get_pdk, resolve_pdk, resolve_pdk_root
 
@@ -122,9 +123,10 @@ async def generate_rtl_draft(
     pdk_root: str | Path | None = None,
     librelane_python: str = "python3",
     complexity: Complexity = "simple",  # noqa: ARG001 — Fase 1 hook
+    backend: Literal["cc_cli", "opencode"] = "cc_cli",
     allow_dangerous: bool = False,
-    cli_path: str = "claude",
-    timeout_s: int = 3600,
+    cli_path: str | None = None,
+    timeout_s: int | None = 3600,
     max_budget_usd: float | None = None,
     model: str | None = None,
     skip_gl_sim: bool = False,
@@ -162,11 +164,25 @@ async def generate_rtl_draft(
     complexity:
         Reserved hook for Fase 1 (``IdeaToRTLLoop``). Accepted today and
         recorded in the result, but single-shot is used regardless.
+    backend:
+        Which CLI to drive: ``"cc_cli"`` (Claude Code, default) wraps
+        :class:`ClaudeCodeHarness`; ``"opencode"`` wraps
+        :class:`OpenCodeHarness`. The harness selection is opaque to
+        the rest of the pipeline (same prompt, same post-flow GL sim,
+        same :class:`IdeaToRTLResult` schema). ``allow_dangerous`` and
+        ``max_budget_usd`` only apply to ``cc_cli``.
     allow_dangerous:
         First gate for ``--dangerously-skip-permissions``. Also requires
-        ``EDA_AGENTS_ALLOW_DANGEROUS=1`` in the env.
-    cli_path, timeout_s, max_budget_usd, model:
-        Pass-throughs to :class:`ClaudeCodeHarness`.
+        ``EDA_AGENTS_ALLOW_DANGEROUS=1`` in the env. Ignored under
+        ``backend="opencode"``.
+    cli_path:
+        Path or name of the CLI binary. ``None`` (default) auto-resolves
+        to ``"claude"`` for ``cc_cli`` and ``"opencode"`` for
+        ``opencode``.
+    timeout_s, max_budget_usd, model:
+        Pass-throughs to the selected harness. ``timeout_s=None`` keeps
+        the harness wait_for unbounded; ``max_budget_usd`` is a no-op
+        for ``opencode``.
     skip_gl_sim:
         When True, skip the post-flow GL sim check. Default is to run
         both post-synth and post-PnR GL sim and surface a non-success
@@ -211,6 +227,7 @@ async def generate_rtl_draft(
             pdk=pdk if isinstance(pdk, str) else pdk.name,
             pdk_root=pdk_root,
             librelane_python=librelane_python,
+            backend=backend,
             allow_dangerous=allow_dangerous,
             cli_path=cli_path,
             timeout_s=timeout_s,
@@ -263,7 +280,8 @@ async def generate_rtl_draft(
     (work_dir / "src").mkdir(exist_ok=True)
     (work_dir / "tb").mkdir(exist_ok=True)
 
-    harness = ClaudeCodeHarness(
+    harness = _build_harness(
+        backend=backend,
         prompt=prompt,
         work_dir=work_dir,
         allow_dangerous=allow_dangerous,
@@ -303,6 +321,49 @@ async def generate_rtl_draft(
         )
 
     return result
+
+
+def _build_harness(
+    *,
+    backend: str,
+    prompt: str,
+    work_dir: Path,
+    allow_dangerous: bool,
+    cli_path: str | None,
+    timeout_s: int | None,
+    max_budget_usd: float | None,
+    model: str | None,
+):
+    """Instantiate the right CLI harness for the requested backend.
+
+    The returned object exposes ``.run() -> HarnessResult`` regardless
+    of which backend it wraps so the caller can stay backend-agnostic.
+    """
+    if backend == "cc_cli":
+        resolved = cli_path if cli_path else "claude"
+        return ClaudeCodeHarness(
+            prompt=prompt,
+            work_dir=work_dir,
+            allow_dangerous=allow_dangerous,
+            cli_path=resolved,
+            timeout_s=timeout_s,
+            max_budget_usd=max_budget_usd,
+            model=model,
+        )
+    if backend == "opencode":
+        resolved = cli_path if cli_path else "opencode"
+        # OpenCodeHarness ignores allow_dangerous and max_budget_usd
+        # (no equivalent flags in the opencode CLI surface).
+        return OpenCodeHarness(
+            prompt=prompt,
+            work_dir=work_dir,
+            model=model,
+            timeout_s=timeout_s,
+            cli_path=resolved,
+        )
+    raise ValueError(
+        f"Unknown backend {backend!r}; expected 'cc_cli' or 'opencode'."
+    )
 
 
 def _augment_description_with_design_name(description: str, design_name: str) -> str:

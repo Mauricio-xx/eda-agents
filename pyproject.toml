@@ -61,6 +61,9 @@ dev = [
     "ruff>=0.1.0",
     "anyio>=4.0",
 ]
+plots = [
+    "matplotlib>=3.8",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/eda_agents"]
@@ -81,6 +84,7 @@ markers = [
     "bridge: end-to-end EDA bridge demo (deselect with -m 'not bridge')",
     "bench: eda-agents benchmark suite end-to-end (deselect with -m 'not bench')",
     "mcp: requires fastmcp for MCP server tests (deselect with -m 'not mcp')",
+    "plots: requires matplotlib for plotting tests (deselect with -m 'not plots')",
 ]
 
 [tool.ruff]

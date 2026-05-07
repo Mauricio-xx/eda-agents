@@ -122,9 +122,10 @@ async def run_idea_to_rtl_loop(
     pdk: str = "gf180mcu",
     pdk_root: str | Path | None = None,
     librelane_python: str = "python3",
+    backend: Literal["cc_cli", "opencode"] = "cc_cli",
     allow_dangerous: bool = False,
-    cli_path: str = "claude",
-    timeout_s: int = 7200,
+    cli_path: str | None = None,
+    timeout_s: int | None = 7200,
     per_turn_timeout_s: int | None = None,
     model: str | None = None,
     skip_gl_sim: bool = False,
@@ -135,11 +136,15 @@ async def run_idea_to_rtl_loop(
     Parameters
     ----------
     description, design_name, work_dir, pdk, pdk_root,
-    librelane_python, allow_dangerous, cli_path, timeout_s, model,
-    skip_gl_sim, tb_framework:
+    librelane_python, backend, allow_dangerous, cli_path, timeout_s,
+    model, skip_gl_sim, tb_framework:
         Pass-throughs to :func:`generate_rtl_draft`. The loop calls it
         once per turn with these unchanged; only the description gets
         a critique header on turns 2+.
+    backend:
+        ``"cc_cli"`` (Claude Code, default) or ``"opencode"``. The
+        critique skills, prompt template, and post-flow GL sim check
+        are backend-agnostic; only the underlying CLI changes.
     max_turns:
         Hard ceiling on loop iterations. ``max_turns=1`` makes the
         loop equivalent to one ``generate_rtl_draft`` call — useful
@@ -208,6 +213,7 @@ async def run_idea_to_rtl_loop(
             pdk_root=pdk_root,
             librelane_python=librelane_python,
             complexity="complex",  # signals to the prompt that this is a hard run
+            backend=backend,
             allow_dangerous=allow_dangerous,
             cli_path=cli_path,
             timeout_s=effective_per_turn_timeout,

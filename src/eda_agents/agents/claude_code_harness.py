@@ -222,11 +222,14 @@ class ClaudeCodeHarness:
 
         self.work_dir.mkdir(parents=True, exist_ok=True)
 
+        timeout_label = (
+            f"{self.timeout_s}s" if self.timeout_s else "no cap"
+        )
         logger.info(
-            "CC CLI: launching %s in %s (timeout=%ds)",
+            "CC CLI: launching %s in %s (timeout=%s)",
             " ".join(argv[:4]) + " ...",
             self.work_dir,
-            self.timeout_s,
+            timeout_label,
         )
 
         try:

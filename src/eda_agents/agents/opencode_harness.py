@@ -134,10 +134,13 @@ class OpenCodeHarness:
 
         self.work_dir.mkdir(parents=True, exist_ok=True)
 
+        timeout_label = (
+            f"{self.timeout_s}s" if self.timeout_s else "no cap"
+        )
         logger.info(
-            "OpenCode: launching in %s (timeout=%ds, model=%s)",
+            "OpenCode: launching in %s (timeout=%s, model=%s)",
             self.work_dir,
-            self.timeout_s,
+            timeout_label,
             self.model or "default",
         )
 
