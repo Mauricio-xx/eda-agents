@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" font-family="Ubuntu, 'Ubuntu Sans', sans-serif">
+  <rect x="0" y="0" width="1600" height="900" fill="#FAFAF7"/>
+
+  <defs>
+    <marker id="arrInk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1A1A1A"/>
+    </marker>
+    <marker id="arrOrange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#FF862F"/>
+    </marker>
+  </defs>
+
+  <!-- Eyebrow -->
+  <text x="80" y="80" font-family="Ubuntu Mono, monospace" font-size="22" letter-spacing="0.16em"
+        fill="#6B6358">AUTORESEARCH · GREEDY EXPLORATION LOOP · DIGITAL FLOW</text>
+  <line x1="80" y1="100" x2="1520" y2="100" stroke="#E6E4DC" stroke-width="1"/>
+
+  <!-- Strategy banner -->
+  <text x="80" y="148" font-family="Ubuntu Mono, monospace" font-size="20" fill="#1A1A1A">strategy</text>
+  <text x="220" y="148" font-family="Ubuntu Mono, monospace" font-size="20" fill="#6B6358">=</text>
+  <rect x="252" y="124" width="92" height="32" rx="4" fill="#FFFFFF" stroke="#FF862F" stroke-width="1.5"/>
+  <text x="298" y="146" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="18" fill="#FF862F">flow</text>
+  <rect x="356" y="124" width="92" height="32" rx="4" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1"/>
+  <text x="402" y="146" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="18" fill="#6B6358">rtl</text>
+  <rect x="460" y="124" width="92" height="32" rx="4" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1"/>
+  <text x="506" y="146" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="18" fill="#6B6358">hybrid</text>
+  <text x="592" y="148" font-family="Ubuntu, sans-serif" font-style="italic" font-size="18" fill="#6B6358">orange = focus of this deck</text>
+
+  <!-- ===================== Top row ===================== -->
+  <!-- 2. Propose (highlighted, poly-red rail; LLM action and backend dispatch) -->
+  <g transform="translate(110, 240)">
+    <rect x="0" y="0" width="380" height="180" rx="10" fill="#FFFFFF" stroke="#FC6255" stroke-width="2.4"/>
+    <rect x="0" y="0" width="6" height="180" fill="#FC6255"/>
+    <text x="32" y="44" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em" fill="#CF5044">2 · PROPOSE</text>
+    <text x="32" y="92" font-family="Ubuntu, sans-serif" font-size="32" font-weight="600" fill="#1A1A1A">LLM proposal</text>
+    <text x="32" y="124" font-family="Ubuntu Mono, monospace" font-size="18" fill="#6B6358">reads program.md → params dict</text>
+    <text x="32" y="152" font-family="Ubuntu, sans-serif" font-style="italic" font-size="16" fill="#6B6358">dispatch by --backend (sec. 4)</text>
+  </g>
+
+  <!-- 3. Map -->
+  <g transform="translate(610, 240)">
+    <rect x="0" y="0" width="380" height="180" rx="10" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1.5"/>
+    <rect x="0" y="0" width="6" height="180" fill="#4A7BD9"/>
+    <text x="32" y="44" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em" fill="#4A7BD9">3 · MAP</text>
+    <text x="32" y="92" font-family="Ubuntu, sans-serif" font-size="32" font-weight="600" fill="#1A1A1A">params → config</text>
+    <text x="32" y="124" font-family="Ubuntu Mono, monospace" font-size="18" fill="#6B6358">config.yaml + RTL edits</text>
+    <text x="32" y="152" font-family="Ubuntu, sans-serif" font-style="italic" font-size="16" fill="#6B6358">snap to grid; dedup check</text>
+  </g>
+
+  <!-- 4. Evaluate -->
+  <g transform="translate(1110, 240)">
+    <rect x="0" y="0" width="380" height="180" rx="10" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1.5"/>
+    <rect x="0" y="0" width="6" height="180" fill="#4A7BD9"/>
+    <text x="32" y="44" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em" fill="#4A7BD9">4 · EVALUATE</text>
+    <text x="32" y="92" font-family="Ubuntu, sans-serif" font-size="32" font-weight="600" fill="#1A1A1A">LibreLane + GL sim</text>
+    <text x="32" y="124" font-family="Ubuntu Mono, monospace" font-size="18" fill="#6B6358">flow + post-synth + post-PnR-SDF</text>
+    <text x="32" y="152" font-family="Ubuntu, sans-serif" font-style="italic" font-size="16" fill="#6B6358">8–25 min wall / eval</text>
+  </g>
+
+  <!-- ===================== Bottom row ===================== -->
+  <!-- 1. State (program.md, user-authored seed; highlighted m3-blue rail) -->
+  <g transform="translate(110, 540)">
+    <rect x="0" y="0" width="380" height="180" rx="10" fill="#FFFFFF" stroke="#4A7BD9" stroke-width="2.4"/>
+    <rect x="0" y="0" width="6" height="180" fill="#4A7BD9"/>
+    <text x="32" y="44" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em" fill="#3F65B5">1 · STATE</text>
+    <text x="32" y="92" font-family="Ubuntu, sans-serif" font-size="32" font-weight="600" fill="#1A1A1A">program.md</text>
+    <text x="32" y="124" font-family="Ubuntu Mono, monospace" font-size="18" fill="#6B6358">user seed; cumulative narrative</text>
+    <text x="32" y="152" font-family="Ubuntu, sans-serif" font-style="italic" font-size="16" fill="#6B6358">LLM reads it at the start of every turn</text>
+  </g>
+
+  <!-- 6. Log -->
+  <g transform="translate(610, 540)">
+    <rect x="0" y="0" width="380" height="180" rx="10" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1.5"/>
+    <rect x="0" y="0" width="6" height="180" fill="#4A7BD9"/>
+    <text x="32" y="44" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em" fill="#4A7BD9">6 · LOG</text>
+    <text x="32" y="92" font-family="Ubuntu, sans-serif" font-size="32" font-weight="600" fill="#1A1A1A">results.tsv</text>
+    <text x="32" y="124" font-family="Ubuntu Mono, monospace" font-size="18" fill="#6B6358">numeric history + program.md tail</text>
+    <text x="32" y="152" font-family="Ubuntu, sans-serif" font-style="italic" font-size="16" fill="#6B6358">FoM, valid, params, metrics; resumable</text>
+  </g>
+
+  <!-- 5. Score FoM (right) -->
+  <g transform="translate(1110, 540)">
+    <rect x="0" y="0" width="380" height="180" rx="10" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1.5"/>
+    <rect x="0" y="0" width="6" height="180" fill="#83C167"/>
+    <text x="32" y="44" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em" fill="#4FB04B">5 · SCORE</text>
+    <text x="32" y="92" font-family="Ubuntu, sans-serif" font-size="32" font-weight="600" fill="#1A1A1A">FoM (weighted)</text>
+    <text x="32" y="124" font-family="Ubuntu Mono, monospace" font-size="18" fill="#6B6358">timing · perf · area · power</text>
+    <text x="32" y="152" font-family="Ubuntu, sans-serif" font-style="italic" font-size="16" fill="#6B6358">FoM = 0 if any signoff fails</text>
+  </g>
+
+  <!-- ===================== Arrows ===================== -->
+  <!-- top row left->right -->
+  <line x1="490" y1="330" x2="610" y2="330" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arrInk)"/>
+  <line x1="990" y1="330" x2="1110" y2="330" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arrInk)"/>
+
+  <!-- right side top->bottom -->
+  <line x1="1300" y1="420" x2="1300" y2="540" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arrInk)"/>
+
+  <!-- bottom row right->left -->
+  <line x1="1110" y1="630" x2="990" y2="630" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arrInk)"/>
+  <line x1="610" y1="630" x2="490" y2="630" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arrInk)"/>
+
+  <!-- left side bottom->top  (program.md feeds proposer; closes the iteration) -->
+  <path d="M 300 540 C 300 480 300 420 300 420"
+        fill="none" stroke="#FF862F" stroke-width="2.8" marker-end="url(#arrOrange)"/>
+  <text x="60" y="490" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em" fill="#FF862F">FEEDS PROPOSER</text>
+  <text x="60" y="510" font-family="Ubuntu, sans-serif" font-style="italic" font-size="14" fill="#6B6358">budget = N evals</text>
+
+  <!-- ===================== Footer / FoM formula ===================== -->
+  <g transform="translate(80, 800)">
+    <line x1="0" y1="0" x2="1440" y2="0" stroke="#E6E4DC"/>
+    <text x="0" y="36" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em"
+          fill="#6B6358">FoM &#x2261; w_t · timing + w_p · perf + w_a · area + w_e · energy_eff</text>
+    <text x="0" y="68" font-family="Ubuntu, sans-serif" font-size="20" font-style="italic"
+          fill="#1A1A1A">flow_metrics.py:213 · default w_t = 0.5, others = 1.0; valid is binary
+            (DRC, LVS, sim, timing all green or FoM = 0).</text>
+  </g>
+</svg>

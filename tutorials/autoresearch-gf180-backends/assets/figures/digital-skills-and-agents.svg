@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" font-family="Ubuntu, 'Ubuntu Sans', sans-serif">
+  <rect x="0" y="0" width="1600" height="900" fill="#FAFAF7"/>
+
+  <defs>
+    <marker id="arrFlow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1A1A1A"/>
+    </marker>
+  </defs>
+
+  <!-- Eyebrow -->
+  <text x="80" y="80" font-family="Ubuntu Mono, monospace" font-size="22" letter-spacing="0.16em"
+        fill="#6B6358">DIGITAL TRACK · SKILLS + SPECIALIST AGENTS THAT SHIP</text>
+  <line x1="80" y1="100" x2="1520" y2="100" stroke="#E6E4DC" stroke-width="1"/>
+
+  <!-- ============================================================== -->
+  <!-- LEFT: SKILLS CARD                                                -->
+  <!-- ============================================================== -->
+  <g transform="translate(80, 130)">
+    <rect x="0" y="0" width="820" height="600" rx="12" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1.5"/>
+    <rect x="0" y="0" width="6" height="600" fill="#5CD0B3"/>
+    <text x="32" y="44" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em" fill="#3D9C84">SKILLS  ·  PROMPT BODIES VIA get_skill('name')</text>
+    <text x="32" y="84" font-family="Ubuntu, sans-serif" font-size="22" font-weight="500" fill="#1A1A1A">14 skills register today</text>
+    <line x1="32" y1="108" x2="788" y2="108" stroke="#E6E4DC"/>
+
+    <!-- Group 1: digital.* sub-agent personas (m4-indigo) -->
+    <text x="32" y="142" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.14em" fill="#6B5BD9">DIGITAL.* · SUB-AGENT PERSONAS  ·  used by ProjectManager (master)</text>
+
+    <g transform="translate(32, 156)">
+      <rect x="0" y="0" width="240" height="40" rx="6" fill="#F5F4FE" stroke="#6B5BD9" stroke-width="1"/>
+      <text x="20" y="25" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">project_manager</text>
+    </g>
+    <g transform="translate(290, 156)">
+      <rect x="0" y="0" width="240" height="40" rx="6" fill="#F5F4FE" stroke="#6B5BD9" stroke-width="1"/>
+      <text x="20" y="25" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">verification</text>
+    </g>
+    <g transform="translate(548, 156)">
+      <rect x="0" y="0" width="240" height="40" rx="6" fill="#F5F4FE" stroke="#6B5BD9" stroke-width="1"/>
+      <text x="20" y="25" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">synthesis</text>
+    </g>
+    <g transform="translate(32, 204)">
+      <rect x="0" y="0" width="240" height="40" rx="6" fill="#F5F4FE" stroke="#6B5BD9" stroke-width="1"/>
+      <text x="20" y="25" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">physical</text>
+    </g>
+    <g transform="translate(290, 204)">
+      <rect x="0" y="0" width="240" height="40" rx="6" fill="#F5F4FE" stroke="#6B5BD9" stroke-width="1"/>
+      <text x="20" y="25" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">signoff</text>
+    </g>
+
+    <!-- Group 2: digital.* craft + critique (hi-teal) -->
+    <text x="32" y="282" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.14em" fill="#3D9C84">DIGITAL.* · CRAFT + LOOP TURNS  ·  injected one-shot</text>
+
+    <g transform="translate(32, 296)">
+      <rect x="0" y="0" width="240" height="40" rx="6" fill="#F4FBF8" stroke="#5CD0B3" stroke-width="1"/>
+      <text x="20" y="25" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">cocotb_testbench</text>
+    </g>
+    <g transform="translate(290, 296)">
+      <rect x="0" y="0" width="240" height="40" rx="6" fill="#F4FBF8" stroke="#5CD0B3" stroke-width="1"/>
+      <text x="20" y="25" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">critique_sim_failure</text>
+    </g>
+    <g transform="translate(548, 296)">
+      <rect x="0" y="0" width="240" height="40" rx="6" fill="#F4FBF8" stroke="#5CD0B3" stroke-width="1"/>
+      <text x="20" y="25" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">critique_synth_lint</text>
+    </g>
+
+    <!-- Group 3: flow.* LibreLane + Docker (m3-blue) -->
+    <text x="32" y="374" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.14em" fill="#3F65B5">FLOW.* · LIBRELANE + DRC/LVS  ·  execution + signoff</text>
+
+    <g transform="translate(32, 388)">
+      <rect x="0" y="0" width="240" height="40" rx="6" fill="#F5F8FE" stroke="#4A7BD9" stroke-width="1"/>
+      <text x="20" y="25" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">runner</text>
+    </g>
+    <g transform="translate(290, 388)">
+      <rect x="0" y="0" width="240" height="40" rx="6" fill="#F5F8FE" stroke="#4A7BD9" stroke-width="1"/>
+      <text x="20" y="25" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">drc_checker</text>
+    </g>
+    <g transform="translate(548, 388)">
+      <rect x="0" y="0" width="240" height="40" rx="6" fill="#F5F8FE" stroke="#4A7BD9" stroke-width="1"/>
+      <text x="20" y="25" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">drc_fixer</text>
+    </g>
+    <g transform="translate(32, 436)">
+      <rect x="0" y="0" width="240" height="40" rx="6" fill="#F5F8FE" stroke="#4A7BD9" stroke-width="1"/>
+      <text x="20" y="25" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">lvs_checker</text>
+    </g>
+    <g transform="translate(290, 436)">
+      <rect x="0" y="0" width="498" height="40" rx="6" fill="#F5F8FE" stroke="#4A7BD9" stroke-width="1.4"/>
+      <text x="20" y="25" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">rtl2gds_gf180_docker  ·  end-to-end GF180 in container</text>
+    </g>
+    <g transform="translate(32, 484)">
+      <rect x="0" y="0" width="756" height="40" rx="6" fill="#F5F8FE" stroke="#4A7BD9" stroke-width="1.4"/>
+      <text x="20" y="25" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">macro_integration_gf180_docker  ·  multi-macro Chip-flow on LibreLane v3</text>
+    </g>
+
+    <!-- Footer note -->
+    <line x1="32" y1="544" x2="788" y2="544" stroke="#E6E4DC"/>
+    <text x="32" y="572" font-family="Ubuntu, sans-serif" font-size="16" font-style="italic" fill="#6B6358">Skills are pure prompt bodies. No subprocess, no LLM call. They compose into agents and loop turns.</text>
+  </g>
+
+  <!-- ============================================================== -->
+  <!-- RIGHT: AGENTS CARD                                               -->
+  <!-- ============================================================== -->
+  <g transform="translate(920, 130)">
+    <rect x="0" y="0" width="600" height="600" rx="12" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1.5"/>
+    <rect x="0" y="0" width="6" height="600" fill="#FC6255"/>
+    <text x="32" y="44" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em" fill="#CF5044">SPECIALIST AGENTS  ·  .claude/agents/  ·  .opencode/agent/</text>
+    <text x="32" y="84" font-family="Ubuntu, sans-serif" font-size="22" font-weight="500" fill="#1A1A1A">3 digital + 3 analog ship</text>
+    <line x1="32" y1="108" x2="568" y2="108" stroke="#E6E4DC"/>
+
+    <!-- Orchestrator card -->
+    <g transform="translate(32, 130)">
+      <rect x="0" y="0" width="536" height="120" rx="8" fill="#FFF7F5" stroke="#FC6255" stroke-width="1.6"/>
+      <rect x="0" y="0" width="4" height="120" fill="#FC6255"/>
+      <text x="20" y="32" font-family="Ubuntu Mono, monospace" font-size="13" letter-spacing="0.14em" fill="#CF5044">ORCHESTRATOR</text>
+      <text x="20" y="62" font-family="Ubuntu Mono, monospace" font-size="20" font-weight="500" fill="#1A1A1A">gf180-idea-to-chip</text>
+      <text x="20" y="86" font-family="Ubuntu, sans-serif" font-size="15" fill="#1A1A1A">Decides: fresh idea (idea_loop) OR existing RTL (autoresearch).</text>
+      <text x="20" y="106" font-family="Ubuntu Mono, monospace" font-size="13" fill="#6B6358">examples/11_idea_to_chip_demo_gf180.py</text>
+    </g>
+
+    <!-- Executor card -->
+    <g transform="translate(32, 266)">
+      <rect x="0" y="0" width="536" height="100" rx="8" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1"/>
+      <rect x="0" y="0" width="4" height="100" fill="#4A7BD9"/>
+      <text x="20" y="32" font-family="Ubuntu Mono, monospace" font-size="13" letter-spacing="0.14em" fill="#3F65B5">EXECUTOR (DOCKER)</text>
+      <text x="20" y="62" font-family="Ubuntu Mono, monospace" font-size="20" font-weight="500" fill="#1A1A1A">gf180-docker-digital</text>
+      <text x="20" y="86" font-family="Ubuntu, sans-serif" font-size="15" fill="#1A1A1A">One full RTL-to-GDS run inside hpretl/iic-osic-tools.</text>
+    </g>
+
+    <!-- TB author card -->
+    <g transform="translate(32, 382)">
+      <rect x="0" y="0" width="536" height="100" rx="8" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1"/>
+      <rect x="0" y="0" width="4" height="100" fill="#5CD0B3"/>
+      <text x="20" y="32" font-family="Ubuntu Mono, monospace" font-size="13" letter-spacing="0.14em" fill="#3D9C84">TESTBENCH AUTHORING</text>
+      <text x="20" y="62" font-family="Ubuntu Mono, monospace" font-size="20" font-weight="500" fill="#1A1A1A">digital-testbench-author</text>
+      <text x="20" y="86" font-family="Ubuntu, sans-serif" font-size="15" fill="#1A1A1A">cocotb tb that survives RTL + post-synth + post-PnR SDF.</text>
+    </g>
+
+    <!-- Analog footer -->
+    <line x1="32" y1="500" x2="568" y2="500" stroke="#E6E4DC"/>
+    <text x="32" y="528" font-family="Ubuntu Mono, monospace" font-size="13" letter-spacing="0.14em" fill="#6B6358">+ ANALOG SIBLINGS  ·  3 more agents</text>
+    <text x="32" y="552" font-family="Ubuntu, sans-serif" font-size="15" fill="#1A1A1A">analog-topology-recommender · analog-sizing-advisor · gf180-docker-analog</text>
+    <text x="32" y="578" font-family="Ubuntu, sans-serif" font-size="14" font-style="italic" fill="#6B6358">Same dispatch shape as the digital orchestrator.</text>
+  </g>
+
+  <!-- ============================================================== -->
+  <!-- BOTTOM WORKFLOW RIBBON                                           -->
+  <!-- ============================================================== -->
+  <g transform="translate(80, 760)">
+    <line x1="0" y1="0" x2="1440" y2="0" stroke="#E6E4DC"/>
+    <text x="0" y="36" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em" fill="#6B6358">WORKFLOW · HOW THEY COMPOSE</text>
+    <g transform="translate(0, 56)">
+      <rect x="0" y="0" width="200" height="48" rx="8" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1.2"/>
+      <text x="100" y="30" text-anchor="middle" font-family="Ubuntu, sans-serif" font-size="15" fill="#1A1A1A">natural-lang spec</text>
+
+      <line x1="200" y1="24" x2="244" y2="24" stroke="#1A1A1A" stroke-width="1.6" marker-end="url(#arrFlow)"/>
+
+      <rect x="248" y="0" width="244" height="48" rx="8" fill="#FFF7F5" stroke="#FC6255" stroke-width="1.4"/>
+      <text x="370" y="30" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="14" fill="#CF5044">gf180-idea-to-chip</text>
+
+      <line x1="492" y1="24" x2="536" y2="24" stroke="#1A1A1A" stroke-width="1.6" marker-end="url(#arrFlow)"/>
+
+      <rect x="540" y="0" width="312" height="48" rx="8" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1.2"/>
+      <text x="696" y="30" text-anchor="middle" font-family="Ubuntu, sans-serif" font-size="15" fill="#1A1A1A">idea_loop  OR  autoresearch</text>
+
+      <line x1="852" y1="24" x2="896" y2="24" stroke="#1A1A1A" stroke-width="1.6" marker-end="url(#arrFlow)"/>
+
+      <rect x="900" y="0" width="288" height="48" rx="8" fill="#F5F8FE" stroke="#4A7BD9" stroke-width="1.2"/>
+      <text x="1044" y="30" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="13" fill="#1A1A1A">docker-digital + skills</text>
+
+      <line x1="1188" y1="24" x2="1232" y2="24" stroke="#1A1A1A" stroke-width="1.6" marker-end="url(#arrFlow)"/>
+
+      <rect x="1236" y="0" width="204" height="48" rx="8" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1.2"/>
+      <text x="1338" y="30" text-anchor="middle" font-family="Ubuntu, sans-serif" font-size="15" fill="#1A1A1A">phase_idea/, phase_optimize/</text>
+    </g>
+  </g>
+</svg>

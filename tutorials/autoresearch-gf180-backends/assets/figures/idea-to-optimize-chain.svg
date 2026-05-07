@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" font-family="Ubuntu, 'Ubuntu Sans', sans-serif">
+  <rect x="0" y="0" width="1600" height="900" fill="#FAFAF7"/>
+
+  <defs>
+    <marker id="arrInk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1A1A1A"/>
+    </marker>
+    <marker id="arrTeal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5CD0B3"/>
+    </marker>
+    <marker id="arrPoly" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#FC6255"/>
+    </marker>
+  </defs>
+
+  <!-- Eyebrow -->
+  <text x="80" y="80" font-family="Ubuntu Mono, monospace" font-size="22" letter-spacing="0.16em"
+        fill="#6B6358">PHASE CHAIN · idea_loop  →  autoresearch  ·  TWO BUDGETS, TWO GATES</text>
+  <line x1="80" y1="100" x2="1520" y2="100" stroke="#E6E4DC" stroke-width="1"/>
+
+  <!-- ============== Top row: spec, idea_loop, autoresearch ============== -->
+
+  <!-- Spec node (notebox style) -->
+  <g transform="translate(120, 200)">
+    <rect x="0" y="0" width="320" height="160" rx="10" fill="#FFFFFF" stroke="#6B6358" stroke-width="1.4" stroke-dasharray="6 5"/>
+    <text x="20" y="34" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.14em" fill="#6B6358">USER INPUT · NL SPEC</text>
+    <text x="20" y="74" font-family="Ubuntu, sans-serif" font-size="22" font-weight="500" fill="#1A1A1A">natural-language</text>
+    <text x="20" y="100" font-family="Ubuntu, sans-serif" font-size="22" font-weight="500" fill="#1A1A1A">specification</text>
+    <line x1="20" y1="118" x2="300" y2="118" stroke="#E6E4DC"/>
+    <text x="20" y="142" font-family="Ubuntu, sans-serif" font-style="italic" font-size="16" fill="#6B6358">"Goertzel FP32 at 25 MHz"</text>
+  </g>
+
+  <!-- Arrow spec -> idea_loop -->
+  <line x1="440" y1="280" x2="540" y2="280" stroke="#1A1A1A" stroke-width="2.4" marker-end="url(#arrInk)"/>
+
+  <!-- idea_loop node (hi-teal accent) -->
+  <g transform="translate(540, 200)">
+    <rect x="0" y="0" width="380" height="160" rx="10" fill="#FFFFFF" stroke="#5CD0B3" stroke-width="2.4"/>
+    <rect x="0" y="0" width="6" height="160" fill="#5CD0B3"/>
+    <text x="32" y="34" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.14em" fill="#3D9C84">PHASE 1 · BUDGET = TURNS</text>
+    <text x="32" y="76" font-family="Ubuntu Mono, monospace" font-size="26" font-weight="500" fill="#1A1A1A">idea_loop</text>
+    <line x1="32" y1="96" x2="360" y2="96" stroke="#E6E4DC"/>
+    <text x="32" y="122" font-family="Ubuntu, sans-serif" font-size="16" fill="#1A1A1A">sim-in-the-loop RTL synthesis</text>
+    <text x="32" y="144" font-family="Ubuntu, sans-serif" font-size="16" fill="#6B6358">cocotb + iverilog gate, critique feedback</text>
+  </g>
+
+  <!-- Arrow idea_loop -> autoresearch (top, "produces") -->
+  <line x1="920" y1="280" x2="1040" y2="280" stroke="#1A1A1A" stroke-width="2.4" marker-end="url(#arrInk)"/>
+  <text x="980" y="266" text-anchor="middle" font-family="Ubuntu, sans-serif" font-style="italic" font-size="14" fill="#6B6358">feeds RTL + tb</text>
+
+  <!-- autoresearch node (poly-red rail) -->
+  <g transform="translate(1040, 200)">
+    <rect x="0" y="0" width="440" height="160" rx="10" fill="#FFFFFF" stroke="#FC6255" stroke-width="2.4"/>
+    <rect x="0" y="0" width="6" height="160" fill="#FC6255"/>
+    <text x="32" y="34" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.14em" fill="#CF5044">PHASE 2 · BUDGET = EVALS</text>
+    <text x="32" y="76" font-family="Ubuntu Mono, monospace" font-size="26" font-weight="500" fill="#1A1A1A">autoresearch</text>
+    <line x1="32" y1="96" x2="420" y2="96" stroke="#E6E4DC"/>
+    <text x="32" y="122" font-family="Ubuntu, sans-serif" font-size="16" fill="#1A1A1A">propose / harden / sim / FoM / keep</text>
+    <text x="32" y="144" font-family="Ubuntu, sans-serif" font-size="16" fill="#6B6358">LibreLane drives every eval</text>
+  </g>
+
+  <!-- ============== Drop-down arrows ============== -->
+
+  <!-- idea_loop -> phase_idea -->
+  <line x1="730" y1="360" x2="730" y2="500" stroke="#5CD0B3" stroke-width="2.4" marker-end="url(#arrTeal)"/>
+  <text x="746" y="430" font-family="Ubuntu Mono, monospace" font-size="13" letter-spacing="0.12em" fill="#3D9C84">EMITS</text>
+
+  <!-- autoresearch -> phase_optimize -->
+  <line x1="1260" y1="360" x2="1260" y2="500" stroke="#FC6255" stroke-width="2.4" marker-end="url(#arrPoly)"/>
+  <text x="1276" y="430" font-family="Ubuntu Mono, monospace" font-size="13" letter-spacing="0.12em" fill="#CF5044">EMITS</text>
+
+  <!-- ============== Bottom row: phase_idea/, phase_optimize/ ============== -->
+
+  <!-- phase_idea/ box -->
+  <g transform="translate(540, 500)">
+    <rect x="0" y="0" width="380" height="180" rx="10" fill="#F4FBF8" stroke="#5CD0B3" stroke-width="1.4" stroke-dasharray="6 5"/>
+    <text x="20" y="34" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.14em" fill="#3D9C84">CONVERGED IDEA · ARTIFACT DIR</text>
+    <text x="20" y="68" font-family="Ubuntu Mono, monospace" font-size="20" font-weight="500" fill="#1A1A1A">phase_idea/</text>
+    <line x1="20" y1="84" x2="360" y2="84" stroke="#E6E4DC"/>
+    <text x="20" y="108" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">  ├─ config.yaml      # LibreLane</text>
+    <text x="20" y="128" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">  ├─ src/              # RTL</text>
+    <text x="20" y="148" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">  ├─ tb/               # cocotb</text>
+    <text x="20" y="168" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">  └─ runs/             # idea logs</text>
+  </g>
+
+  <!-- phase_optimize/ box -->
+  <g transform="translate(1040, 500)">
+    <rect x="0" y="0" width="440" height="180" rx="10" fill="#FFF7F5" stroke="#FC6255" stroke-width="1.4" stroke-dasharray="6 5"/>
+    <text x="20" y="34" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.14em" fill="#CF5044">OPTIMISER OUTPUT · ARTIFACT DIR</text>
+    <text x="20" y="68" font-family="Ubuntu Mono, monospace" font-size="20" font-weight="500" fill="#1A1A1A">phase_optimize/</text>
+    <line x1="20" y1="84" x2="420" y2="84" stroke="#E6E4DC"/>
+    <text x="20" y="108" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">  ├─ program.md        # LLM memory</text>
+    <text x="20" y="128" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">  ├─ results.tsv       # numeric log</text>
+    <text x="20" y="148" font-family="Ubuntu Mono, monospace" font-size="14" fill="#1A1A1A">  └─ ../plots/phase_optimize/</text>
+    <text x="20" y="168" font-family="Ubuntu Mono, monospace" font-size="14" fill="#6B6358">         fom · metrics · params PNGs</text>
+  </g>
+
+  <!-- ============== Bottom contract bar ============== -->
+  <g transform="translate(80, 760)">
+    <line x1="0" y1="0" x2="1440" y2="0" stroke="#E6E4DC"/>
+    <text x="0" y="36" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em" fill="#6B6358">PHASE 2 RUNS UNCONDITIONALLY · partial / blocked phase 1 still feeds the optimiser</text>
+    <text x="0" y="68" font-family="Ubuntu, sans-serif" font-size="20" font-style="italic" fill="#1A1A1A">--skip-phase-idea reuses an already-converged phase_idea/ so re-optimising
+            does not burn idea-loop budget.</text>
+  </g>
+</svg>

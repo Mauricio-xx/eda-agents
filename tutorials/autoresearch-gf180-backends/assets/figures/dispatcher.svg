@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" font-family="Ubuntu, 'Ubuntu Sans', sans-serif">
+  <rect x="0" y="0" width="1600" height="900" fill="#FAFAF7"/>
+
+  <defs>
+    <marker id="arrInk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1A1A1A"/>
+    </marker>
+    <marker id="arrCC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6B5BD9"/>
+    </marker>
+    <marker id="arrOC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#29ABCA"/>
+    </marker>
+  </defs>
+
+  <!-- Eyebrow -->
+  <text x="80" y="80" font-family="Ubuntu Mono, monospace" font-size="22" letter-spacing="0.16em"
+        fill="#6B6358">AUTORESEARCH · PROPOSAL DISPATCH · cc_cli vs opencode</text>
+  <line x1="80" y1="100" x2="1520" y2="100" stroke="#E6E4DC" stroke-width="1"/>
+
+  <!-- ===================== _propose_params node (top centre) ===================== -->
+  <g transform="translate(550, 160)">
+    <rect x="0" y="0" width="500" height="160" rx="10" fill="#FFFFFF" stroke="#FC6255" stroke-width="2.4"/>
+    <rect x="0" y="0" width="6" height="160" fill="#FC6255"/>
+    <text x="32" y="42" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em" fill="#CF5044">PROPOSER · DECISION POINT</text>
+    <text x="32" y="92" font-family="Ubuntu Mono, monospace" font-size="30" font-weight="500" fill="#1A1A1A">_propose_params(...)</text>
+    <text x="32" y="128" font-family="Ubuntu, sans-serif" font-style="italic" font-size="18" fill="#6B6358">digital_autoresearch.py:504</text>
+  </g>
+
+  <!-- switch label -->
+  <g transform="translate(550, 350)">
+    <rect x="0" y="0" width="500" height="44" rx="22" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="1.4" stroke-dasharray="5 4"/>
+    <text x="250" y="30" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="20" fill="#1A1A1A">switch self.backend</text>
+  </g>
+
+  <!-- arrows from proposer to switch then split -->
+  <line x1="800" y1="320" x2="800" y2="350" stroke="#1A1A1A" stroke-width="2" marker-end="url(#arrInk)"/>
+
+  <!-- Split arrows from switch to the two harnesses -->
+  <path d="M 700 394 C 700 460 380 460 380 530"
+        fill="none" stroke="#6B5BD9" stroke-width="2.8" marker-end="url(#arrCC)"/>
+  <path d="M 900 394 C 900 460 1220 460 1220 530"
+        fill="none" stroke="#29ABCA" stroke-width="2.8" marker-end="url(#arrOC)"/>
+
+  <!-- Branch labels next to arrows -->
+  <rect x="430" y="424" width="220" height="36" rx="4" fill="#FAFAF7" stroke="#6B5BD9" stroke-width="1"/>
+  <text x="540" y="448" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="18" fill="#6B5BD9">backend == "cc_cli"</text>
+
+  <rect x="950" y="424" width="240" height="36" rx="4" fill="#FAFAF7" stroke="#29ABCA" stroke-width="1"/>
+  <text x="1070" y="448" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="18" fill="#29ABCA">backend == "opencode"</text>
+
+  <!-- ===================== cc_cli card ===================== -->
+  <g transform="translate(120, 530)">
+    <rect x="0" y="0" width="520" height="240" rx="10" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1.5"/>
+    <rect x="0" y="0" width="6" height="240" fill="#6B5BD9"/>
+    <text x="32" y="44" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em" fill="#6B5BD9">CC_CLI · CLAUDE CODE</text>
+    <text x="32" y="96" font-family="Ubuntu, sans-serif" font-size="32" font-weight="600" fill="#1A1A1A">ClaudeCodeHarness</text>
+    <text x="32" y="128" font-family="Ubuntu Mono, monospace" font-size="18" fill="#6B6358">claude_code_harness.py:207</text>
+    <line x1="32" y1="152" x2="488" y2="152" stroke="#E6E4DC"/>
+    <text x="32" y="184" font-family="Ubuntu Mono, monospace" font-size="20" fill="#1A1A1A">claude --print --output-format json</text>
+    <text x="32" y="216" font-family="Ubuntu, sans-serif" font-size="20" font-style="italic" fill="#6B6358">model: Opus 4.7 · subscription</text>
+  </g>
+
+  <!-- ===================== opencode card ===================== -->
+  <g transform="translate(960, 530)">
+    <rect x="0" y="0" width="520" height="240" rx="10" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1.5"/>
+    <rect x="0" y="0" width="6" height="240" fill="#29ABCA"/>
+    <text x="32" y="44" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em" fill="#29ABCA">OPENCODE · MULTI-PROVIDER</text>
+    <text x="32" y="96" font-family="Ubuntu, sans-serif" font-size="32" font-weight="600" fill="#1A1A1A">OpenCodeHarness</text>
+    <text x="32" y="128" font-family="Ubuntu Mono, monospace" font-size="18" fill="#6B6358">opencode_harness.py:123</text>
+    <line x1="32" y1="152" x2="488" y2="152" stroke="#E6E4DC"/>
+    <text x="32" y="184" font-family="Ubuntu Mono, monospace" font-size="20" fill="#1A1A1A">opencode run --format json -m M</text>
+    <text x="32" y="216" font-family="Ubuntu, sans-serif" font-size="20" font-style="italic" fill="#6B6358">model: openai/gpt-5.3-codex (any)</text>
+  </g>
+
+  <!-- ===================== Shared contract bar ===================== -->
+  <g transform="translate(80, 800)">
+    <line x1="0" y1="0" x2="1440" y2="0" stroke="#E6E4DC"/>
+    <text x="0" y="36" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em"
+          fill="#6B6358">SHARED CONTRACT · async run() → HarnessResult · OAuth via the CLI · no API key in subprocess</text>
+    <text x="0" y="68" font-family="Ubuntu, sans-serif" font-size="20" font-style="italic"
+          fill="#1A1A1A">Same dispatch shape lives in idea_to_rtl.py:_build_harness:326. Loop body never branches;
+            only the proposer changes.</text>
+  </g>
+</svg>

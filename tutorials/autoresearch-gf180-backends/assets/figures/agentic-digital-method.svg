@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" font-family="Ubuntu, 'Ubuntu Sans', sans-serif">
+  <rect x="0" y="0" width="1600" height="900" fill="#FAFAF7"/>
+
+  <defs>
+    <marker id="arrLoop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#FC6255"/>
+    </marker>
+    <marker id="arrUp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#A8A29A"/>
+    </marker>
+  </defs>
+
+  <!-- Header -->
+  <text x="80" y="62" font-family="Ubuntu Mono, monospace" font-size="20" letter-spacing="0.18em"
+        fill="#6B6358">TRACK D · DIGITAL · AGENTIC METHODOLOGY · OPEN PDK</text>
+  <line x1="80" y1="80" x2="1520" y2="80" stroke="#E6E4DC" stroke-width="1"/>
+
+  <text x="80" y="132" font-family="Ubuntu, sans-serif" font-size="42" font-weight="600" fill="#1A1A1A">Skills + Specialist Agents + Autoresearch</text>
+  <text x="80" y="166" font-family="Ubuntu, sans-serif" font-style="italic" font-size="20" fill="#6B6358">an agentic recipe for idea-to-chip on open PDKs</text>
+
+  <!-- ============== Layer 3: AUTORESEARCH (top, poly-red) ============== -->
+  <g transform="translate(80, 200)">
+    <rect x="0" y="0" width="1440" height="200" rx="12" fill="#FFFFFF" stroke="#FC6255" stroke-width="2.2"/>
+    <rect x="0" y="0" width="6" height="200" fill="#FC6255"/>
+
+    <text x="32" y="38" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.16em" fill="#CF5044">LAYER 3 · AUTORESEARCH</text>
+    <text x="32" y="76" font-family="Ubuntu, sans-serif" font-size="28" font-weight="600" fill="#1A1A1A">Greedy loop wraps the agent</text>
+    <text x="32" y="102" font-family="Ubuntu, sans-serif" font-style="italic" font-size="17" fill="#6B6358">LLM proposes · multi-objective FoM · real signoff gates every iteration</text>
+
+    <!-- Loop nodes -->
+    <g transform="translate(540, 130)">
+      <!-- node 1: propose -->
+      <rect x="0" y="0" width="140" height="42" rx="6" fill="#FFF7F5" stroke="#FC6255" stroke-width="1.4"/>
+      <text x="70" y="27" text-anchor="middle" font-family="Ubuntu, sans-serif" font-size="15" fill="#1A1A1A">propose params</text>
+
+      <!-- arrow 1 -->
+      <line x1="148" y1="21" x2="200" y2="21" stroke="#FC6255" stroke-width="2" marker-end="url(#arrLoop)"/>
+
+      <!-- node 2: run flow -->
+      <rect x="208" y="0" width="140" height="42" rx="6" fill="#FFF7F5" stroke="#FC6255" stroke-width="1.4"/>
+      <text x="278" y="27" text-anchor="middle" font-family="Ubuntu, sans-serif" font-size="15" fill="#1A1A1A">run flow + sim</text>
+
+      <!-- arrow 2 -->
+      <line x1="356" y1="21" x2="408" y2="21" stroke="#FC6255" stroke-width="2" marker-end="url(#arrLoop)"/>
+
+      <!-- node 3: score FoM -->
+      <rect x="416" y="0" width="140" height="42" rx="6" fill="#FFF7F5" stroke="#FC6255" stroke-width="1.4"/>
+      <text x="486" y="27" text-anchor="middle" font-family="Ubuntu, sans-serif" font-size="15" fill="#1A1A1A">score FoM</text>
+
+      <!-- arrow 3 -->
+      <line x1="564" y1="21" x2="616" y2="21" stroke="#FC6255" stroke-width="2" marker-end="url(#arrLoop)"/>
+
+      <!-- node 4: log + keep best -->
+      <rect x="624" y="0" width="170" height="42" rx="6" fill="#FFF7F5" stroke="#FC6255" stroke-width="1.4"/>
+      <text x="709" y="27" text-anchor="middle" font-family="Ubuntu, sans-serif" font-size="15" fill="#1A1A1A">log · keep best</text>
+
+      <!-- loop-back arrow under -->
+      <path d="M 709 50 L 709 60 L 70 60 L 70 50" fill="none" stroke="#FC6255" stroke-width="2" marker-end="url(#arrLoop)"/>
+    </g>
+  </g>
+
+  <!-- "wraps" label between layer 3 and 2 -->
+  <text x="80" y="425" font-family="Ubuntu Mono, monospace" font-size="13" letter-spacing="0.14em" fill="#A8A29A">WRAPS THE AGENT</text>
+  <line x1="260" y1="420" x2="320" y2="420" stroke="#A8A29A" stroke-width="1.4" marker-end="url(#arrUp)" transform="rotate(-90 290 420)"/>
+
+  <!-- ============== Layer 2: SPECIALIST AGENTS (middle, hi-teal) ============== -->
+  <g transform="translate(80, 440)">
+    <rect x="0" y="0" width="1440" height="140" rx="12" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1.5"/>
+    <rect x="0" y="0" width="6" height="140" fill="#5CD0B3"/>
+
+    <text x="32" y="34" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.16em" fill="#3D9C84">LAYER 2 · SPECIALIST AGENTS</text>
+    <text x="32" y="68" font-family="Ubuntu, sans-serif" font-size="24" font-weight="600" fill="#1A1A1A">Roles with tool access</text>
+    <text x="32" y="92" font-family="Ubuntu, sans-serif" font-style="italic" font-size="16" fill="#6B6358">each role bundles relevant skills and the runners it needs</text>
+
+    <!-- role chips -->
+    <g transform="translate(640, 60)">
+      <rect x="0" y="0" width="155" height="30" rx="15" fill="#EAF7F2" stroke="#5CD0B3" stroke-width="1"/>
+      <text x="77" y="20" text-anchor="middle" font-family="Ubuntu, sans-serif" font-size="14" fill="#1A1A1A">RTL author</text>
+    </g>
+    <g transform="translate(805, 60)">
+      <rect x="0" y="0" width="180" height="30" rx="15" fill="#EAF7F2" stroke="#5CD0B3" stroke-width="1"/>
+      <text x="90" y="20" text-anchor="middle" font-family="Ubuntu, sans-serif" font-size="14" fill="#1A1A1A">verification engineer</text>
+    </g>
+    <g transform="translate(995, 60)">
+      <rect x="0" y="0" width="170" height="30" rx="15" fill="#EAF7F2" stroke="#5CD0B3" stroke-width="1"/>
+      <text x="85" y="20" text-anchor="middle" font-family="Ubuntu, sans-serif" font-size="14" fill="#1A1A1A">flow + signoff operator</text>
+    </g>
+    <g transform="translate(1175, 60)">
+      <rect x="0" y="0" width="225" height="30" rx="15" fill="#EAF7F2" stroke="#5CD0B3" stroke-width="1"/>
+      <text x="112.5" y="20" text-anchor="middle" font-family="Ubuntu, sans-serif" font-size="14" fill="#1A1A1A">idea-to-chip orchestrator</text>
+    </g>
+  </g>
+
+  <!-- "uses" label between layer 2 and 1 -->
+  <text x="80" y="605" font-family="Ubuntu Mono, monospace" font-size="13" letter-spacing="0.14em" fill="#A8A29A">USES SKILLS</text>
+  <line x1="260" y1="600" x2="320" y2="600" stroke="#A8A29A" stroke-width="1.4" marker-end="url(#arrUp)" transform="rotate(-90 290 600)"/>
+
+  <!-- ============== Layer 1: SKILLS (bottom, m3-blue) ============== -->
+  <g transform="translate(80, 620)">
+    <rect x="0" y="0" width="1440" height="140" rx="12" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1.5"/>
+    <rect x="0" y="0" width="6" height="140" fill="#4A7BD9"/>
+
+    <text x="32" y="34" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.16em" fill="#3F65B5">LAYER 1 · SKILLS</text>
+    <text x="32" y="68" font-family="Ubuntu, sans-serif" font-size="24" font-weight="600" fill="#1A1A1A">Promptable design rules</text>
+    <text x="32" y="92" font-family="Ubuntu, sans-serif" font-style="italic" font-size="16" fill="#6B6358">written once · reused by every agent · the foundation under both lanes</text>
+
+    <!-- skill chips -->
+    <g transform="translate(540, 60)">
+      <rect x="0" y="0" width="135" height="30" rx="15" fill="#F0F4FC" stroke="#4A7BD9" stroke-width="1"/>
+      <text x="67.5" y="20" text-anchor="middle" font-family="Ubuntu, sans-serif" font-size="14" fill="#1A1A1A">RTL idioms</text>
+    </g>
+    <g transform="translate(685, 60)">
+      <rect x="0" y="0" width="155" height="30" rx="15" fill="#F0F4FC" stroke="#4A7BD9" stroke-width="1"/>
+      <text x="77.5" y="20" text-anchor="middle" font-family="Ubuntu, sans-serif" font-size="14" fill="#1A1A1A">cocotb tb rules</text>
+    </g>
+    <g transform="translate(850, 60)">
+      <rect x="0" y="0" width="175" height="30" rx="15" fill="#F0F4FC" stroke="#4A7BD9" stroke-width="1"/>
+      <text x="87.5" y="20" text-anchor="middle" font-family="Ubuntu, sans-serif" font-size="14" fill="#1A1A1A">RTL-to-GDS patterns</text>
+    </g>
+    <g transform="translate(1035, 60)">
+      <rect x="0" y="0" width="175" height="30" rx="15" fill="#F0F4FC" stroke="#4A7BD9" stroke-width="1"/>
+      <text x="87.5" y="20" text-anchor="middle" font-family="Ubuntu, sans-serif" font-size="14" fill="#1A1A1A">DRC/LVS escalation</text>
+    </g>
+    <g transform="translate(1220, 60)">
+      <rect x="0" y="0" width="180" height="30" rx="15" fill="#F0F4FC" stroke="#4A7BD9" stroke-width="1"/>
+      <text x="90" y="20" text-anchor="middle" font-family="Ubuntu, sans-serif" font-size="14" fill="#1A1A1A">GL sim contracts</text>
+    </g>
+  </g>
+
+  <!-- ============== Bottom contract bar ============== -->
+  <g transform="translate(80, 790)">
+    <line x1="0" y1="0" x2="1440" y2="0" stroke="#E6E4DC"/>
+    <text x="0" y="36" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em" fill="#6B6358">OPEN METHODOLOGY  ·  MULTIPLE IMPLEMENTATIONS  ·  SUBSCRIPTION-PORTABLE LLMs</text>
+    <text x="0" y="68" font-family="Ubuntu, sans-serif" font-size="18" font-style="italic" fill="#1A1A1A">Same recipe runs on GF180MCU and IHP SG13G2 today. Skills, agents and topologies are user-extensible — new domains welcome.</text>
+  </g>
+</svg>

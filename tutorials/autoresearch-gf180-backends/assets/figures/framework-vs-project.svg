@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" font-family="Ubuntu, 'Ubuntu Sans', sans-serif">
+  <rect x="0" y="0" width="1600" height="900" fill="#FAFAF7"/>
+
+  <defs>
+    <marker id="arrConsume" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="11" markerHeight="11" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#FF862F"/>
+    </marker>
+  </defs>
+
+  <!-- Eyebrow -->
+  <text x="80" y="80" font-family="Ubuntu Mono, monospace" font-size="22" letter-spacing="0.16em"
+        fill="#6B6358">EDA-AGENTS · LIBRARY VS YOUR PROJECT · IDEA-TO-CHIP CONTRACT</text>
+  <line x1="80" y1="100" x2="1520" y2="100" stroke="#E6E4DC" stroke-width="1"/>
+
+  <!-- ============== Left card: eda-agents library (poly-red rail) ============== -->
+  <g transform="translate(80, 130)">
+    <rect x="0" y="0" width="620" height="600" rx="12" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1.5"/>
+    <rect x="0" y="0" width="6" height="600" fill="#FC6255"/>
+    <text x="32" y="44" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em" fill="#CF5044">PYTHON LIBRARY · pip install eda-agents</text>
+    <text x="32" y="100" font-family="Ubuntu, sans-serif" font-size="40" font-weight="600" fill="#1A1A1A">eda-agents</text>
+    <text x="32" y="138" font-family="Ubuntu, sans-serif" font-style="italic" font-size="20" fill="#6B6358">everything below ships out of the box</text>
+    <line x1="32" y1="164" x2="588" y2="164" stroke="#E6E4DC"/>
+
+    <!-- Layer rows -->
+    <g transform="translate(32, 188)">
+      <rect x="0" y="0" width="556" height="56" rx="6" fill="#FFF7F5" stroke="#FC6255" stroke-width="1"/>
+      <text x="20" y="26" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.14em" fill="#CF5044">SPECIALIST AGENTS</text>
+      <text x="20" y="46" font-family="Ubuntu, sans-serif" font-size="18" fill="#1A1A1A">.claude/agents/, .opencode/agent/  ·  6 ship today</text>
+    </g>
+
+    <g transform="translate(32, 256)">
+      <rect x="0" y="0" width="556" height="56" rx="6" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1"/>
+      <text x="20" y="26" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.14em" fill="#6B6358">SKILLS</text>
+      <text x="20" y="46" font-family="Ubuntu, sans-serif" font-size="18" fill="#1A1A1A">digital.* · flow.*  prompt bodies via get_skill()</text>
+    </g>
+
+    <g transform="translate(32, 324)">
+      <rect x="0" y="0" width="556" height="56" rx="6" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1"/>
+      <text x="20" y="26" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.14em" fill="#6B6358">RUNNERS</text>
+      <text x="20" y="46" font-family="Ubuntu, sans-serif" font-size="18" fill="#1A1A1A">LibreLane · cocotb · KLayout DRC/LVS · Magic PEX</text>
+    </g>
+
+    <g transform="translate(32, 392)">
+      <rect x="0" y="0" width="556" height="56" rx="6" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1"/>
+      <text x="20" y="26" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.14em" fill="#6B6358">HARNESSES</text>
+      <text x="20" y="46" font-family="Ubuntu, sans-serif" font-size="18" fill="#1A1A1A">cc_cli · opencode · ADK  (any LLM behind the CLI)</text>
+    </g>
+
+    <g transform="translate(32, 460)">
+      <rect x="0" y="0" width="556" height="56" rx="6" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1"/>
+      <text x="20" y="26" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.14em" fill="#6B6358">DESIGN ABCs</text>
+      <text x="20" y="46" font-family="Ubuntu, sans-serif" font-size="18" fill="#1A1A1A">DigitalDesign · GenericDesign · CircuitTopology</text>
+    </g>
+
+    <g transform="translate(32, 528)">
+      <rect x="0" y="0" width="556" height="44" rx="6" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1"/>
+      <text x="20" y="28" font-family="Ubuntu, sans-serif" font-size="16" fill="#6B6358">+ PDK config: GF180MCU · IHP SG13G2  (registry-driven)</text>
+    </g>
+  </g>
+
+  <!-- ============== Center: consume arrow ============== -->
+  <g transform="translate(720, 380)">
+    <text x="80" y="-20" text-anchor="middle" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.14em" fill="#FF862F">CONSUMES VIA</text>
+    <text x="80" y="6" text-anchor="middle" font-family="Ubuntu, sans-serif" font-size="22" font-weight="500" fill="#1A1A1A">import + invoke</text>
+    <line x1="0" y1="40" x2="155" y2="40" stroke="#FF862F" stroke-width="4" marker-end="url(#arrConsume)"/>
+    <text x="80" y="80" text-anchor="middle" font-family="Ubuntu, sans-serif" font-style="italic" font-size="16" fill="#6B6358">no eda-agents source edits</text>
+  </g>
+
+  <!-- ============== Right card: your project (m3-blue rail) ============== -->
+  <g transform="translate(900, 130)">
+    <rect x="0" y="0" width="620" height="600" rx="12" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1.5"/>
+    <rect x="0" y="0" width="6" height="600" fill="#4A7BD9"/>
+    <text x="32" y="44" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em" fill="#3F65B5">USER WORKING DIRECTORY · idea-to-chip</text>
+    <text x="32" y="100" font-family="Ubuntu, sans-serif" font-size="40" font-weight="600" fill="#1A1A1A">Your project</text>
+    <text x="32" y="138" font-family="Ubuntu, sans-serif" font-style="italic" font-size="20" fill="#6B6358">everything below is what YOU bring</text>
+    <line x1="32" y1="164" x2="588" y2="164" stroke="#E6E4DC"/>
+
+    <g transform="translate(32, 188)">
+      <rect x="0" y="0" width="556" height="56" rx="6" fill="#F5F8FE" stroke="#4A7BD9" stroke-width="1"/>
+      <text x="20" y="26" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.14em" fill="#3F65B5">INPUT 1 · SPEC (NATURAL LANGUAGE)</text>
+      <text x="20" y="46" font-family="Ubuntu, sans-serif" font-size="18" fill="#1A1A1A">"Goertzel FP32 on GF180. Throughput 1 MHz."</text>
+    </g>
+
+    <g transform="translate(32, 256)">
+      <rect x="0" y="0" width="556" height="56" rx="6" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1"/>
+      <text x="20" y="26" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.14em" fill="#6B6358">INPUT 2 · DESIGN HOOK (DATA-FIRST)</text>
+      <text x="20" y="46" font-family="Ubuntu, sans-serif" font-size="17" fill="#1A1A1A">config.yaml with EDA_AGENTS_DESIGN_INTENT  ·  Python only for sidecar</text>
+    </g>
+
+    <g transform="translate(32, 324)">
+      <rect x="0" y="0" width="556" height="56" rx="6" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1"/>
+      <text x="20" y="26" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.14em" fill="#6B6358">INPUT 3 · TESTBENCH</text>
+      <text x="20" y="46" font-family="Ubuntu, sans-serif" font-size="18" fill="#1A1A1A">cocotb test_&lt;design&gt;.py + Makefile (skill rules)</text>
+    </g>
+
+    <line x1="32" y1="404" x2="588" y2="404" stroke="#E6E4DC"/>
+    <text x="32" y="432" font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.14em" fill="#6B6358">OUTPUT · WORKDIR (eda-agents emits)</text>
+
+    <g transform="translate(32, 446)">
+      <rect x="0" y="0" width="556" height="126" rx="6" fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1"/>
+      <text x="20" y="28" font-family="Ubuntu Mono, monospace" font-size="16" fill="#1A1A1A">~/workdir/idea_to_optimize/</text>
+      <text x="20" y="52" font-family="Ubuntu Mono, monospace" font-size="14" fill="#6B6358">  ├─ phase_idea/      # idea_loop output (RTL + tb)</text>
+      <text x="20" y="74" font-family="Ubuntu Mono, monospace" font-size="14" fill="#6B6358">  ├─ phase_optimize/  # autoresearch results.tsv</text>
+      <text x="20" y="96" font-family="Ubuntu Mono, monospace" font-size="14" fill="#6B6358">  └─ plots/           # 3 evolution PNGs</text>
+    </g>
+  </g>
+
+  <!-- ============== Bottom contract bar ============== -->
+  <g transform="translate(80, 760)">
+    <line x1="0" y1="0" x2="1440" y2="0" stroke="#E6E4DC"/>
+    <text x="0" y="36" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em"
+          fill="#6B6358">HAND-OFF CONTRACT · DigitalDesign returns project_name(), prompt_description(), specs, fom_description(), testbench()</text>
+    <text x="0" y="68" font-family="Ubuntu, sans-serif" font-size="20" font-style="italic"
+          fill="#1A1A1A">Library handles dispatch, runners, skills, signoff. Your project carries the spec, the hook, the testbench.
+            The library never asks for more.</text>
+  </g>
+</svg>

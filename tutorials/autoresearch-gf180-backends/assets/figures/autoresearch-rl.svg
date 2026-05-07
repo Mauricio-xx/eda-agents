@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" font-family="Ubuntu, 'Ubuntu Sans', sans-serif">
+  <!-- OpenSilicon Labs paper-mode background -->
+  <rect x="0" y="0" width="1600" height="900" fill="#FAFAF7"/>
+
+  <defs>
+    <!-- arrow heads, one per semantic colour -->
+    <marker id="arrInk"     viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1A1A1A"/>
+    </marker>
+    <marker id="arrMuted"   viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6B6358"/>
+    </marker>
+    <marker id="arrOrange"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#FF862F"/>
+    </marker>
+    <marker id="arrTeal"    viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5CD0B3"/>
+    </marker>
+  </defs>
+
+  <!-- =======================  Eyebrow strip  ======================= -->
+  <text x="80" y="80" font-family="Ubuntu Mono, monospace" font-size="22" letter-spacing="0.16em"
+        fill="#6B6358">AUTORESEARCH · EMULATED REINFORCEMENT LEARNING</text>
+  <line x1="80" y1="100" x2="1520" y2="100" stroke="#E6E4DC" stroke-width="1"/>
+
+  <!-- =======================  Memory card (top, centred)  ======================= -->
+  <g transform="translate(400, 150)">
+    <rect x="0" y="0" width="800" height="150" rx="8" ry="8"
+          fill="#FFFFFF" stroke="#6B6358" stroke-width="1.6"
+          stroke-dasharray="6 5"/>
+    <text x="400" y="44" text-anchor="middle"
+          font-family="Ubuntu Mono, monospace" font-size="22" letter-spacing="0.10em"
+          fill="#6B6358">MEMORY · IN-CONTEXT EXPERIENCE REPLAY</text>
+    <text x="400" y="92" text-anchor="middle"
+          font-family="Ubuntu Mono, monospace" font-size="30" font-weight="500"
+          fill="#1A1A1A">program.md  +  results.tsv</text>
+    <text x="400" y="124" text-anchor="middle"
+          font-family="Ubuntu, sans-serif" font-size="18" font-style="italic"
+          fill="#6B6358">narrative log + numeric eval history; LLM reads back on the next turn</text>
+  </g>
+
+  <!-- =======================  Agent card (bottom-left)  ======================= -->
+  <g transform="translate(120, 480)">
+    <!-- card -->
+    <rect x="0" y="0" width="500" height="280" rx="10" ry="10"
+          fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1.5"/>
+    <!-- left accent rail (poly-red = active "gate") -->
+    <rect x="0" y="0" width="6" height="280" fill="#FC6255"/>
+    <!-- header chip -->
+    <text x="32" y="46" font-family="Ubuntu Mono, monospace" font-size="18" letter-spacing="0.16em"
+          fill="#CF5044">AGENT · POLICY</text>
+    <!-- title -->
+    <text x="32" y="100" font-family="Ubuntu, sans-serif" font-size="38" font-weight="600"
+          fill="#1A1A1A">Pretrained LLM</text>
+    <!-- meta lines -->
+    <text x="32" y="146" font-family="Ubuntu Mono, monospace" font-size="20"
+          fill="#1A1A1A">cc_cli  ·  opencode</text>
+    <text x="32" y="178" font-family="Ubuntu, sans-serif" font-size="20" font-style="italic"
+          fill="#6B6358">no gradient step</text>
+    <text x="32" y="206" font-family="Ubuntu, sans-serif" font-size="20" font-style="italic"
+          fill="#6B6358">no weight update</text>
+    <!-- footnote -->
+    <line x1="32" y1="226" x2="468" y2="226" stroke="#E6E4DC"/>
+    <text x="32" y="254" font-family="Ubuntu Mono, monospace" font-size="16"
+          fill="#6B6358">"learning" ≡ reading program.md back</text>
+  </g>
+
+  <!-- =======================  Environment card (bottom-right)  ======================= -->
+  <g transform="translate(980, 480)">
+    <rect x="0" y="0" width="500" height="280" rx="10" ry="10"
+          fill="#FFFFFF" stroke="#E6E4DC" stroke-width="1.5"/>
+    <!-- left accent rail (m3 = data path) -->
+    <rect x="0" y="0" width="6" height="280" fill="#4A7BD9"/>
+    <text x="32" y="46" font-family="Ubuntu Mono, monospace" font-size="18" letter-spacing="0.16em"
+          fill="#4A7BD9">ENVIRONMENT</text>
+    <text x="32" y="100" font-family="Ubuntu, sans-serif" font-size="38" font-weight="600"
+          fill="#1A1A1A">LibreLane + cocotb</text>
+    <text x="32" y="146" font-family="Ubuntu Mono, monospace" font-size="20"
+          fill="#1A1A1A">flow + post-synth GL + post-PnR-SDF</text>
+    <text x="32" y="178" font-family="Ubuntu, sans-serif" font-size="20" font-style="italic"
+          fill="#6B6358">8–25 min wall time / step</text>
+    <text x="32" y="206" font-family="Ubuntu, sans-serif" font-size="20" font-style="italic"
+          fill="#6B6358">DRC, LVS, sim gates always on</text>
+    <line x1="32" y1="226" x2="468" y2="226" stroke="#E6E4DC"/>
+    <text x="32" y="254" font-family="Ubuntu Mono, monospace" font-size="16"
+          fill="#6B6358">FoM = 0 if any signoff stage fails</text>
+  </g>
+
+  <!-- =======================  Vertical arrows (memory ↔ agent / env)  ======================= -->
+  <!-- context replay: memory.south-west (x=420, y=300) -> agent.north (x=370, y=480) -->
+  <path d="M 460 305 C 460 380 380 410 370 480"
+        fill="none" stroke="#6B6358" stroke-width="2"
+        marker-end="url(#arrMuted)"/>
+  <text x="320" y="380" font-family="Ubuntu Mono, monospace" font-size="20" letter-spacing="0.04em"
+        fill="#6B6358">context</text>
+  <text x="320" y="404" font-family="Ubuntu Mono, monospace" font-size="20" letter-spacing="0.04em"
+        fill="#6B6358">replay</text>
+
+  <!-- append eval row: env.north (x=1230, y=480) -> memory.south-east (x=1140, y=300) -->
+  <path d="M 1230 480 C 1240 410 1160 380 1140 305"
+        fill="none" stroke="#6B6358" stroke-width="2"
+        marker-end="url(#arrMuted)"/>
+  <text x="1230" y="380" font-family="Ubuntu Mono, monospace" font-size="20" letter-spacing="0.04em"
+        fill="#6B6358">append</text>
+  <text x="1230" y="404" font-family="Ubuntu Mono, monospace" font-size="20" letter-spacing="0.04em"
+        fill="#6B6358">eval row</text>
+
+  <!-- =======================  Horizontal arrows (action / observation+reward)  ======================= -->
+  <!-- action: agent.east (x=620, y=580) -> env.west (x=980, y=580). Above center, orange (transition). -->
+  <path d="M 620 580 C 720 530 880 530 980 580"
+        fill="none" stroke="#FF862F" stroke-width="2.8"
+        marker-end="url(#arrOrange)"/>
+  <rect x="690" y="492" width="220" height="46" rx="4" fill="#FAFAF7" stroke="#FF862F" stroke-width="1"/>
+  <text x="800" y="512" text-anchor="middle"
+        font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.16em"
+        fill="#FF862F">ACTION</text>
+  <text x="800" y="530" text-anchor="middle"
+        font-family="Ubuntu Mono, monospace" font-size="18"
+        fill="#1A1A1A">params dict</text>
+
+  <!-- observation + reward: env.west (x=980, y=660) -> agent.east (x=620, y=660). Below center, teal/yellow. -->
+  <path d="M 980 660 C 880 710 720 710 620 660"
+        fill="none" stroke="#5CD0B3" stroke-width="2.8"
+        marker-end="url(#arrTeal)"/>
+  <rect x="640" y="700" width="320" height="60" rx="4" fill="#FAFAF7" stroke="#5CD0B3" stroke-width="1"/>
+  <text x="800" y="722" text-anchor="middle"
+        font-family="Ubuntu Mono, monospace" font-size="14" letter-spacing="0.16em"
+        fill="#5CD0B3">OBSERVATION  +  REWARD</text>
+  <text x="800" y="746" text-anchor="middle"
+        font-family="Ubuntu Mono, monospace" font-size="18"
+        fill="#1A1A1A">metrics + scalar FoM</text>
+
+  <!-- =======================  Bottom legend (RL term -> our term)  ======================= -->
+  <g transform="translate(80, 800)">
+    <line x1="0" y1="0" x2="1440" y2="0" stroke="#E6E4DC"/>
+    <text x="0" y="36" font-family="Ubuntu Mono, monospace" font-size="16" letter-spacing="0.16em"
+          fill="#6B6358">EMULATED · NO WEIGHT UPDATE  ·  IN-CONTEXT REPLAY  ·  EPISODE CAP = --budget</text>
+    <text x="0" y="68" font-family="Ubuntu, sans-serif" font-size="20" font-style="italic"
+          fill="#1A1A1A">Each environment step costs 8–25 min of LibreLane wall time;
+            real RL is impractical, in-context retrieval substitutes for gradient updates.</text>
+  </g>
+</svg>
