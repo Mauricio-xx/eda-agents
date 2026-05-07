@@ -46,7 +46,6 @@ logger = logging.getLogger(__name__)
 # the headers available in-tree. Users can override via the
 # ``NGSPICE_SRC_DIR`` environment variable or the constructor argument.
 _DEFAULT_SRC_CANDIDATES = (
-    "/home/montanares/personal_exp/ai-ihp-demo/ngspice/ngspice-ngspice",
     "/usr/local/src/ngspice",
     "/usr/src/ngspice",
 )
