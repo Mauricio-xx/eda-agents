@@ -1,0 +1,44 @@
+\section{Where autoresearch fits}
+
+\begin{frame}{Where the autoresearch loop sits in the stack}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.55\textwidth}
+    \begin{tikzpicture}[node distance=0.35cm,
+                        every node/.style={font=\footnotesize}]
+      \node[agent,  minimum width=4.6cm, minimum height=0.7cm] (ag) {Agents};
+      \node[agent,  minimum width=4.6cm, minimum height=0.7cm,
+            below=of ag] (top) {Topologies / Designs};
+      \node[agent3, minimum width=4.6cm, minimum height=0.7cm,
+            below=of top, line width=0.8mm] (ar) {%
+            \textbf{Autoresearch greedy loop}};
+      \node[agent2, minimum width=4.6cm, minimum height=0.7cm,
+            below=of ar] (core) {Core (runners, FoM, PDK)};
+      \node[agent2, minimum width=4.6cm, minimum height=0.7cm,
+            below=of core] (skills) {Skills + specs + bench};
+      \draw[arrow] (ag) -- (top);
+      \draw[arrow] (top) -- (ar);
+      \draw[arrow] (ar) -- (core);
+      \draw[arrow] (core) -- (skills);
+    \end{tikzpicture}
+
+    \column{0.42\textwidth}
+    \footnotesize
+    \begin{itemize}
+      \item Agents \term{compose} loops; topologies \term{describe}
+            the design; the loop is the same shape for analog and
+            digital.
+      \item Two evaluators slot in at the same hole: ngspice (analog)
+            or LibreLane plus cocotb GL sim (digital).
+      \item This deck stays at the highlighted layer and below;
+            agent runtime details are in the sibling deck.
+    \end{itemize}
+  \end{columns}
+  \note{%
+    The full layered diagram is in \cmd{docs/architecture.md}. We
+    elide the top layer here because backend dispatch happens
+    \emph{inside} the autoresearch box, not above it. New material
+    in this deck: digital flow specifics on GF180MCU, the
+    \cmd{idea\_to\_optimize} chain, and the proposer dispatch.
+    Everything else is shared with the analog story already covered
+    in \cmd{agents-analog-digital}.}
+\end{frame}

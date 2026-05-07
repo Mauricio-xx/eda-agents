@@ -1,0 +1,46 @@
+\section{Live-debug gotchas}
+
+\begin{frame}{Five blockers we hit live (and the patches)}
+  \footnotesize
+  \begin{enumerate}
+    \item \term{\cmd{DigitalDesign.testbench()} mandatory}
+          (commit \cmd{e386cf2}). Pre-staged configs that predated
+          this commit failed because \cmd{RtlSimRunner.run()}
+          calls \cmd{design.testbench()}.
+          \emph{Fix:} declare \cmd{EDA\_AGENTS\_TB\_DRIVER /
+          TARGET / DIR / ENV} in \cmd{config.yaml}.
+    \item \term{\cmd{CocotbDriver} requires \cmd{target=make sim}}.
+          The driver dispatches on \cmd{target.startswith("make")};
+          plain \cmd{target=sim} falls back to a \cmd{python3
+          target} invocation that does not work for cocotb.
+    \item \term{cocotb subprocess needs the librelane venv on
+          \cmd{PATH}}. The Makefile embeds \cmd{cocotb-config
+          --makefiles}; without
+          \cmd{/path/to/librelane/.venv/bin} in \cmd{PATH} that
+          shells out to nothing.
+    \item \term{LibreLane v3 strict schema rejects
+          \cmd{EDA\_AGENTS\_*} keys}.
+          \emph{Fix today (uncommitted):}
+          \cmd{LibreLaneRunner.\_write\_librelane\_config()} writes
+          a sibling \cmd{config.librelane.yaml} with the namespace
+          stripped; \cmd{dir::} paths still resolve.
+    \item \term{GL sim glob mismatch}: LibreLane writes the
+          synthesised netlist using raw \cmd{DESIGN\_NAME}
+          (\cmd{demo\_goertzel\_fp32.nl.v}) but
+          \cmd{GenericDesign.project\_name()} returns the
+          kebab-cased \cmd{demo-goertzel-fp32}.
+          \emph{Fix today (uncommitted):}
+          \cmd{GlSimRunner.\_find\_post\_synth\_netlist} now tries
+          both spellings plus a generic
+          \cmd{*-yosys-synthesis/*.nl.v} fallback.
+  \end{enumerate}
+  \note{%
+    Five real, small framework patches. Each diff is
+    5-30 lines; cumulative shape: every one of these failures
+    surfaced because the loop refused to silently skip a stage.
+    That refusal is the design point -- we want gates to bark, not
+    the loop to hide. Speakers should keep this slide short and
+    skip ahead unless the audience asks for the details. The
+    deeper takeaway: the abstractions held; nothing in the loop or
+    the backend dispatch needed touching to fix any of these.}
+\end{frame}

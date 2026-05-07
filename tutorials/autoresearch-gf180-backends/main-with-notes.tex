@@ -1,0 +1,43 @@
+% Speaker build with notes on a second screen.
+\documentclass[aspectratio=169,11pt]{beamer}
+\input{preamble.tex}
+\setbeameroption{show notes on second screen=right}
+
+\title{Autoresearch on GF180MCU}
+\subtitle{Backend-portable proposals: Claude Code CLI and opencode}
+\author{EDA-Agents Project}
+\institute{Open-Source IC Design}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}[plain]
+  \titlepage
+\end{frame}
+
+\begin{frame}{What this deck adds}
+  \begin{itemize}
+    \item Autoresearch loop applied to the digital flow on GF180MCU.
+    \item The \cmd{idea\_to\_optimize} chain and its two phases.
+    \item Same loop, two CLI backends (Claude Code, opencode).
+    \item Five live-debug gotchas plus the patches that closed them.
+  \end{itemize}
+  \note{Speaker build: notes on the right-hand screen.}
+\end{frame}
+
+\begin{frame}{Agenda}
+  \tableofcontents
+\end{frame}
+
+\input{sections/01-context.tex}
+\input{sections/02-loop-applied.tex}
+\input{sections/03-idea-to-optimize.tex}
+\input{sections/04-backends.tex}
+\input{sections/05-live-ab.tex}
+\input{sections/06-gotchas.tex}
+
+\ifchipathon
+  \input{sections/99-chipathon.tex}
+\fi
+
+\end{document}

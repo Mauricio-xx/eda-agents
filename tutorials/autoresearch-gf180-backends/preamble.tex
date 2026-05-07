@@ -1,0 +1,128 @@
+% Shared preamble for the autoresearch-gf180-backends tutorial.
+% Mirrors tutorials/agents-analog-digital/preamble.tex with three
+% additions: cc_cli vs opencode brand colours, the \driving{} banner
+% macro from rtl2gds-gf180-docker, and a Chipathon-supplement toggle.
+
+\usetheme{metropolis}
+\setbeamertemplate{footline}[frame number]
+\setbeamertemplate{navigation symbols}{}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{tikz}
+\usepackage{hyperref}
+\usepackage{fancyvrb}
+\usepackage{pgfpages}
+
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,backgrounds,
+                calc,decorations.pathreplacing,shadows}
+
+% ---- Colours -------------------------------------------------------
+\definecolor{accent}{HTML}{2B6CB0}      % blue
+\definecolor{accent2}{HTML}{2F855A}     % green
+\definecolor{accent3}{HTML}{C05621}     % orange
+\definecolor{muted}{HTML}{4A5568}       % gray
+\definecolor{softbg}{HTML}{F7FAFC}      % near-white
+\definecolor{codekw}{HTML}{805AD5}      % purple
+\definecolor{codestr}{HTML}{2F855A}     % green
+\definecolor{codecom}{HTML}{718096}     % gray
+
+% Backend-brand colours used in dispatch diagrams so cc_cli vs opencode
+% reads even on a desaturated projector.
+\definecolor{ccclaude}{HTML}{6B46C1}    % Claude Code CLI -> purple
+\definecolor{ccopencode}{HTML}{2C7A7B}  % opencode CLI    -> teal
+
+% ---- Listings ------------------------------------------------------
+\lstdefinestyle{shellstyle}{
+  language=bash,
+  basicstyle=\ttfamily\scriptsize,
+  keywordstyle=\color{codekw}\bfseries,
+  commentstyle=\color{codecom}\itshape,
+  stringstyle=\color{codestr},
+  backgroundcolor=\color{softbg},
+  frame=single,
+  rulecolor=\color{muted!40},
+  showstringspaces=false,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  literate={~}{{\textasciitilde}}1 {\$}{{\$}}1 {-}{{-}}1,
+}
+\lstdefinestyle{pystyle}{
+  language=Python,
+  basicstyle=\ttfamily\scriptsize,
+  keywordstyle=\color{codekw}\bfseries,
+  commentstyle=\color{codecom}\itshape,
+  stringstyle=\color{codestr},
+  backgroundcolor=\color{softbg},
+  frame=single,
+  rulecolor=\color{muted!40},
+  showstringspaces=false,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+}
+\lstset{style=shellstyle}
+
+% ---- Helper commands ----------------------------------------------
+\newcommand{\term}[1]{\textbf{\color{accent}#1}}
+\newcommand{\cmd}[1]{\texttt{\small#1}}
+\newcommand{\warn}[1]{\textbf{\color{accent3}#1}}
+
+% Right-flushed tool banner. Borrowed from rtl2gds-gf180-docker.
+% Usage: \driving{LibreLane}  (place right after \begin{frame}{...}).
+\newcommand{\driving}[1]{%
+  \begin{flushright}%
+    \vspace{-0.9em}%
+    \colorbox{accent!10}{%
+      \footnotesize\color{accent}%
+      Driving: \textbf{#1}%
+    }%
+  \end{flushright}%
+  \vspace{-0.4em}%
+}
+
+% Shared TikZ styles.
+\tikzset{
+  agent/.style={
+    draw=accent, thick, rounded corners=2pt, fill=accent!8,
+    minimum width=2.6cm, minimum height=0.9cm, align=center, font=\small
+  },
+  agent2/.style={
+    draw=accent2, thick, rounded corners=2pt, fill=accent2!10,
+    minimum width=2.6cm, minimum height=0.9cm, align=center, font=\small
+  },
+  agent3/.style={
+    draw=accent3, thick, rounded corners=2pt, fill=accent3!10,
+    minimum width=2.6cm, minimum height=0.9cm, align=center, font=\small
+  },
+  bxclaude/.style={
+    draw=ccclaude, thick, rounded corners=2pt, fill=ccclaude!10,
+    minimum width=2.6cm, minimum height=0.9cm, align=center, font=\small
+  },
+  bxopencode/.style={
+    draw=ccopencode, thick, rounded corners=2pt, fill=ccopencode!10,
+    minimum width=2.6cm, minimum height=0.9cm, align=center, font=\small
+  },
+  arrow/.style={-Stealth, thick, accent!80},
+  arrow2/.style={-Stealth, thick, accent2!80},
+  arrowclaude/.style={-Stealth, thick, ccclaude!90},
+  arrowopen/.style={-Stealth, thick, ccopencode!90},
+  notebox/.style={
+    draw=muted!50, dashed, rounded corners=2pt,
+    fill=softbg, minimum height=0.6cm, align=center,
+    font=\scriptsize, text=muted
+  },
+}
+
+% ---- Chipathon supplement toggle ----------------------------------
+% main.tex leaves \chipathonfalse so the audience deck excludes the
+% Chipathon-only frames. main-chipathon.tex flips it true.
+\newif\ifchipathon
+\chipathonfalse

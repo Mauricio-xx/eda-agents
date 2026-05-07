@@ -1,0 +1,82 @@
+\section{Backend dispatch}
+
+\begin{frame}{One dispatcher, two CLI backends}
+  \begin{center}
+  \begin{tikzpicture}[node distance=0.7cm and 1.0cm,
+                      every node/.style={font=\footnotesize}]
+    \node[agent3, minimum width=3.4cm] (prop)
+      {\cmd{\_propose\_params}\\\scriptsize \cmd{digital\_autoresearch.py:504}};
+    \node[notebox, above=0.4cm of prop, minimum width=3.4cm]
+      (sw) {switch \cmd{self.backend}};
+    \node[bxclaude,  below left =1.0cm and 0.4cm of prop] (cc)
+      {Claude Code CLI\\\scriptsize Opus 4.7, subscription};
+    \node[bxopencode, below right=1.0cm and 0.4cm of prop] (oc)
+      {opencode CLI\\\scriptsize \cmd{openai/gpt-5.3-codex}};
+    \node[bxclaude,  below=of cc, minimum width=3.4cm]
+      (cch) {\cmd{ClaudeCodeHarness}\\\scriptsize \cmd{claude\_code\_harness.py:207}};
+    \node[bxopencode, below=of oc, minimum width=3.4cm]
+      (och) {\cmd{OpenCodeHarness}\\\scriptsize \cmd{opencode\_harness.py:123}};
+    \draw[arrow] (sw) -- (prop);
+    \draw[arrowclaude] (prop) -- (cc);
+    \draw[arrowopen]   (prop) -- (oc);
+    \draw[arrowclaude] (cc)  -- (cch);
+    \draw[arrowopen]   (oc)  -- (och);
+  \end{tikzpicture}
+  \end{center}
+  \vspace{0.2em}
+  \footnotesize
+  \begin{itemize}
+    \item Same async \cmd{run() $\rightarrow$ HarnessResult}
+          contract on both sides; the loop never branches.
+    \item Same dispatch shape as \cmd{idea\_to\_rtl.py:\_build\_harness:326}
+          (the original pattern). LiteLLM is a dev-only fallback;
+          not part of the demo.
+    \item OAuth handled by each CLI; no provider keys in the
+          subprocess environment.
+  \end{itemize}
+  \note{%
+    Why this matters: the loop body is unchanged across backends,
+    so whatever bugs exist in the loop are independent of which CLI
+    proposes the next params. The harness contract is also what
+    lets us do an A/B run: same RTL, same testbench, same FoM,
+    same budget; only the \emph{policy} (the LLM behind the CLI)
+    changes. Each CLI is invoked via \cmd{run --print} or
+    \cmd{run --format json} so the agent inherits the user's
+    subscription session, not an API key.}
+\end{frame}
+
+\begin{frame}[fragile]{Why dispatch matters: the bug \cmd{f1b6d13} fixed}
+  \begin{lstlisting}[style=pystyle]
+# digital_autoresearch.py:_propose_params  (post-fix)
+if self.backend == "cc_cli":
+    return await self._propose_params_via_cc_cli(...)
+if self.backend == "opencode":
+    return await self._propose_params_via_opencode(...)
+# legacy fallback (development only)
+return await litellm.acompletion(...)
+  \end{lstlisting}
+  \footnotesize
+  \begin{itemize}
+    \item \warn{Pre-fix bug:} \cmd{--backend opencode --model
+          openai/gpt-5.3-codex} silently routed flow-strategy
+          proposals through LiteLLM straight to OpenAI, bypassing
+          the user's opencode CLI subscription.
+    \item Same bug shape was latent for \cmd{cc\_cli}: flow-strategy
+          proposals defaulted to whatever LiteLLM model was set, not
+          Opus under the user's Claude subscription.
+    \item Regression guard:
+          \cmd{tests/test\_digital\_autoresearch.py::TestProposalDispatch:881}
+          asserts that each backend instantiates the correct harness
+          class.
+  \end{itemize}
+  \note{%
+    The fix is three lines, but the failure mode was invisible
+    without staring at network traffic. Flow-strategy proposals
+    pre-dated cc\_cli/opencode support and were never updated to
+    dispatch by \cmd{self.backend}; only \cmd{rtl} and \cmd{hybrid}
+    strategies were routed correctly. The lesson is that
+    cross-cutting changes (a new backend) must touch every place
+    that talks to the model, not just the most obvious one.
+    \cmd{TestProposalDispatch} now nails the contract so this
+    cannot regress without test failure.}
+\end{frame}

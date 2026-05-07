@@ -1,0 +1,98 @@
+% Chipathon-only supplement (3 frames). Gated by \ifchipathon in
+% main.tex; built as standalone PDF + PNG export by main-chipathon.tex.
+
+\begin{frame}{Track D digital: idea-to-chip on GF180MCU}
+  \driving{LibreLane + cocotb GL sim}
+  \footnotesize
+  \begin{itemize}
+    \item Natural-language spec to GDS in two phases:
+          \cmd{idea\_loop} (sim-in-the-loop RTL) then
+          \cmd{autoresearch} (greedy flow-knob optimisation).
+    \item Every iteration is a real LibreLane flow plus
+          post-synth and post-PnR-SDF cocotb GL sim.
+          \warn{No \cmd{--stop-after} shortcut.}
+    \item Same loop, two CLI backends (Claude Code, opencode).
+          The proposer changes; the gate stays the same.
+  \end{itemize}
+  \vspace{0.6em}
+  \begin{center}
+  \fbox{\parbox{0.85\textwidth}{%
+    \scriptsize\centering
+    Live demo case:\\[0.2em]
+    \cmd{python examples/11\_idea\_to\_chip\_demo\_gf180.py
+         --case idea\_to\_optimize}\\
+    \cmd{\hspace{2em} --backend \{cc\_cli|opencode\} --budget 3}
+  }}
+  \end{center}
+  \note{%
+    Chipathon supplement frame A. Mirror of the analog Track D
+    slide. Voice-over: this is where the digital loop spends its
+    Track D time. Two phases, same backend choice as the analog
+    wizard.}
+\end{frame}
+
+\begin{frame}{Backend portability via the harness contract}
+  \begin{center}
+  \begin{tikzpicture}[node distance=0.6cm and 1.0cm,
+                      every node/.style={font=\footnotesize}]
+    \node[agent3, minimum width=4.0cm, line width=0.8mm] (loop)
+      {Autoresearch loop\\\scriptsize \cmd{\_propose\_params}};
+    \node[bxclaude,  below left =0.9cm and 0.5cm of loop,
+          minimum width=3.4cm] (cc)
+      {Claude Code CLI\\\scriptsize subscription};
+    \node[bxopencode, below right=0.9cm and 0.5cm of loop,
+          minimum width=3.4cm] (oc)
+      {opencode CLI\\\scriptsize any provider};
+    \draw[arrowclaude] (loop) -- (cc);
+    \draw[arrowopen]   (loop) -- (oc);
+  \end{tikzpicture}
+  \end{center}
+  \footnotesize
+  \begin{itemize}
+    \item Single async \cmd{run() $\rightarrow$ HarnessResult}
+          contract behind both CLIs.
+    \item Backend choice is per-user (subscription, provider
+          preference); the loop body never branches.
+    \item Same dispatch pattern as the analog wizard
+          (\cmd{idea\_to\_rtl.py:\_build\_harness}).
+  \end{itemize}
+  \note{%
+    Chipathon supplement frame B. Compact backends slide. Point
+    out that the same architectural pattern holds across analog
+    (sizing wizard) and digital (autoresearch) loops. The
+    audience walks away knowing they can run Track D with whatever
+    LLM subscription they already pay for.}
+\end{frame}
+
+\begin{frame}{Live A/B running today on GF180}
+  \footnotesize
+  \begin{center}
+  \renewcommand{\arraystretch}{1.25}
+  \begin{tabular}{@{}p{0.20\textwidth}p{0.37\textwidth}p{0.37\textwidth}@{}}
+    \toprule
+     & \textbf{\color{ccclaude}cc\_cli} & \textbf{\color{ccopencode}opencode} \\
+    \midrule
+    Backend  & Claude Code CLI (Opus 4.7) & opencode CLI \\
+    Model    & subscription default & \cmd{openai/gpt-5.3-codex} \\
+    Design   & Goertzel FP32, GF180MCU & Goertzel FP32, GF180MCU \\
+    Budget   & 3 evals (\cmd{flow}) & 3 evals (\cmd{flow}) \\
+    Outputs  & \cmd{phase\_optimize/results.tsv} & \cmd{phase\_optimize/results.tsv} \\
+             & 3 evolution plots (PNG) & 3 evolution plots (PNG) \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+  \vspace{0.4em}
+  \begin{center}
+  \fbox{\parbox{0.85\textwidth}{%
+    \footnotesize\centering
+    Smoke-budget A/B. Numbers fit in a two-line table here when
+    the runs close; we share the comparison and the workdirs at
+    the next weekly.}}
+  \end{center}
+  \note{%
+    Chipathon supplement frame C. Honest framing: today is a
+    smoke-budget; the comparison is the experimental design, not
+    the punchline. Real numbers come at the next weekly. Mention
+    that the workdirs are reproducible artefacts, not just
+    screenshots.}
+\end{frame}
