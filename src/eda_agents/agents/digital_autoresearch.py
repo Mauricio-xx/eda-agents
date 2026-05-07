@@ -1012,6 +1012,10 @@ class DigitalAutoresearchRunner:
         if hasattr(self.design, "pdk_root") and self.design.pdk_root():
             pdk_root = str(self.design.pdk_root())
 
+        pdk_name = None
+        if hasattr(self.design, "pdk_config") and self.design.pdk_config():
+            pdk_name = self.design.pdk_config().librelane_pdk_name or None
+
         metrics = (
             {
                 "wns_worst_ns": best.get("wns_worst_ns"),
@@ -1039,6 +1043,7 @@ class DigitalAutoresearchRunner:
                 config_path=self.design.librelane_config(),
                 current_metrics=metrics,
                 pdk_root=pdk_root,
+                pdk_name=pdk_name,
             )
 
         harness = ClaudeCodeHarness(
@@ -1126,6 +1131,10 @@ class DigitalAutoresearchRunner:
         if hasattr(self.design, "pdk_root") and self.design.pdk_root():
             pdk_root = str(self.design.pdk_root())
 
+        pdk_name = None
+        if hasattr(self.design, "pdk_config") and self.design.pdk_config():
+            pdk_name = self.design.pdk_config().librelane_pdk_name or None
+
         metrics = (
             {
                 "wns_worst_ns": best.get("wns_worst_ns"),
@@ -1155,6 +1164,7 @@ class DigitalAutoresearchRunner:
                 config_path=self.design.librelane_config(),
                 current_metrics=metrics,
                 pdk_root=pdk_root,
+                pdk_name=pdk_name,
             )
 
         harness = LiteLLMAgentHarness(
@@ -1201,6 +1211,10 @@ class DigitalAutoresearchRunner:
         if hasattr(self.design, "pdk_root") and self.design.pdk_root():
             pdk_root = str(self.design.pdk_root())
 
+        pdk_name = None
+        if hasattr(self.design, "pdk_config") and self.design.pdk_config():
+            pdk_name = self.design.pdk_config().librelane_pdk_name or None
+
         metrics = (
             {
                 "wns_worst_ns": best.get("wns_worst_ns"),
@@ -1230,6 +1244,7 @@ class DigitalAutoresearchRunner:
                 config_path=self.design.librelane_config(),
                 current_metrics=metrics,
                 pdk_root=pdk_root,
+                pdk_name=pdk_name,
             )
 
         harness = OpenCodeHarness(

@@ -210,11 +210,17 @@ def cc_cli_hybrid_prompt(
     current_metrics: dict | None = None,
     best_metrics: dict | None = None,
     pdk_root: str | None = None,
+    pdk_name: str | None = None,
 ) -> str:
     """Full prompt for ClaudeCodeHarness in hybrid cc_cli mode.
 
     The CC CLI agent reads/writes files directly, so we give it
     paths, not content.
+
+    ``pdk_name``, when provided, is rendered as ``PDK=<name>`` in the
+    Environment section. Pass ``PdkConfig.librelane_pdk_name`` (e.g.
+    ``"gf180mcuD"``, ``"ihp-sg13g2"``) so the agent exports the value
+    the active PDK actually expects.
     """
     rtl_paths_str = "\n".join(f"  - {p}" for p in rtl_file_paths)
 
@@ -230,10 +236,13 @@ def cc_cli_hybrid_prompt(
 
     pdk_note = ""
     if pdk_root:
+        pdk_lines = [f"PDK_ROOT={pdk_root}"]
+        if pdk_name:
+            pdk_lines.append(f"PDK={pdk_name}")
         pdk_note = (
-            f"\n## Environment\n"
-            f"PDK_ROOT={pdk_root}\nPDK=gf180mcuD\n"
-            f"Always export these before running any flow command.\n"
+            "\n## Environment\n"
+            + "\n".join(pdk_lines)
+            + "\nAlways export these before running any flow command.\n"
         )
 
     return (

@@ -104,6 +104,32 @@ class TestCcCliHybridPrompt:
         )
         assert "PDK_ROOT=/pdk/gf180" in prompt
 
+    def test_includes_pdk_name_when_provided(self):
+        prompt = cc_cli_hybrid_prompt(
+            design_name="counter",
+            design_spec="A counter",
+            optimization_goal="Minimize area",
+            rtl_file_paths=[Path("/tmp/x.v")],
+            config_path=Path("/tmp/config.yaml"),
+            pdk_root="/pdk/ihp",
+            pdk_name="ihp-sg13g2",
+        )
+        assert "PDK_ROOT=/pdk/ihp" in prompt
+        assert "PDK=ihp-sg13g2" in prompt
+
+    def test_omits_pdk_name_line_when_not_provided(self):
+        prompt = cc_cli_hybrid_prompt(
+            design_name="counter",
+            design_spec="A counter",
+            optimization_goal="Minimize area",
+            rtl_file_paths=[Path("/tmp/x.v")],
+            config_path=Path("/tmp/config.yaml"),
+            pdk_root="/pdk/x",
+        )
+        assert "PDK_ROOT=/pdk/x" in prompt
+        assert "PDK=gf180mcuD" not in prompt
+        assert "\nPDK=" not in prompt
+
     def test_forbids_librelane_run(self):
         prompt = cc_cli_hybrid_prompt(
             design_name="x", design_spec="x", optimization_goal="x",
