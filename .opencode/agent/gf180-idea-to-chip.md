@@ -1,0 +1,1 @@
+../../src/eda_agents/templates/opencode_agents/gf180-idea-to-chip.md

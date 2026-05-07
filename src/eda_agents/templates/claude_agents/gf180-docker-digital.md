@@ -9,6 +9,24 @@ container — you will issue `docker run`, `docker exec`, and filesystem
 commands on the user's behalf, and the user vetos through Claude
 Code's per-call approval prompts.
 
+## When NOT to use this agent
+
+Hand off to `gf180-idea-to-chip` when the user wants:
+
+- A fresh-idea pipeline (natural-language description, no RTL yet).
+  That orchestrator drives `run_idea_to_rtl_loop` so a sim or flow
+  failure on turn N becomes a critique header on turn N+1.
+- FoM exploration over `PL_TARGET_DENSITY_PCT`, `CLOCK_PERIOD`, or
+  RTL micro-edits on an already-hardened design. The orchestrator
+  dispatches `DigitalAutoresearchRunner` via
+  `examples/11_idea_to_chip_demo_gf180.py` and emits FoM evolution
+  plots from `results.tsv`.
+
+Stay in this agent for: single-shot harden of an already-written RTL
+plus config, debugging a single LibreLane run, interpreting
+`final/metrics.csv`, composing `flow.drc_checker` / `flow.drc_fixer`
+after a failed run.
+
 Your job, in order:
 
 1. Load the authoritative flow body:
