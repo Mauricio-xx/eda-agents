@@ -155,10 +155,19 @@ def cc_cli_rtl_prompt(
     rtl_file_paths: list[Path],
     current_metrics: dict | None = None,
     pdk_root: str | None = None,
+    history: list[dict] | None = None,
+    eval_num: int | None = None,
+    budget: int | None = None,
 ) -> str:
     """Prompt for CC CLI agent in strategy='rtl' mode.
 
     The agent modifies ONLY RTL files. Config is off-limits.
+
+    ``history`` (with ``eval_num`` and ``budget`` for the header), when
+    provided, surfaces prior evaluations as a queryable Markdown table
+    plus an explicit already-tried params list. The Instructions block
+    grows a leading anti-duplicate warning so the agent treats the list
+    as a hard constraint rather than informational context.
     """
     rtl_paths_str = "\n".join(f"  - {p}" for p in rtl_file_paths)
 
@@ -172,13 +181,24 @@ def cc_cli_rtl_prompt(
             f"  Power: {current_metrics.get('power_mw', '?')} mW\n\n"
         )
 
+    history_section = _format_history_section(history, eval_num, budget)
+    dedup_warning = ""
+    if history_section:
+        dedup_warning = (
+            "**Avoid duplicates: do NOT propose params combinations listed in "
+            "\"Prior Evaluations\" above.** The harness rejects duplicates "
+            "as wasted budget.\n\n"
+        )
+
     return (
         f"# RTL Optimization: {design_name}\n\n"
         f"## Goal\n{optimization_goal}\n\n"
         f"## Specification\n{design_spec}\n\n"
         f"## RTL Files (ONLY these may be modified)\n{rtl_paths_str}\n\n"
+        f"{history_section}"
         f"{metrics_section}"
         "## Instructions\n"
+        f"{dedup_warning}"
         "1. Read the RTL files listed above.\n"
         "2. Analyze for area/power optimization opportunities.\n"
         "3. Apply RTL modifications. Preserve module name and port interface.\n"
@@ -211,6 +231,9 @@ def cc_cli_hybrid_prompt(
     best_metrics: dict | None = None,
     pdk_root: str | None = None,
     pdk_name: str | None = None,
+    history: list[dict] | None = None,
+    eval_num: int | None = None,
+    budget: int | None = None,
 ) -> str:
     """Full prompt for ClaudeCodeHarness in hybrid cc_cli mode.
 
@@ -221,6 +244,12 @@ def cc_cli_hybrid_prompt(
     Environment section. Pass ``PdkConfig.librelane_pdk_name`` (e.g.
     ``"gf180mcuD"``, ``"ihp-sg13g2"``) so the agent exports the value
     the active PDK actually expects.
+
+    ``history`` (with ``eval_num`` and ``budget`` for the header), when
+    provided, surfaces prior evaluations as a queryable Markdown table
+    plus an explicit already-tried params list. The Instructions block
+    grows a leading anti-duplicate warning so the agent treats the list
+    as a hard constraint rather than informational context.
     """
     rtl_paths_str = "\n".join(f"  - {p}" for p in rtl_file_paths)
 
@@ -245,15 +274,26 @@ def cc_cli_hybrid_prompt(
             + "\nAlways export these before running any flow command.\n"
         )
 
+    history_section = _format_history_section(history, eval_num, budget)
+    dedup_warning = ""
+    if history_section:
+        dedup_warning = (
+            "**Avoid duplicates: do NOT propose params combinations listed in "
+            "\"Prior Evaluations\" above.** The harness rejects duplicates "
+            "as wasted budget.\n\n"
+        )
+
     return (
         f"# RTL Optimization: {design_name}\n\n"
         f"## Goal\n{optimization_goal}\n\n"
         f"## Specification\n{design_spec}\n\n"
         f"## RTL Files\n{rtl_paths_str}\n\n"
         f"## Config\n  {config_path}\n\n"
+        f"{history_section}"
         f"{metrics_section}"
         f"{pdk_note}\n"
         "## Instructions\n"
+        f"{dedup_warning}"
         "1. Read the current RTL files listed above.\n"
         "2. Analyze for area/power/timing optimization opportunities.\n"
         "3. Apply RTL modifications (preserve module name and ports).\n"
@@ -294,3 +334,99 @@ def _format_design_space(design_space: dict[str, list | tuple]) -> str:
         elif isinstance(values, tuple) and len(values) == 2:
             lines.append(f"- {name}: [{values[0]}, {values[1]}]")
     return "\n".join(lines) if lines else "(no config knobs)"
+
+
+def _format_params_compact(params: dict | None) -> str:
+    """Serialize a params dict as ``key=value,key=value`` (sorted by key).
+
+    Sorting gives duplicates a stable visual signature so the agent can
+    spot recurring combinations at a glance. Returns ``"(empty)"`` for
+    missing or empty params.
+    """
+    if not params:
+        return "(empty)"
+    parts = []
+    for key in sorted(params.keys()):
+        val = params[key]
+        if isinstance(val, float):
+            val_str = f"{val:g}"
+        else:
+            val_str = str(val)
+        parts.append(f"{key}={val_str}")
+    return ",".join(parts)
+
+
+def _format_history_section(
+    history: list[dict] | None,
+    eval_num: int | None,
+    budget: int | None,
+) -> str:
+    """Render prior evaluations as a queryable Markdown section.
+
+    Returns an empty string when ``history`` is ``None`` or empty so
+    callers stay backwards-compatible. Truncates to last 15 entries to
+    bound prompt size.
+    """
+    if not history:
+        return ""
+
+    recent = history[-15:]
+    if eval_num is not None and budget is not None:
+        header = (
+            f"## Prior Evaluations (eval {eval_num} of {budget}; "
+            "do NOT repeat any params combination listed below)"
+        )
+    else:
+        header = (
+            "## Prior Evaluations (do NOT repeat any params combination "
+            "listed below)"
+        )
+
+    lines = [header, ""]
+    lines.append("| # | params | FoM | valid | status | rationale |")
+    lines.append("|---|--------|-----|-------|--------|-----------|")
+
+    for h in recent:
+        n = h.get("eval", "?")
+        params_str = _format_params_compact(h.get("params"))
+        fom = h.get("fom")
+        if fom is None:
+            fom_str = "n/a"
+        else:
+            try:
+                fom_str = f"{float(fom):.1e}"
+            except (TypeError, ValueError):
+                fom_str = "n/a"
+        valid = h.get("valid")
+        if valid is True:
+            valid_str = "yes"
+        elif valid is False:
+            valid_str = "no"
+        else:
+            valid_str = "n/a"
+        status_str = h.get("status") or (
+            "kept" if h.get("kept") else "discarded"
+        )
+        rationale = (h.get("rtl_rationale") or "").replace("|", "\\|")[:50]
+        # Escape pipes in params/status to keep Markdown table intact.
+        params_str_safe = params_str.replace("|", "\\|")
+        status_safe = str(status_str).replace("|", "\\|")
+        lines.append(
+            f"| {n} | {params_str_safe} | {fom_str} | {valid_str} | "
+            f"{status_safe} | {rationale} |"
+        )
+
+    seen = set()
+    tried = []
+    for h in recent:
+        ps = _format_params_compact(h.get("params"))
+        if ps and ps != "(empty)" and ps not in seen:
+            seen.add(ps)
+            tried.append(ps)
+    lines.append("")
+    lines.append(
+        f"Already-tried params combinations: {tried}. The harness rejects "
+        "duplicates as wasted budget; choose params not in this list."
+    )
+    lines.append("")
+    return "\n".join(lines) + "\n"

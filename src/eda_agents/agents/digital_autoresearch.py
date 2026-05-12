@@ -996,16 +996,11 @@ class DigitalAutoresearchRunner:
         from eda_agents.agents.rtl_proposal_prompts import (
             cc_cli_hybrid_prompt,
             cc_cli_rtl_prompt,
-            rtl_proposal_prompt,
         )
-
-        # Build the proposal context
-        user_context = rtl_proposal_prompt(history, best, eval_num, self.budget)
 
         optimization_goal = (
             f"{self.design.fom_description()}\n\n"
-            f"Constraints: {self.design.specs_description()}\n\n"
-            f"Current evaluation: {user_context}"
+            f"Constraints: {self.design.specs_description()}"
         )
 
         pdk_root = None
@@ -1033,6 +1028,9 @@ class DigitalAutoresearchRunner:
                 rtl_file_paths=self.design.rtl_sources(),
                 current_metrics=metrics,
                 pdk_root=pdk_root,
+                history=history,
+                eval_num=eval_num,
+                budget=self.budget,
             )
         else:
             prompt = cc_cli_hybrid_prompt(
@@ -1044,6 +1042,9 @@ class DigitalAutoresearchRunner:
                 current_metrics=metrics,
                 pdk_root=pdk_root,
                 pdk_name=pdk_name,
+                history=history,
+                eval_num=eval_num,
+                budget=self.budget,
             )
 
         harness = ClaudeCodeHarness(
@@ -1117,14 +1118,11 @@ class DigitalAutoresearchRunner:
         from eda_agents.agents.rtl_proposal_prompts import (
             cc_cli_hybrid_prompt,
             cc_cli_rtl_prompt,
-            rtl_proposal_prompt,
         )
 
-        user_context = rtl_proposal_prompt(history, best, eval_num, self.budget)
         optimization_goal = (
             f"{self.design.fom_description()}\n\n"
-            f"Constraints: {self.design.specs_description()}\n\n"
-            f"Current evaluation: {user_context}"
+            f"Constraints: {self.design.specs_description()}"
         )
 
         pdk_root = None
@@ -1154,6 +1152,9 @@ class DigitalAutoresearchRunner:
                 rtl_file_paths=self.design.rtl_sources(),
                 current_metrics=metrics,
                 pdk_root=pdk_root,
+                history=history,
+                eval_num=eval_num,
+                budget=self.budget,
             )
         else:
             prompt = cc_cli_hybrid_prompt(
@@ -1165,6 +1166,9 @@ class DigitalAutoresearchRunner:
                 current_metrics=metrics,
                 pdk_root=pdk_root,
                 pdk_name=pdk_name,
+                history=history,
+                eval_num=eval_num,
+                budget=self.budget,
             )
 
         harness = LiteLLMAgentHarness(
@@ -1197,14 +1201,11 @@ class DigitalAutoresearchRunner:
         from eda_agents.agents.rtl_proposal_prompts import (
             cc_cli_hybrid_prompt,
             cc_cli_rtl_prompt,
-            rtl_proposal_prompt,
         )
 
-        user_context = rtl_proposal_prompt(history, best, eval_num, self.budget)
         optimization_goal = (
             f"{self.design.fom_description()}\n\n"
-            f"Constraints: {self.design.specs_description()}\n\n"
-            f"Current evaluation: {user_context}"
+            f"Constraints: {self.design.specs_description()}"
         )
 
         pdk_root = None
@@ -1234,6 +1235,9 @@ class DigitalAutoresearchRunner:
                 rtl_file_paths=self.design.rtl_sources(),
                 current_metrics=metrics,
                 pdk_root=pdk_root,
+                history=history,
+                eval_num=eval_num,
+                budget=self.budget,
             )
         else:
             prompt = cc_cli_hybrid_prompt(
@@ -1245,6 +1249,9 @@ class DigitalAutoresearchRunner:
                 current_metrics=metrics,
                 pdk_root=pdk_root,
                 pdk_name=pdk_name,
+                history=history,
+                eval_num=eval_num,
+                budget=self.budget,
             )
 
         harness = OpenCodeHarness(
