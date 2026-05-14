@@ -298,14 +298,25 @@ def cc_cli_hybrid_prompt(
         "2. Analyze for area/power/timing optimization opportunities.\n"
         "3. Apply RTL modifications (preserve module name and ports).\n"
         "4. Run `verilator --lint-only -sv <files>` to verify.\n"
-        "5. Optionally adjust flow config knobs in the config file.\n"
+        "5. To change any flow knob (CLOCK_PERIOD, "
+        "PL_TARGET_DENSITY_PCT, DIE_AREA, or any other LibreLane "
+        "safe-list key), use Edit on the config file shown in "
+        "## Config above, then Read it back to confirm the change "
+        "is on disk. Stating the intent in the rationale is NOT "
+        "enough; only on-disk edits take effect on the next "
+        "LibreLane run.\n"
         "6. Report what you changed and why.\n\n"
         "IMPORTANT: Do NOT run LibreLane. Only modify RTL and config.\n"
         "The caller will run the flow after you finish.\n\n"
         "When done, output a JSON summary:\n"
         '{"rtl_changes_applied": true, '
         '"config_changes_applied": true|false, '
-        '"rationale": "what you changed and why"}\n\n'
+        '"config_knobs_on_disk": {"CLOCK_PERIOD": <value-from-yaml>, '
+        '"PL_TARGET_DENSITY_PCT": <value-from-yaml>}, '
+        '"rationale": "what you changed and why"}\n'
+        "Populate ``config_knobs_on_disk`` by re-reading the config "
+        "file after your edits; the runner cross-checks the values "
+        "against the on-disk YAML.\n\n"
         "End with: DONE\n"
     )
 
