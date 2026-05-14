@@ -1096,9 +1096,23 @@ class DigitalAutoresearchRunner:
             "rationale": rationale,
         }
 
-        # For hybrid, also check if config was modified
+        # For hybrid, re-read the config on disk so the proposal dict
+        # reflects whichever knobs the agent actually persisted. The
+        # cc_cli prompt gives the agent direct write access to
+        # config_path; before this re-read the dict was hardcoded to
+        # ``{}``, which back-filled to baseline in ``_clamp_params``
+        # and froze the knob channel even when the agent did edit the
+        # file. ``baseline_params`` returns only declared design-space
+        # keys, typed, straight from the YAML.
         if self.strategy == "hybrid":
-            proposal["config"] = {}  # agent may have modified config directly
+            try:
+                proposal["config"] = self.design.baseline_params()
+            except Exception as exc:
+                logger.warning(
+                    "Could not re-read config after cc_cli proposal: %s",
+                    exc,
+                )
+                proposal["config"] = {}
 
         return proposal
 
@@ -1302,7 +1316,14 @@ class DigitalAutoresearchRunner:
 
         proposal: dict = {"rtl_changes": rtl_changes, "rationale": rationale}
         if self.strategy == "hybrid":
-            proposal["config"] = {}
+            try:
+                proposal["config"] = self.design.baseline_params()
+            except Exception as exc:
+                logger.warning(
+                    "Could not re-read config after agent proposal: %s",
+                    exc,
+                )
+                proposal["config"] = {}
         return proposal
 
     # ------------------------------------------------------------------
