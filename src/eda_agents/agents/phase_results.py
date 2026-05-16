@@ -7,7 +7,17 @@ parsing LLM text output.
 
 from __future__ import annotations
 
+import json
+import logging
+import shutil
 from dataclasses import dataclass, field
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+# Manifest schema version emitted by ``PostLayoutResult.to_package``.
+# Bump when an incompatible change ships (renamed/removed fields).
+_PACKAGE_SCHEMA_VERSION = "1.0"
 
 
 @dataclass
@@ -135,6 +145,10 @@ class PostLayoutResult:
     params: dict[str, float] = field(default_factory=dict)
     pre_layout_fom: float = 0.0
 
+    # Provenance (filled by the validator from its topology binding)
+    pdk: str | None = None
+    topology: str | None = None
+
     # Layout
     gds_path: str | None = None
     netlist_path: str | None = None
@@ -142,9 +156,11 @@ class PostLayoutResult:
     # DRC
     drc_clean: bool = False
     drc_violations: int = 0
+    drc_report_path: str | None = None
 
     # LVS
     lvs_match: bool = False
+    lvs_report_path: str | None = None
 
     # PEX
     extracted_netlist_path: str | None = None
@@ -156,6 +172,10 @@ class PostLayoutResult:
     post_PM_deg: float | None = None
     post_fom: float = 0.0
     post_valid: bool = False
+    post_sim_dir: str | None = None
+
+    # Pre-layout artifacts (caller-provided pointer, not always populated)
+    pre_sim_dir: str | None = None
 
     # Baseline (gLayout schematic, no parasitics) -- overlay path only
     baseline_Adc_dB: float | None = None
@@ -195,6 +215,172 @@ class PostLayoutResult:
             parts.append(f"PM={self.post_PM_deg:.1f}deg(d={self.pm_delta_deg:+.1f})")
         parts.append(f"FoM d={self.fom_delta_pct:+.1f}%")
         return f"Post-layout: {', '.join(parts)}"
+
+    def to_package(
+        self,
+        dst: Path | str,
+        *,
+        copy_artifacts: bool = True,
+        sim_artifact_globs: tuple[str, ...] = ("*.cir", "*.spice", "*.meas", "*.log"),
+    ) -> Path:
+        """Bundle this result into a standardised flat package directory.
+
+        Layout produced under ``dst``::
+
+            manifest.json
+            layout.gds              (when self.gds_path is set)
+            schematic.spice         (when self.netlist_path is set)
+            extracted.spice         (when self.extracted_netlist_path is set)
+            drc_report.lyrdb        (when self.drc_report_path is set)
+            lvs_report.lvsdb        (when self.lvs_report_path is set)
+            pre_sim/<glob matches>  (when self.pre_sim_dir is set)
+            post_sim/<glob matches> (when self.post_sim_dir is set)
+
+        Manifest schema mirrors CABAgent ``bench_gen.create_pkg``
+        (``param``, ``layout``, ``extract``, ``drc``, ``lvs``,
+        ``pre-sim``, ``post-sim``) for cross-compatibility and adds
+        eda-agents fields: ``pdk``, ``topology``, ``params``,
+        ``pre_layout_fom``, ``post_layout_fom``, ``deltas``,
+        ``pex_corner``, ``drc_clean``, ``lvs_match``, ``drc_violations``,
+        ``total_time_s``, ``error``.
+
+        Parameters
+        ----------
+        dst : Path or str
+            Destination directory. Created if missing. Existing files
+            with colliding names are overwritten.
+        copy_artifacts : bool
+            ``True`` (default) copies source artifacts; ``False`` moves
+            them. Default is copy because move cannibalises the
+            validator work_dir; only flip to move when packaging is the
+            final step of a pipeline whose work_dir is disposable.
+        sim_artifact_globs : tuple of str
+            Glob patterns harvested from ``pre_sim_dir`` /
+            ``post_sim_dir`` when those are set. Default keeps cir, raw
+            spice, .meas, and .log files; non-matching files (huge raw
+            wave dumps, scratch dirs) are skipped.
+
+        Returns
+        -------
+        Path
+            The destination directory.
+        """
+        dst = Path(dst)
+        dst.mkdir(parents=True, exist_ok=True)
+
+        action = shutil.copy2 if copy_artifacts else shutil.move
+
+        pkg: dict = {
+            "schema_version": _PACKAGE_SCHEMA_VERSION,
+            "pdk": self.pdk,
+            "topology": self.topology,
+            "params": dict(self.params),
+            "param": [],
+            "const": [],
+            "pre-sim": [],
+            "layout": [],
+            "extract": [],
+            "drc": [],
+            "lvs": [],
+            "post-sim": [],
+            "pre_layout_fom": self.pre_layout_fom,
+            "post_layout_fom": self.post_fom,
+            "deltas": {
+                "fom_pct": self.fom_delta_pct,
+                "gain_dB": self.gain_delta_dB,
+                "gbw_pct": self.gbw_delta_pct,
+                "pm_deg": self.pm_delta_deg,
+            },
+            "post_layout_metrics": {
+                "Adc_dB": self.post_Adc_dB,
+                "GBW_Hz": self.post_GBW_Hz,
+                "PM_deg": self.post_PM_deg,
+                "valid": self.post_valid,
+            },
+            "baseline_metrics": {
+                "Adc_dB": self.baseline_Adc_dB,
+                "GBW_Hz": self.baseline_GBW_Hz,
+                "PM_deg": self.baseline_PM_deg,
+                "fom": self.baseline_fom,
+                "valid": self.baseline_valid,
+            },
+            "pex_corner": self.pex_corner,
+            "drc_clean": self.drc_clean,
+            "drc_violations": self.drc_violations,
+            "lvs_match": self.lvs_match,
+            "total_time_s": self.total_time_s,
+            "error": self.error,
+        }
+
+        def _drop_into_dst(src: str | None, name: str, key: str) -> None:
+            if not src:
+                return
+            src_path = Path(src)
+            if not src_path.is_file():
+                logger.warning("Package: %s missing at %s, skipping", key, src)
+                return
+            out = dst / name
+            action(str(src_path), str(out))
+            pkg[key].append(name)
+
+        _drop_into_dst(self.gds_path, "layout.gds", "layout")
+        _drop_into_dst(self.netlist_path, "schematic.spice", "extract")
+        _drop_into_dst(self.extracted_netlist_path, "extracted.spice", "extract")
+        if self.drc_report_path:
+            _drop_into_dst(self.drc_report_path, Path(self.drc_report_path).name, "drc")
+        if self.lvs_report_path:
+            _drop_into_dst(self.lvs_report_path, Path(self.lvs_report_path).name, "lvs")
+
+        def _harvest_sim_dir(src: str | None, sub: str, key: str) -> None:
+            if not src:
+                return
+            src_dir = Path(src)
+            if not src_dir.is_dir():
+                logger.warning("Package: %s missing at %s, skipping", key, src)
+                return
+            out_dir = dst / sub
+            out_dir.mkdir(parents=True, exist_ok=True)
+            for pattern in sim_artifact_globs:
+                for match in sorted(src_dir.glob(pattern)):
+                    if not match.is_file():
+                        continue
+                    out = out_dir / match.name
+                    action(str(match), str(out))
+                    pkg[key].append(f"{sub}/{match.name}")
+
+        _harvest_sim_dir(self.pre_sim_dir, "pre_sim", "pre-sim")
+        _harvest_sim_dir(self.post_sim_dir, "post_sim", "post-sim")
+
+        # Drop empty fallback lists per CABAgent contract (string sentinel).
+        for key in ("param", "const", "pre-sim", "layout", "extract", "drc", "lvs", "post-sim"):
+            if pkg[key] == []:
+                pkg[key] = f"{key} artifacts not found"
+
+        manifest_path = dst / "manifest.json"
+        manifest_path.write_text(json.dumps(pkg, indent=2, default=str) + "\n")
+        logger.info("Wrote benchmark package manifest to %s", manifest_path)
+        return dst
+
+
+def package_postlayout_results(
+    results: list[PostLayoutResult],
+    dst_root: Path | str,
+    *,
+    copy_artifacts: bool = True,
+) -> list[Path]:
+    """Package a list of ``PostLayoutResult`` into one directory per design.
+
+    Convenience pair for ``PostLayoutValidator.validate_top_n`` output.
+    Sub-directories are named ``design_000``, ``design_001``, ... in
+    list order. Returns the list of created package directories.
+    """
+    dst_root = Path(dst_root)
+    dst_root.mkdir(parents=True, exist_ok=True)
+    paths: list[Path] = []
+    for i, r in enumerate(results):
+        sub = dst_root / f"design_{i:03d}"
+        paths.append(r.to_package(sub, copy_artifacts=copy_artifacts))
+    return paths
 
 
 @dataclass

@@ -103,7 +103,12 @@ class PostLayoutValidator:
         work_dir = Path(work_dir)
         work_dir.mkdir(parents=True, exist_ok=True)
 
-        result = PostLayoutResult(params=params, pre_layout_fom=pre_layout_fom)
+        result = PostLayoutResult(
+            params=params,
+            pre_layout_fom=pre_layout_fom,
+            pdk=_topology_pdk_name(self.topology),
+            topology=_topology_short_name(self.topology),
+        )
 
         # Step 1: Generate layout
         sizing = self.topology.params_to_sizing(params)
@@ -131,6 +136,7 @@ class PostLayoutValidator:
             )
             result.drc_clean = drc_result.clean
             result.drc_violations = drc_result.total_violations
+            result.drc_report_path = getattr(drc_result, "report_path", None)
             logger.info("DRC: %s", drc_result.summary)
         else:
             logger.info("Step 2/6: DRC skipped (no runner)")
@@ -145,6 +151,7 @@ class PostLayoutValidator:
                 run_dir=lvs_dir,
             )
             result.lvs_match = lvs_result.match
+            result.lvs_report_path = getattr(lvs_result, "report_path", None)
             logger.info("LVS: %s", lvs_result.summary)
         else:
             logger.info("Step 3/6: LVS skipped (no runner or netlist)")
@@ -251,6 +258,7 @@ class PostLayoutValidator:
         # Step 6: Post-layout SPICE simulation
         step_label = "Step 7/7" if use_overlay else "Step 6/6"
         logger.info("%s: Running post-layout SPICE simulation...", step_label)
+        result.post_sim_dir = str(sim_dir)
         spice_result = self.spice.run(cir_path, work_dir=sim_dir)
 
         if spice_result.success:
@@ -334,7 +342,12 @@ class PostLayoutValidator:
         work_dir = Path(work_dir)
         work_dir.mkdir(parents=True, exist_ok=True)
 
-        result = PostLayoutResult(params=params, pre_layout_fom=pre_layout_fom)
+        result = PostLayoutResult(
+            params=params,
+            pre_layout_fom=pre_layout_fom,
+            pdk=_topology_pdk_name(self.topology),
+            topology=_topology_short_name(self.topology),
+        )
 
         sizing = self.topology.params_to_sizing(params)
 
@@ -409,6 +422,7 @@ class PostLayoutValidator:
 
         # Step 4: Run post-layout SPICE simulation
         logger.info("[hybrid] Step 4/4: Running hybrid post-layout SPICE...")
+        result.post_sim_dir = str(sim_dir)
         spice_result = self.spice.run(cir_path, work_dir=sim_dir)
 
         if spice_result.success:
@@ -480,3 +494,21 @@ class PostLayoutValidator:
             results.append(result)
 
         return results
+
+
+def _topology_pdk_name(topology) -> str | None:
+    """Return the PDK short name attached to a topology, if any."""
+    pdk = getattr(topology, "pdk", None)
+    if pdk is None:
+        return None
+    return getattr(pdk, "name", None) or getattr(pdk, "display_name", None)
+
+
+def _topology_short_name(topology) -> str | None:
+    """Return ``topology.topology_name()`` defensively."""
+    if hasattr(topology, "topology_name"):
+        try:
+            return topology.topology_name()
+        except Exception:
+            return None
+    return None
