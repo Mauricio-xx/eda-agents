@@ -10,6 +10,7 @@ from pathlib import Path
 from eda_agents.agents._autoresearch_core import (
     ProgramStore,
     TsvLogger,
+    _truncate_for_prompt,
     extract_json_from_response,
     generate_program_content,
 )
@@ -316,6 +317,59 @@ class TestGenerateProgramContent:
 # ---------------------------------------------------------------------------
 # extract_json_from_response tests
 # ---------------------------------------------------------------------------
+
+
+class TestTruncateForPrompt:
+    """Smart head+tail truncation helper for LLM-prompt safety."""
+
+    def test_short_passthrough(self):
+        assert _truncate_for_prompt("hello", max_chars=100) == "hello"
+
+    def test_none_input_returns_empty(self):
+        assert _truncate_for_prompt(None) == ""
+
+    def test_none_max_chars_disables_truncation(self):
+        big = "x" * 10000
+        assert _truncate_for_prompt(big, max_chars=None) == big
+
+    def test_truncation_keeps_head_and_tail(self):
+        big = "A" * 5000 + "B" * 5000
+        out = _truncate_for_prompt(big, max_chars=2000, label="t")
+        assert out.startswith("A" * 800)
+        assert out.endswith("B" * 1200)
+        marker = "\n\n# --- TRUNCATED (t) ---\n\n"
+        assert marker in out
+        assert len(out) == 2000 + len(marker)
+
+    def test_label_appears_in_marker(self):
+        big = "x" * 10000
+        out = _truncate_for_prompt(big, max_chars=100, label="my-label")
+        assert "(my-label)" in out
+
+    def test_default_label_is_text(self):
+        big = "x" * 10000
+        out = _truncate_for_prompt(big, max_chars=100)
+        assert "(text)" in out
+
+    def test_exactly_at_threshold_passthrough(self):
+        s = "y" * 100
+        assert _truncate_for_prompt(s, max_chars=100) == s
+
+    def test_one_over_threshold_truncates(self):
+        s = "y" * 101
+        out = _truncate_for_prompt(s, max_chars=100)
+        assert "TRUNCATED" in out
+
+    def test_50k_traceback_bounded(self):
+        traceback = "Traceback (most recent call last):\n" + "x" * 50000
+        out = _truncate_for_prompt(traceback, max_chars=2000, label="error")
+        marker = "\n\n# --- TRUNCATED (error) ---\n\n"
+        assert len(out) == 2000 + len(marker)
+        assert "Traceback" in out
+
+    def test_non_string_input_coerced(self):
+        out = _truncate_for_prompt(12345, max_chars=100)
+        assert out == "12345"
 
 
 class TestExtractJson:

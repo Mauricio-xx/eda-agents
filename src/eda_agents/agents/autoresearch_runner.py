@@ -73,6 +73,7 @@ from pathlib import Path
 from eda_agents.agents._autoresearch_core import (
     ProgramStore,
     TsvLogger,
+    _truncate_for_prompt,
     extract_json_from_response,
     generate_program_content,
     proposal_temperature,
@@ -253,11 +254,18 @@ class AutoresearchRunner:
                 status = h.get("status", "kept" if h.get("kept") else "discarded")
                 valid = "valid" if h.get("valid") else "INVALID"
                 violations = h.get("violations", [])
-                viol_str = f" [{', '.join(violations)}]" if violations else ""
+                viol_text = _truncate_for_prompt(
+                    ", ".join(violations) if violations else "",
+                    label="violations",
+                )
+                viol_str = f" [{viol_text}]" if viol_text else ""
                 parts.append(
                     f"  #{h['eval']}: FoM={h['fom']:.2e} {valid}{viol_str} "
                     f"({status}) -- {json.dumps(h['params'])}\n"
                 )
+                error_text = _truncate_for_prompt(h.get("error"), label="error")
+                if error_text:
+                    parts.append(f"    error: {error_text}\n")
 
         parts.append(
             f"\nPropose the next design parameters as a JSON object. "

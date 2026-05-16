@@ -379,6 +379,37 @@ def generate_program_content(
     )
 
 
+def _truncate_for_prompt(
+    s: str | None,
+    max_chars: int | None = 2000,
+    label: str = "text",
+) -> str:
+    """Bound a string for inclusion in an LLM prompt.
+
+    When the input exceeds ``max_chars``, keeps the first 40% and the
+    last 60% of the budget, joined by a visible truncation marker so
+    the LLM can tell context was dropped. Tail-heavy because recent
+    failure detail (the bottom of a traceback) usually matters more
+    than the setup at the top.
+
+    Shape ported from CABAgent ``playbook._hard_guard`` (Code-a-Chip
+    VLSI26 PR #183).
+
+    ``max_chars=None`` disables truncation; ``None`` input collapses to
+    empty string. The returned length can exceed ``max_chars`` by the
+    length of the marker — the budget caps content, not the marker.
+    """
+    if s is None:
+        return ""
+    s = str(s)
+    if max_chars is None or len(s) <= max_chars:
+        return s
+    keep_head = int(max_chars * 0.4)
+    keep_tail = max_chars - keep_head
+    sep = f"\n\n# --- TRUNCATED ({label}) ---\n\n"
+    return s[:keep_head] + sep + s[-keep_tail:]
+
+
 def extract_json_from_response(content: str) -> str:
     """Extract a JSON object from LLM response text.
 
