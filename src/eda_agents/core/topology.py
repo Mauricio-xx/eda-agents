@@ -17,6 +17,7 @@ details.
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -149,6 +150,23 @@ class CircuitTopology(ABC):
                 Default: first key from design_space().
         """
         return {}
+
+    def forbidden_insight_patterns(self) -> list[re.Pattern]:
+        """Per-topology additions to the autoresearch insight filter.
+
+        ``AutoresearchRunner`` concatenates the universal
+        ``_FORBIDDEN_INSIGHT_PATTERNS`` (defined in
+        ``eda_agents.agents._autoresearch_core``) with whatever this
+        method returns and hands the union to ``ProgramStore``. Use
+        case: a topology can block specific anti-patterns peculiar to
+        its measurement methodology (e.g. ``"use an ideal current
+        source"`` for an OTA whose Ibias comes from a real PMOS
+        mirror).
+
+        Default returns an empty list so existing topologies inherit
+        only the universal set.
+        """
+        return []
 
     def relevant_skills(self) -> list[str | tuple[str, dict]]:
         """Names of skills an LLM runner should inject into the system prompt.

@@ -19,11 +19,55 @@ names and formatters.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from collections.abc import Callable
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Forbidden-pattern filter for learned insights
+# ---------------------------------------------------------------------------
+#
+# Universal anti-patterns adapted from CABAgent ``curator.py``
+# (Code-a-Chip VLSI26 PR #183, line range 175-198). Only the
+# methodology-poisoning subset is kept here; CABAgent's framework-
+# specific entries (``opamp.py``, ``lib_info.tsv``, ``avoid using
+# .*subcircuit``) are intentionally omitted because they encode
+# CABAgent test harness assumptions that do not map to eda-agents.
+# Per-topology additions ride on top via
+# :meth:`CircuitTopology.forbidden_insight_patterns`.
+_FORBIDDEN_INSIGHT_PATTERNS: tuple[re.Pattern, ...] = tuple(
+    re.compile(p, re.IGNORECASE) for p in (
+        r"ignore the testbench",
+        r"bypass the testbench",
+        r"skip (all )?simulation",
+        r"do not run (the )?simulator",
+        r"no need to run (any )?simulation",
+        r"just assume the circuit works",
+        r"assume it functions correctly without simulation",
+        r"disable all checks",
+        r"comment out the check code",
+        r"remove the assertion",
+        r"force the test to pass",
+        r"hardcode the check result",
+        r"just print ['\"]?The .* functions correctly['\"]?",
+        r"just print ['\"]?circuit works['\"]?",
+        r"always return success",
+        r"short.*Vdd.*to.*GND",
+        r"connect Vdd directly to ground",
+    )
+)
+
+
+def _match_forbidden(text: str, patterns: tuple[re.Pattern, ...]) -> re.Pattern | None:
+    """Return the first pattern matching ``text``, or None."""
+    for p in patterns:
+        if p.search(text):
+            return p
+    return None
 
 # ---------------------------------------------------------------------------
 # program.md template (domain-agnostic)
@@ -91,11 +135,28 @@ class ProgramStore:
         Zero-arg function that returns the initial program.md content
         when creating a fresh file.  Typically built from topology or
         design metadata by the owning runner.
+    forbidden_patterns : tuple of compiled regex, optional
+        Patterns to reject before writing into the Learned or Strategy
+        sections (defence-in-depth against methodology-poisoning
+        insights). Defaults to ``_FORBIDDEN_INSIGHT_PATTERNS``. Pass an
+        empty tuple to disable filtering entirely (tests, debugging).
+        Setting the ``EDA_AGENTS_DISABLE_INSIGHT_FILTER=1`` env var
+        bypasses the filter at runtime without touching this argument.
     """
 
-    def __init__(self, work_dir: Path, generate_fn: Callable[[], str]):
+    def __init__(
+        self,
+        work_dir: Path,
+        generate_fn: Callable[[], str],
+        forbidden_patterns: tuple[re.Pattern, ...] | None = None,
+    ):
         self._path = work_dir / "program.md"
         self._generate_fn = generate_fn
+        self._forbidden: tuple[re.Pattern, ...] = (
+            _FORBIDDEN_INSIGHT_PATTERNS
+            if forbidden_patterns is None
+            else tuple(forbidden_patterns)
+        )
 
     @property
     def path(self) -> Path:
@@ -137,8 +198,35 @@ class ProgramStore:
         )
         self._path.write_text(content)
 
+    def _should_reject(self, text: str, kind: str) -> bool:
+        """Return True if ``text`` matches a forbidden pattern.
+
+        Honors the ``EDA_AGENTS_DISABLE_INSIGHT_FILTER=1`` escape
+        hatch — when set, the filter is bypassed unconditionally so
+        a regression in the regex list cannot silently swallow
+        legitimate insights.
+        """
+        if os.environ.get("EDA_AGENTS_DISABLE_INSIGHT_FILTER") == "1":
+            return False
+        match = _match_forbidden(text, self._forbidden)
+        if match is None:
+            return False
+        logger.warning(
+            "Rejected %s due to forbidden pattern %r: %s",
+            kind, match.pattern, text[:200].replace("\n", " "),
+        )
+        return True
+
     def update_learning(self, insight: str) -> None:
-        """Append a learning to the 'Learned So Far' section."""
+        """Append a learning to the 'Learned So Far' section.
+
+        Filters out methodology-poisoning insights (see
+        ``_FORBIDDEN_INSIGHT_PATTERNS``); on match the candidate is
+        dropped silently from the user's perspective (a WARNING is
+        logged with the matched pattern).
+        """
+        if self._should_reject(insight, "learning"):
+            return
         content = self._path.read_text()
 
         marker = "## Learned So Far\n"
@@ -160,7 +248,12 @@ class ProgramStore:
         self._path.write_text(content)
 
     def update_strategy(self, strategy: str) -> None:
-        """Replace the 'Strategy' section with updated strategy."""
+        """Replace the 'Strategy' section with updated strategy.
+
+        Same forbidden-pattern guard as :meth:`update_learning`.
+        """
+        if self._should_reject(strategy, "strategy"):
+            return
         content = self._path.read_text()
         new_strategy = f"## Strategy\n{strategy}"
         content = re.sub(

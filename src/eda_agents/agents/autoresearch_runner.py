@@ -71,6 +71,7 @@ import traceback
 from pathlib import Path
 
 from eda_agents.agents._autoresearch_core import (
+    _FORBIDDEN_INSIGHT_PATTERNS,
     ProgramStore,
     TsvLogger,
     _truncate_for_prompt,
@@ -152,7 +153,18 @@ class AutoresearchRunner:
         )
 
     def _make_program_store(self, work_dir: Path) -> ProgramStore:
-        return ProgramStore(work_dir, self._generate_program)
+        extra = ()
+        if hasattr(self.topology, "forbidden_insight_patterns"):
+            try:
+                extra = tuple(self.topology.forbidden_insight_patterns())
+            except Exception:  # noqa: BLE001 -- defensive: never fail program init
+                extra = ()
+        forbidden = _FORBIDDEN_INSIGHT_PATTERNS + extra
+        return ProgramStore(
+            work_dir,
+            self._generate_program,
+            forbidden_patterns=forbidden,
+        )
 
     def _init_program(self, work_dir: Path) -> Path:
         """Create or load program.md."""
@@ -178,7 +190,7 @@ class AutoresearchRunner:
         self, program_path: Path, entry: dict
     ) -> None:
         """Update the 'Current Best' section of program.md after a kept improvement."""
-        store = ProgramStore(program_path.parent, self._generate_program)
+        store = self._make_program_store(program_path.parent)
         store._path = program_path  # point to exact path
         store.update_best(entry, self._format_analog_best)
 
@@ -186,7 +198,7 @@ class AutoresearchRunner:
         self, program_path: Path, insight: str
     ) -> None:
         """Append a learning to the 'Learned So Far' section."""
-        store = ProgramStore(program_path.parent, self._generate_program)
+        store = self._make_program_store(program_path.parent)
         store._path = program_path
         store.update_learning(insight)
 
@@ -194,7 +206,7 @@ class AutoresearchRunner:
         self, program_path: Path, strategy: str
     ) -> None:
         """Replace the 'Strategy' section with updated strategy from the LLM."""
-        store = ProgramStore(program_path.parent, self._generate_program)
+        store = self._make_program_store(program_path.parent)
         store._path = program_path
         store.update_strategy(strategy)
 
