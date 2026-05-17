@@ -794,6 +794,7 @@ async def run_autoresearch(
     pdk: str | None = None,
     timeout_s: int = 3600,
     dry_run: bool = False,
+    backend: str = "litellm",
 ) -> dict[str, Any]:
     """Drive the greedy autoresearch loop for a registered topology.
 
@@ -819,8 +820,11 @@ async def run_autoresearch(
         Maximum SPICE evaluations. Default 20 keeps accidental calls
         cheap; raise explicitly for serious exploration.
     model:
-        LiteLLM-routed model id for the proposal LLM (same prefix
-        convention as :func:`recommend_topology`). Default is
+        Model id for the proposal LLM. Interpretation depends on
+        ``backend``: a LiteLLM-routed model id for ``backend="litellm"``
+        (default, same prefix convention as :func:`recommend_topology`)
+        or a Claude model name for ``backend="cc_cli"`` (e.g.
+        ``claude-sonnet-4-6``). Default is
         ``openrouter/google/gemini-3-flash-preview``.
     work_dir:
         Directory for ``program.md`` + ``results.tsv`` + ``eval_*``
@@ -838,6 +842,13 @@ async def run_autoresearch(
         constructible, model env var present — WITHOUT running
         evaluations. Returns ``{"success": true, "dry_run": true,
         "env_ok": bool, "missing_keys": [...], "pdk": str}``.
+    backend:
+        Proposal backend. ``"litellm"`` (default) issues LiteLLM
+        completions and surfaces ``total_tokens`` in the result.
+        ``"cc_cli"`` invokes the local Claude Code CLI via
+        :class:`eda_agents.agents.claude_code_harness.ClaudeCodeHarness`
+        and surfaces ``cost_usd`` (telemetry; the CC CLI bills against
+        the user's subscription, not a per-token API key).
 
     Returns
     -------
@@ -859,6 +870,8 @@ async def run_autoresearch(
               "improvement_rate": float,
               "validity_rate": float,
               "total_tokens": int,
+              "cost_usd": float | None,  # populated by cc_cli backend
+              "backend": str,
               "top_n": list[dict],   # sanitised, no history
               "tsv_path": str,
               "work_dir": str
@@ -877,6 +890,13 @@ async def run_autoresearch(
             "success": False,
             "error": f"timeout_s must be >= 30 (got {timeout_s!r})",
         }
+    if backend not in ("litellm", "cc_cli"):
+        return {
+            "success": False,
+            "error": (
+                f"backend must be 'litellm' or 'cc_cli' (got {backend!r})"
+            ),
+        }
 
     try:
         topology = get_topology_by_name(topology_name)
@@ -884,11 +904,16 @@ async def run_autoresearch(
         return {"success": False, "error": str(exc)}
 
     # Probe model env up-front so dry_run and real runs share one code
-    # path for this failure mode.
-    try:
-        env = _validate_model_env(model)
-    except RuntimeError as exc:
-        return {"success": False, "error": str(exc)}
+    # path for this failure mode. The CC CLI backend ignores env vars
+    # (it uses the logged-in subscription), so skip the env probe and
+    # synthesise a trivially-OK env for the dry-run payload.
+    if backend == "cc_cli":
+        env = {"env_ok": True, "missing_keys": []}
+    else:
+        try:
+            env = _validate_model_env(model)
+        except RuntimeError as exc:
+            return {"success": False, "error": str(exc)}
 
     # Lazy import — SpiceRunner depends on PDK resolution which may
     # fail without $PDK_ROOT set. We want dry_run to surface that
@@ -914,6 +939,7 @@ async def run_autoresearch(
             "model": model,
             "pdk": resolved_pdk,
             "budget": budget,
+            "backend": backend,
             "env_ok": env["env_ok"],
             "missing_keys": env["missing_keys"],
         }
@@ -944,6 +970,7 @@ async def run_autoresearch(
         budget=budget,
         pdk=pdk if pdk else None,
         top_n=top_n,
+        backend=backend,
     )
 
     try:
@@ -969,6 +996,7 @@ async def run_autoresearch(
         "model": model,
         "pdk": resolved_pdk,
         "budget": budget,
+        "backend": backend,
         "best_params": result.best_params,
         "best_fom": float(result.best_fom),
         "best_valid": bool(result.best_valid),
@@ -978,6 +1006,9 @@ async def run_autoresearch(
         "improvement_rate": float(result.improvement_rate),
         "validity_rate": float(result.validity_rate),
         "total_tokens": int(result.total_tokens),
+        "cost_usd": (
+            float(result.cost_usd) if result.cost_usd is not None else None
+        ),
         "top_n": _sanitize_for_json(result.top_n),
         "tsv_path": result.tsv_path,
         "work_dir": str(work_dir_path),

@@ -66,6 +66,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 import traceback
 from pathlib import Path
@@ -88,6 +89,56 @@ logger = logging.getLogger(__name__)
 
 # Analog measurement columns (Adc, GBW, PM)
 _ANALOG_MEASUREMENT_COLS = ["Adc_dB", "GBW_Hz", "PM_deg"]
+
+# Supported proposal backends.
+_SUPPORTED_BACKENDS: tuple[str, ...] = ("litellm", "cc_cli")
+
+# Response-format directives for each backend. LiteLLM expects raw JSON
+# (the response_format hint enforces this server-side where supported);
+# Claude Code CLI emits narrative around the proposal, so we bracket it
+# with sentinels and parse defensively.
+_LITELLM_RESPONSE_FORMAT = (
+    "RESPONSE FORMAT: You must respond with ONLY a JSON object "
+    "containing the next design parameters to try. No explanation, "
+    "no markdown fences, no commentary. Just the raw JSON.\n"
+    "Example: {\"Ibias_uA\": 150.0, \"L_dp_um\": 3.0, ...}"
+)
+_CC_RESPONSE_FORMAT = (
+    "RESPONSE FORMAT: Reply with exactly one PROPOSAL_BEGIN/PROPOSAL_END "
+    "block containing valid JSON of design parameters within the design "
+    "space. Example:\n\n"
+    "PROPOSAL_BEGIN\n"
+    "{\"Ibias_uA\": 150.0, \"L_dp_um\": 3.0}\n"
+    "PROPOSAL_END\n\n"
+    "Do not narrate. Do not call any tools unless you need to read the "
+    "named program.md or results.tsv files in the working directory."
+)
+
+# Matches the proposal payload between PROPOSAL_BEGIN/END sentinels.
+# DOTALL so the JSON can span lines; non-greedy so multiple blocks in
+# pathological output do not concatenate.
+_PROPOSAL_BLOCK_RE = re.compile(
+    r"PROPOSAL_BEGIN\s*(.+?)\s*PROPOSAL_END",
+    re.DOTALL,
+)
+
+
+def _extract_cc_proposal(text: str) -> dict:
+    """Extract the JSON proposal dict from CC's narrative output.
+
+    Prefers the sentinel-bracketed PROPOSAL_BEGIN/END block. Falls back
+    to the same fenced-JSON extractor used for the LiteLLM path so a
+    legacy ``` ```json ... ``` ``` response still parses. Raises
+    ``ValueError`` if neither extraction yields valid JSON; callers
+    treat that the same as a LiteLLM exception (eval defaults).
+    """
+    if not text:
+        raise ValueError("CC returned empty result_text")
+    match = _PROPOSAL_BLOCK_RE.search(text)
+    if match:
+        return json.loads(match.group(1))
+    # Fall through to the existing fenced-JSON tolerance.
+    return json.loads(extract_json_from_response(text))
 
 
 class AutoresearchRunner:
@@ -112,13 +163,23 @@ class AutoresearchRunner:
         Circuit to optimize. Defines the design space, SPICE netlist
         format, FoM formula, and validity specs.
     model : str
-        LiteLLM model identifier for the proposal LLM.
+        Model identifier for the proposal LLM. Interpretation depends
+        on ``backend``: a LiteLLM model id for ``backend="litellm"``
+        (default), or a Claude model name for ``backend="cc_cli"``
+        (e.g. ``claude-sonnet-4-6``, ``claude-opus-4-7``).
     budget : int
         Maximum number of SPICE evaluations.
     pdk : PdkConfig or str, optional
         PDK override. Defaults to topology's PDK.
     top_n : int
         Number of top designs to return for downstream use.
+    backend : str
+        Proposal backend. ``"litellm"`` (default) issues LiteLLM
+        completions; ``"cc_cli"`` invokes the Claude Code CLI via
+        :class:`eda_agents.agents.claude_code_harness.ClaudeCodeHarness`
+        and bills against the user's subscription. The greedy loop,
+        persistence layer, and insight filter are identical across
+        backends.
     """
 
     def __init__(
@@ -128,7 +189,12 @@ class AutoresearchRunner:
         budget: int = 50,
         pdk: PdkConfig | str | None = None,
         top_n: int = 3,
+        backend: str = "litellm",
     ):
+        if backend not in _SUPPORTED_BACKENDS:
+            raise ValueError(
+                f"backend must be one of {_SUPPORTED_BACKENDS}, got {backend!r}"
+            )
         self.topology = topology
         self.model = model
         self.budget = budget
@@ -136,6 +202,14 @@ class AutoresearchRunner:
             topology, "pdk", resolve_pdk(None)
         )
         self.top_n = top_n
+        self.backend = backend
+        # Per-run accumulators, reset at the top of every run().
+        self._tokens_this_run: int = 0
+        self._cost_usd_this_run: float = 0.0
+        # Work dir is set when run() starts so backend methods can
+        # locate persisted artefacts (program.md, results.tsv) without
+        # a signature change to _propose_params.
+        self._work_dir: Path | None = None
 
     # ------------------------------------------------------------------
     # program.md management (delegates to ProgramStore)
@@ -214,13 +288,21 @@ class AutoresearchRunner:
     # LLM interaction
     # ------------------------------------------------------------------
 
-    def _system_prompt(self, program_content: str) -> str:
+    def _system_prompt(
+        self,
+        program_content: str,
+        response_format: str = _LITELLM_RESPONSE_FORMAT,
+    ) -> str:
         """Build the system prompt: skills (S10c) + program.md + response suffix.
 
         Topology-declared skills are rendered first so the methodology
         framing arrives before the run-local strategy in ``program.md``.
         Gated by ``EDA_AGENTS_INJECT_SKILLS``: set to ``"0"`` to fall
         back to the pre-S10c prompt (escape hatch for regressions).
+
+        The ``response_format`` block is swappable so backends that
+        cannot enforce raw-JSON responses (Claude Code CLI) can ask for
+        sentinel-bracketed output instead.
         """
         skills_block = ""
         if os.environ.get("EDA_AGENTS_INJECT_SKILLS", "1") != "0":
@@ -233,10 +315,7 @@ class AutoresearchRunner:
             f"You are an autonomous circuit design optimizer. Your program "
             f"is defined below. Follow it exactly.\n\n"
             f"{program_content}\n\n"
-            f"RESPONSE FORMAT: You must respond with ONLY a JSON object "
-            f"containing the next design parameters to try. No explanation, "
-            f"no markdown fences, no commentary. Just the raw JSON.\n"
-            f"Example: {{\"Ibias_uA\": 150.0, \"L_dp_um\": 3.0, ...}}"
+            f"{response_format}"
         )
 
     def _build_proposal_prompt(
@@ -293,7 +372,28 @@ class AutoresearchRunner:
         best: dict | None,
         eval_num: int,
     ) -> dict[str, float]:
-        """Ask LLM to propose next design parameters."""
+        """Dispatch the proposal call to the configured backend.
+
+        Both backends share the prompt body and the design-space clamp
+        contract; they diverge only on transport (HTTP vs subprocess)
+        and response format (raw JSON vs sentinel-bracketed block).
+        """
+        if self.backend == "cc_cli":
+            return await self._propose_via_cc_cli(
+                program_content, history, best, eval_num
+            )
+        return await self._propose_via_litellm(
+            program_content, history, best, eval_num
+        )
+
+    async def _propose_via_litellm(
+        self,
+        program_content: str,
+        history: list[dict],
+        best: dict | None,
+        eval_num: int,
+    ) -> dict[str, float]:
+        """Ask a LiteLLM-routed model to propose next design parameters."""
         import litellm
 
         prompt = self._build_proposal_prompt(history, best, eval_num)
@@ -336,15 +436,92 @@ class AutoresearchRunner:
         content = extract_json_from_response(content)
         params = json.loads(content)
 
-        # Validate and clamp to design space
+        return self._clamp_to_design_space(params)
+
+    async def _propose_via_cc_cli(
+        self,
+        program_content: str,
+        history: list[dict],
+        best: dict | None,
+        eval_num: int,
+    ) -> dict[str, float]:
+        """Ask the Claude Code CLI to propose next design parameters.
+
+        The runner's system prompt is inlined into the user message
+        (CC's ``--print`` mode delivers everything via stdin) and the
+        response format is swapped to a PROPOSAL_BEGIN/END sentinel
+        block to make extraction deterministic against narrative
+        output. Cost is accumulated for telemetry only; the CC CLI
+        bills against the user's subscription, not a per-token API.
+        """
+        # Imported lazily so the LiteLLM-only path does not pull in the
+        # harness module (and its asyncio.subprocess dependency) for
+        # callers that never touch the CC backend.
+        from eda_agents.agents.claude_code_harness import ClaudeCodeHarness
+
+        if self._work_dir is None:
+            # Defensive: run() sets _work_dir before iterating, so this
+            # only fires if a caller invokes _propose_via_cc_cli
+            # directly (e.g. in a unit test). Use cwd as a safe default.
+            harness_work_dir = Path.cwd()
+        else:
+            harness_work_dir = self._work_dir
+
+        user_prompt_body = self._build_proposal_prompt(history, best, eval_num)
+        system_prompt = self._system_prompt(
+            program_content, response_format=_CC_RESPONSE_FORMAT
+        )
+        full_prompt = (
+            f"{system_prompt}\n\n"
+            f"---\n\n"
+            f"{user_prompt_body}\n\n"
+            f"---\n\n"
+            f"Files available for read access in the current working "
+            f"directory:\n"
+            f"  program.md   (the full program; identical content is "
+            f"inlined above)\n"
+            f"  results.tsv  (tab-separated history of all evals so far)\n"
+            f"Read them only if the inlined context is insufficient.\n"
+        )
+
+        harness = ClaudeCodeHarness(
+            prompt=full_prompt,
+            work_dir=harness_work_dir,
+            model=self.model,
+        )
+        result = await harness.run()
+        cost = result.total_cost_usd or 0.0
+        self._cost_usd_this_run += cost
+        logger.info(
+            "CC backend eval %d: success=%s cost=$%.4f (run total=$%.4f)",
+            eval_num, result.success, cost, self._cost_usd_this_run,
+        )
+        if not result.success:
+            raise RuntimeError(
+                f"Claude CLI failed at eval {eval_num}: "
+                f"{result.error or 'unknown error'}"
+            )
+
+        params = _extract_cc_proposal(result.result_text)
+        return self._clamp_to_design_space(params)
+
+    def _clamp_to_design_space(
+        self, params: dict
+    ) -> dict[str, float]:
+        """Coerce a raw proposal dict into the topology's design space.
+
+        Missing keys fall back to ``topology.default_params()`` (or the
+        midpoint of the range if even that is silent), and every value
+        is clamped to ``[lo, hi]`` and cast to ``float``. Shared by
+        both backends so the kept-design contract stays uniform.
+        """
         space = self.topology.design_space()
-        clean_params = {}
+        clean_params: dict[str, float] = {}
         for name, (lo, hi) in space.items():
             val = params.get(name)
             if val is None:
                 val = self.topology.default_params().get(name, (lo + hi) / 2)
             clean_params[name] = max(lo, min(hi, float(val)))
-
         return clean_params
 
     # ------------------------------------------------------------------
@@ -462,12 +639,14 @@ class AutoresearchRunner:
         Returns AutoresearchResult with top-N designs for downstream use.
         """
         work_dir.mkdir(parents=True, exist_ok=True)
+        self._work_dir = work_dir
 
-        # Reset per-run token accumulator. Do not persist across runs —
+        # Reset per-run accumulators. Do not persist across runs —
         # each run() invocation reports only its own LLM usage, even
-        # when resuming from a prior TSV (historical tokens are not
-        # recorded in the TSV and cannot be reconstructed).
+        # when resuming from a prior TSV (historical tokens/costs are
+        # not recorded in the TSV and cannot be reconstructed).
         self._tokens_this_run = 0
+        self._cost_usd_this_run = 0.0
 
         program_store = self._make_program_store(work_dir)
         program_store.init()
@@ -593,6 +772,15 @@ class AutoresearchRunner:
         )
         top_n = valid_entries[: self.top_n]
 
+        # cost_usd is reported only when the backend natively meters
+        # dollars (Claude Code CLI). LiteLLM stays on token telemetry,
+        # so we leave the field None for that path.
+        cost_usd: float | None
+        if self.backend == "cc_cli":
+            cost_usd = self._cost_usd_this_run
+        else:
+            cost_usd = None
+
         # Build result
         if best is None:
             all_sorted = sorted(history, key=lambda x: x["fom"], reverse=True)
@@ -608,6 +796,7 @@ class AutoresearchRunner:
                 history=history,
                 tsv_path=str(tsv_path),
                 total_tokens=self._tokens_this_run,
+                cost_usd=cost_usd,
             )
 
         return AutoresearchResult(
@@ -621,4 +810,5 @@ class AutoresearchRunner:
             history=history,
             tsv_path=str(tsv_path),
             total_tokens=self._tokens_this_run,
+            cost_usd=cost_usd,
         )

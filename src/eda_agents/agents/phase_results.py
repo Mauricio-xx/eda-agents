@@ -115,6 +115,12 @@ class AutoresearchResult:
     # backend does not populate ``response.usage`` — callers should
     # treat a 0 as "not measured" rather than "zero tokens used".
     total_tokens: int = 0
+    # Accumulated USD spend reported by the LLM backend, when the
+    # backend natively meters dollars (Claude Code CLI). Stays None
+    # for backends that only report tokens (LiteLLM) and for runs
+    # with no LLM involvement. Treat None as "not measured" rather
+    # than zero spend.
+    cost_usd: float | None = None
 
     @property
     def improvement_rate(self) -> float:

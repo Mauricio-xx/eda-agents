@@ -104,12 +104,15 @@ async def run_standalone(args):
         topology=topology,
         model=args.model,
         budget=args.budget,
+        backend=args.backend,
     )
     result = await runner.run(work_dir)
 
     print(f"\n{result.summary}")
     print(f"  Validity rate: {result.validity_rate:.0%}")
     print(f"  TSV log: {result.tsv_path}")
+    if result.cost_usd is not None:
+        print(f"  Cost (telemetry): ${result.cost_usd:.4f}")
     if result.best_valid:
         print(f"  Best params: {json.dumps(result.best_params, indent=4)}")
 
@@ -138,10 +141,10 @@ async def run_hybrid(args):
     result = await orch.run(work_dir, dry_run=args.dry_run)
 
     if args.dry_run:
-        print(f"Dry run (hybrid):")
+        print("Dry run (hybrid):")
         print(json.dumps(result, indent=2, default=str))
     else:
-        print(f"\nHybrid result:")
+        print("\nHybrid result:")
         if result.get("autoresearch_result"):
             ar = result["autoresearch_result"]
             print(f"  Autoresearch: {ar.summary}")
@@ -161,7 +164,21 @@ async def main():
     )
     parser.add_argument(
         "--model", default="zai/GLM-4.5-Flash",
-        help="LLM model for proposals",
+        help=(
+            "Model for proposals. Interpretation depends on --backend: "
+            "a LiteLLM model id (e.g. zai/GLM-4.5-Flash, default) for "
+            "--backend litellm, or a Claude model name (e.g. "
+            "claude-sonnet-4-6, claude-opus-4-7) for --backend cc_cli."
+        ),
+    )
+    parser.add_argument(
+        "--backend", choices=["litellm", "cc_cli"], default="litellm",
+        help=(
+            "Proposal backend. 'litellm' (default) uses LiteLLM "
+            "completions. 'cc_cli' invokes the Claude Code CLI via "
+            "ClaudeCodeHarness and bills against the user's "
+            "subscription; pass --model with a Claude model name."
+        ),
     )
     parser.add_argument(
         "--worker-model", default=None,
