@@ -99,14 +99,21 @@ def _to_mna(el: BenchElement):
 class Test:
     """Per-spec record produced by ``Testbench.make_test``.
 
+    The class name happens to start with ``Test`` -- that triggers
+    pytest's auto-collection rule. We mark ``__test__ = False`` so
+    test suites that import it as a fixture do not see it as a test
+    class.
+
     Out-def vocabulary (mirrors upstream):
-      * ``{"eval": tf_expr}`` — direct DC evaluation of the symbolic TF
-      * ``{"frec": tf_expr}`` — find -3 dB bandwidth from the TF
-      * ``{"pm": tf_expr}`` — phase margin (degrees) at unity gain
-      * ``{"diff": ...}`` — differential evaluation (rare)
-      * ``{"divide": [num_test, den_test]}`` — composed spec: ratio of
-        two already-defined tests' values
+      * ``{"eval": tf_expr}`` -- direct DC evaluation of the symbolic TF
+      * ``{"frec": tf_expr}`` -- find -3 dB bandwidth from the TF
+      * ``{"pm": tf_expr}`` -- phase margin (degrees) at unity gain
+      * ``{"diff": ...}`` -- differential evaluation (rare)
+      * ``{"divide": [num_test, den_test]}`` -- composed spec: ratio
+        of two already-defined tests' values
     """
+
+    __test__ = False
 
     name: str = ""
     tf: Any = None
@@ -139,14 +146,19 @@ class Testbench:
     ``tf=(output_node, input_node_or_source_name)`` selects the
     transfer function. The input handle can be either:
 
-      * A node name (``"VINP"``) — the TF numerator is the
+      * A node name (``"VINP"``) -- the TF numerator is the
         symbolic V at that node, divided by an external 1 V drive.
-      * A source name (e.g. ``"V_p"`` matching one of ``elements``) —
+      * A source name (e.g. ``"V_p"`` matching one of ``elements``) --
         the TF numerator is ``V[output_node]`` and the denominator is
         the *symbol* the source's ``value`` carries. The user is
         expected to drive that symbol to 1 via ``parameter_map`` (the
         upstream convention).
+
+    The class name starts with ``Test`` -- pytest would otherwise try
+    to collect it. ``__test__ = False`` opts out.
     """
+
+    __test__ = False
 
     name: str
     dut: Macromodel

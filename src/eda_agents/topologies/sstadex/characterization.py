@@ -25,13 +25,11 @@ sign is resolved internally from the stored ``vgs[0..-1]`` direction.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from eda_agents.core.gmid_lookup import GmIdLookup
-from eda_agents.core.pdk import PdkConfig
 
 logger = logging.getLogger(__name__)
 

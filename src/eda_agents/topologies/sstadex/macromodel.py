@@ -165,17 +165,28 @@ class Macromodel:
         for cond in self.propagated_conditions.get("direct", []):
             kind = cond.get("kind", "range")
             col = cond.get("column")
-            if col is None or col not in filtered.columns:
+            # Accept either a sympy Symbol or a string for the column
+            # reference -- _primitive_to_columns stores stringified
+            # versions of the same Symbol keys, so we resolve both.
+            if col is None:
                 continue
+            if col in filtered.columns:
+                col_used = col
+            else:
+                col_name = col.name if hasattr(col, "name") else str(col)
+                if col_name in filtered.columns:
+                    col_used = col_name
+                else:
+                    continue
             if kind == "range":
                 limits = cond.get("condition", {})
                 if "min" in limits:
-                    filtered = filtered[filtered[col] >= limits["min"]]
+                    filtered = filtered[filtered[col_used] >= limits["min"]]
                 if "max" in limits:
-                    filtered = filtered[filtered[col] <= limits["max"]]
+                    filtered = filtered[filtered[col_used] <= limits["max"]]
             elif kind == "allowed_values":
                 values = np.asarray(cond.get("values", []))
-                filtered = filtered[filtered[col].isin(values)]
+                filtered = filtered[filtered[col_used].isin(values)]
 
         for cond in self.propagated_conditions.get("derived", []):
             kind = cond.get("kind", "metric")

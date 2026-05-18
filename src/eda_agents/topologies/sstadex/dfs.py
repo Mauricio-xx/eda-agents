@@ -24,10 +24,8 @@ grid, which keeps the inner loop fast even on 1e4+ point sweeps.
 
 from __future__ import annotations
 
-import itertools
 import logging
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -117,16 +115,16 @@ def _primitive_to_columns(
 ) -> pd.DataFrame:
     """Map a primitive's build() DataFrame to engine columns.
 
-    Engine columns:
+    Engine columns (string names, normalised so sympy Symbol-keyed
+    sources do not collide with their string equivalents):
       * ``g_gm_<inst>_<branch>``  per branch (gm) — from ``df['gm']``
       * ``R_gds_<inst>_<branch>`` per branch (Ro)
-      * ``W_<output>`` per primitive output (from prim.outputs)
-      * ``L_<output>`` and ``length_<inst>``
+      * primitive ``outputs`` keys (W_*, L_*) -- Symbol keys are
+        stringified so pandas sees one column per logical name.
+      * primitive ``parameters`` keys, if not already covered by the
+        per-branch fields above.
       * Interface variables (e.g. ``vs_diff``, ``vs_cs``)
-
-    Returns a fresh DataFrame indexed 0..N with the engine-named
-    columns. Caller is responsible for cartesian-merging across
-    primitives.
+      * ``length_<inst>`` -- primitive-scoped length column.
     """
     out = pd.DataFrame()
     for br in prim.small_signal_branches:
@@ -137,23 +135,30 @@ def _primitive_to_columns(
         out[f"g_gm_{inst_name}_{br['name']}"] = df["gm"].values
         out[f"R_gds_{inst_name}_{br['name']}"] = df["Ro"].values
 
-    # Width outputs: primitive ``outputs`` dict holds {Symbol("W_diff"):
-    # arr, Symbol("L_diff"): arr, ...} where the arrays come from
-    # ``df`` columns the primitive copied into outputs at build time.
-    # We re-map them onto fresh columns here.
-    for sym_key, arr in prim.outputs.items():
-        out[sym_key] = np.asarray(arr)
+    def _key(k):
+        return k.name if hasattr(k, "name") else str(k)
 
-    # Small-signal parameters per upstream convention also copied.
+    # Primitive outputs (W, L per upstream symbol naming).
+    for sym_key, arr in prim.outputs.items():
+        key = _key(sym_key)
+        if key not in out.columns:
+            out[key] = np.asarray(arr)
+
+    # Small-signal parameters from primitive.parameters -- only add if
+    # not already covered by the per-branch loop above (the upstream
+    # notebook redundantly assigns these; we de-duplicate here).
     for sym_key, arr in prim.parameters.items():
-        out[sym_key] = np.asarray(arr)
+        key = _key(sym_key)
+        if key not in out.columns:
+            out[key] = np.asarray(arr)
 
     # Interface variables (per upstream convention).
     for name, arr in prim.interface_variables.items():
-        out[name] = np.asarray(arr)
+        if name not in out.columns:
+            out[name] = np.asarray(arr)
 
     # Always copy length (for area / W constraints).
-    if "length" in df.columns:
+    if "length" in df.columns and f"length_{inst_name}" not in out.columns:
         out[f"length_{inst_name}"] = df["length"].values
 
     return out

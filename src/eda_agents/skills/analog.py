@@ -513,6 +513,37 @@ register_skill(
 )
 
 
+def _hierarchical_dse_prompt(topology: "CircuitTopology | None" = None) -> str:
+    circuit = ""
+    if topology is not None:
+        circuit = (
+            f"\nActive topology: {topology.topology_name()}\n"
+            f"Description: {topology.prompt_description()}\n"
+            f"Specs: {topology.specs_description()}\n\n"
+        )
+    body = _load_markdown_bundle(
+        "hierarchical_dse", ["methodology", "api", "limits"]
+    )
+    return f"{circuit}{body}"
+
+
+register_skill(
+    Skill(
+        name="analog.hierarchical_dse",
+        description=(
+            "SSTADEX-style hierarchical analog DSE: Library / Primitive "
+            "/ Macromodel / Testbench / dfs over the eda-agents PSP103 "
+            "LUT, with a symbolic small-signal TF authored in sympy. "
+            "Covers the methodology, the eda_agents.topologies.sstadex "
+            "API, and the validation / corner limits to keep in mind. "
+            "Composed from skills/_bundles/hierarchical_dse/{methodology,"
+            "api,limits}.md. Signature: (topology=None)."
+        ),
+        prompt_fn=_hierarchical_dse_prompt,
+    )
+)
+
+
 def _miller_ota_design_prompt(topology: "CircuitTopology | None" = None) -> str:
     circuit = ""
     if topology is not None:

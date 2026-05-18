@@ -42,7 +42,6 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from sympy import Symbol
 
 from eda_agents.core.gmid_lookup import GmIdLookup
 from eda_agents.core.pdk import PdkConfig
