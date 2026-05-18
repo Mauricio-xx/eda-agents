@@ -491,18 +491,22 @@ class GenericDesign(DigitalDesign):
         )
 
     def baseline_params(self) -> dict[str, float | int]:
-        """Read design-space baseline values from the cached config.
+        """Read design-space baseline values from config.yaml on disk.
 
-        The default :class:`DigitalDesign.baseline_params` re-parses
-        the YAML/JSON on every call; ``GenericDesign`` already
-        cached the config at ``__init__`` so this override skips the
-        I/O.
+        Re-parses the YAML on every call so callers see edits made
+        after construction (e.g. the autoresearch hybrid agent
+        rewriting config_path between proposals). The earlier
+        constructor-time cache was an I/O optimisation that became a
+        correctness hazard once external writers were in scope; the
+        autoresearch loop relies on this method to reflect on-disk
+        reality after the agent's Edit step.
         """
+        fresh = self._read_config()
         out: dict[str, float | int] = {}
         for key, values in self.design_space().items():
-            if key not in self._config:
+            if key not in fresh:
                 continue
-            raw = self._config[key]
+            raw = fresh[key]
             if isinstance(values, tuple):
                 try:
                     out[key] = float(raw)
