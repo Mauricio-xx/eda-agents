@@ -484,6 +484,35 @@ register_skill(
 )
 
 
+def _ron_gm_sizing_prompt(topology: "CircuitTopology | None" = None) -> str:
+    circuit = ""
+    if topology is not None:
+        circuit = (
+            f"\nActive topology: {topology.topology_name()}\n"
+            f"Description: {topology.prompt_description()}\n"
+            f"Specs: {topology.specs_description()}\n\n"
+        )
+    body = _load_markdown_bundle("ron_gm", ["core", "sizing", "corners"])
+    return f"{circuit}{body}"
+
+
+register_skill(
+    Skill(
+        name="analog.ron_gm_sizing",
+        description=(
+            "Ron/gm sizing methodology for inverter-based dynamic "
+            "amplifiers (Wrøngm, Code-a-Chip VLSI26, Apache-2.0). "
+            "Reads Ron and gm from the same PSP103 LUT that powers "
+            "gm/ID; exposes the two-phase settling model, the "
+            "deadzone Vbias boundary, and the RonGmLookup API. "
+            "Composed from skills/_bundles/ron_gm/{core,sizing,"
+            "corners}.md. Signature: (topology=None)."
+        ),
+        prompt_fn=_ron_gm_sizing_prompt,
+    )
+)
+
+
 def _miller_ota_design_prompt(topology: "CircuitTopology | None" = None) -> str:
     circuit = ""
     if topology is not None:
