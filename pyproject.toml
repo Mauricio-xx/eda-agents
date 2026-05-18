@@ -79,6 +79,7 @@ markers = [
     "spice: requires ngspice + IHP SG13G2 PDK (deselect with -m 'not spice')",
     "klayout: requires klayout + GF180MCU PDK (deselect with -m 'not klayout')",
     "glayout: requires .venv-glayout with gLayout installed (deselect with -m 'not glayout')",
+    "gdsfactory: requires .venv-gdsfactory with gdsfactory + iic-jku/IHP installed (deselect with -m 'not gdsfactory')",
     "librelane: requires librelane + gf180mcu-project-template (deselect with -m 'not librelane')",
     "magic: requires magic + GF180MCU PDK (deselect with -m 'not magic')",
     "cc_cli: requires Claude Code CLI installed (deselect with -m 'not cc_cli')",

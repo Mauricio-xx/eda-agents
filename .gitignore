@@ -26,6 +26,8 @@ trackd_results/
 .venv-glayout/
 # Also match symlinks to a shared .venv-glayout (worktrees).
 .venv-glayout
+.venv-gdsfactory/
+.venv-gdsfactory
 # Autoresearch digital default output dir (when a test / script runs
 # with no explicit work_dir). Never committed.
 autoresearch_digital/
