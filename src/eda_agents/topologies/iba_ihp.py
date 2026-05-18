@@ -39,12 +39,9 @@ logger = logging.getLogger(__name__)
 # Wrøngm IBA spec (Table II, design example):
 #   T_settle = 250 ns, UGB = 9.55 MHz, CL_eff = 667 fF
 #   Gm_target = 2*pi*UGB*CL ~ 40 uS
-_SPEC_ADC_DB = 20.0      # Single-stage CMOS inverter; modest open-loop gain.
-_SPEC_GBW_HZ = 9.55e6    # Wrøngm's UGB target.
-_SPEC_PM_DEG = 60.0      # Cap-feedback loop PM; one-pole inverter easily clears.
-_SPEC_IQ_UA = 5.0        # Total quiescent current budget; Wrøngm reports 2.5 uA.
-
-_CL_F = 667e-15          # Load capacitance.
+# The constants below are the IHP defaults. They live as class
+# attributes so PDK siblings (iba_gf180) can override without
+# touching the deck-emission code.
 
 
 class InverterBasedAmplifier(CircuitTopology):
@@ -72,6 +69,12 @@ class InverterBasedAmplifier(CircuitTopology):
         is the reference target; the methodology is PDK-agnostic and
         the same topology re-targets to GF180 by changing the PDK.
     """
+
+    SPEC_ADC_DB = 20.0      # Single-stage CMOS inverter; modest open-loop gain.
+    SPEC_GBW_HZ = 9.55e6    # Wrøngm's UGB target.
+    SPEC_PM_DEG = 60.0      # Cap-feedback loop PM; one-pole inverter clears.
+    SPEC_IQ_UA = 5.0        # Total quiescent current budget; Wrøngm reports 2.5 uA.
+    CL_F = 667e-15          # Load capacitance.
 
     def __init__(self, pdk: PdkConfig | str | None = None):
         self.pdk = resolve_pdk(pdk)
@@ -147,7 +150,7 @@ class InverterBasedAmplifier(CircuitTopology):
         return (
             f"Inverter-Based Dynamic Amplifier (IBA) on {self.pdk.display_name}. "
             "A single CMOS inverter (NMOS+PMOS) drives a capacitive load "
-            f"CL={_CL_F*1e15:.0f} fF; the input gate is driven by a replica "
+            f"CL={self.CL_F*1e15:.0f} fF; the input gate is driven by a replica "
             "bias network at Vbias. Two-phase settling: large-signal RC "
             "phase governed by on-state Ron, small-signal exponential "
             "phase governed by gm. The Ron/gm methodology pre-characterises "
@@ -172,10 +175,10 @@ class InverterBasedAmplifier(CircuitTopology):
 
     def specs_description(self) -> str:
         return (
-            f"Adc >= {_SPEC_ADC_DB:.0f} dB, "
-            f"GBW >= {_SPEC_GBW_HZ/1e6:.2f} MHz, "
-            f"PM >= {_SPEC_PM_DEG:.0f} deg, "
-            f"Iq <= {_SPEC_IQ_UA:.1f} uA"
+            f"Adc >= {self.SPEC_ADC_DB:.0f} dB, "
+            f"GBW >= {self.SPEC_GBW_HZ/1e6:.2f} MHz, "
+            f"PM >= {self.SPEC_PM_DEG:.0f} deg, "
+            f"Iq <= {self.SPEC_IQ_UA:.1f} uA"
         )
 
     def fom_description(self) -> str:
@@ -247,7 +250,7 @@ class InverterBasedAmplifier(CircuitTopology):
             "M_P": {"W": W_p, "L": L_p, "m": m_p, "ng": 1, "type": "pmos"},
             "_Vbias": Vbias,
             "_VDD": self.pdk.VDD,
-            "_CL": _CL_F,
+            "_CL": self.CL_F,
         }
         self._last_sizing = sizing
         return sizing
@@ -298,7 +301,7 @@ class InverterBasedAmplifier(CircuitTopology):
                 dev,
                 f"w={W_total:.6e}",
                 f"l={t['L']:.6e}",
-                f"ng={t.get('ng', 1)}",
+                f"{self.pdk.finger_param}={t.get('ng', 1)}",
             ]
             return " ".join(parts)
 
@@ -400,23 +403,23 @@ class InverterBasedAmplifier(CircuitTopology):
         if not spice_result.success:
             return (False, ["simulation failed"])
 
-        if spice_result.Adc_dB is not None and spice_result.Adc_dB < _SPEC_ADC_DB:
+        if spice_result.Adc_dB is not None and spice_result.Adc_dB < self.SPEC_ADC_DB:
             violations.append(
-                f"Adc={spice_result.Adc_dB:.1f}dB < {_SPEC_ADC_DB}dB"
+                f"Adc={spice_result.Adc_dB:.1f}dB < {self.SPEC_ADC_DB}dB"
             )
-        if spice_result.GBW_Hz is not None and spice_result.GBW_Hz < _SPEC_GBW_HZ:
+        if spice_result.GBW_Hz is not None and spice_result.GBW_Hz < self.SPEC_GBW_HZ:
             violations.append(
                 f"GBW={spice_result.GBW_Hz/1e6:.2f}MHz < "
-                f"{_SPEC_GBW_HZ/1e6:.2f}MHz"
+                f"{self.SPEC_GBW_HZ/1e6:.2f}MHz"
             )
-        if spice_result.PM_deg is not None and spice_result.PM_deg < _SPEC_PM_DEG:
+        if spice_result.PM_deg is not None and spice_result.PM_deg < self.SPEC_PM_DEG:
             violations.append(
-                f"PM={spice_result.PM_deg:.1f}deg < {_SPEC_PM_DEG}deg"
+                f"PM={spice_result.PM_deg:.1f}deg < {self.SPEC_PM_DEG}deg"
             )
         iq_a = (spice_result.measurements or {}).get("iq_dc")
-        if iq_a is not None and iq_a > _SPEC_IQ_UA * 1e-6:
+        if iq_a is not None and iq_a > self.SPEC_IQ_UA * 1e-6:
             violations.append(
-                f"Iq={iq_a*1e6:.2f}uA > {_SPEC_IQ_UA}uA"
+                f"Iq={iq_a*1e6:.2f}uA > {self.SPEC_IQ_UA}uA"
             )
 
         return (len(violations) == 0, violations)

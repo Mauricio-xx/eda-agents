@@ -54,6 +54,12 @@ class PdkConfig:
     # Instance prefix: "X" for subcircuit-based PDKs, "M" for inline models
     instance_prefix: str = "X"
 
+    # Finger-count parameter name on the device subcircuit. IHP exposes
+    # ``ng`` (number of gate fingers); GF180 exposes ``nf``. Topologies
+    # that emit device lines should read this so the same source works
+    # on both PDKs.
+    finger_param: str = "ng"
+
     # OSDI shared libraries (empty tuple for BSIM4 PDKs like GF180)
     osdi_dir_rel: str | None = None
     osdi_files: tuple[str, ...] = ()
@@ -239,6 +245,7 @@ GF180MCU_D = PdkConfig(
     nmos_symbol="nfet_03v3",
     pmos_symbol="pfet_03v3",
     instance_prefix="X",  # subcircuit-based models
+    finger_param="nf",    # GF180 subcircuit uses nf (vs IHP's ng)
 
     osdi_dir_rel=None,
     osdi_files=(),
