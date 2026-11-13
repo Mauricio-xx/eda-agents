@@ -1,6 +1,6 @@
 """FastMCP server exposing eda-agents semantic tools.
 
-Eight tools are registered:
+Nine tools are registered:
 
 * ``render_skill`` — render a named skill's prompt, optionally bound
   to a topology.
@@ -30,6 +30,9 @@ Eight tools are registered:
   GDS for a primitive or composite on GF180 or SG13G2 (S11 Fase 4).
   Reuses ``GLayoutRunner`` so the heavy lifting is in a separate
   venv and blocks only through the subprocess.
+* ``explore_custom_topology`` — run the propose / size / simulate /
+  critique loop (``AnalogCompositionLoop``) for an analog block that
+  has no registered topology.
 
 The server defaults to the stdio transport used by MCP-aware clients
 (Claude Code, Cursor, Zed). HTTP transports are opt-in and bind to
