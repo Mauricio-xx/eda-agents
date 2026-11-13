@@ -1,7 +1,7 @@
 # eda-agents architecture
 
 This document is for someone opening the repo for the first time. It
-walks the six top-level packages under `src/eda_agents/`, shows how
+walks the main packages under `src/eda_agents/`, shows how
 they interlock, and points at the single source of truth (code,
 skill, or doc) for each concern. It does **not** enumerate every
 module — read the CHANGELOG for chronology and the package docstrings
@@ -41,7 +41,7 @@ Bench and bridge are peers of agents, not replacements. They sit at
 the same layer because they both *call into* core + topologies
 through the harness and tool surfaces, without reimplementing them.
 
-## The six packages
+## The packages
 
 ### `core/` — PDK-agnostic evaluation foundation
 
@@ -141,18 +141,33 @@ zero or more reference-file paths. The registry is populated at
 import time; `get_skill(...)` / `list_skills(prefix=...)` are the
 public API.
 
-Twenty-three skills are registered today, grouped by prefix:
+Thirty-one skills are registered today, grouped by prefix:
 
-- `analog.*` (11): `explorer`, `corner_validator`, `orchestrator`,
-  `adc_metrics`, `behavioral_primitives`, `gmid_sizing`,
+- `analog.*` (16): `adc_metrics`, `behavioral_primitives`,
+  `corner_validator`, `custom_composition`, `explorer`,
+  `gmid_sizing`, `hierarchical_dse`, `idea_to_topology`,
+  `miller_ota_design`, `orchestrator`, `ron_gm_sizing`,
   `sar_adc_design`, plus the four roles under
   `analog.roles.{librarian,architect,designer,verifier}`.
-- `digital.*` (5): `project_manager`, `verification`, `synthesis`,
-  `physical`, `signoff`.
-- `flow.*` (4): `runner`, `drc_checker`, `drc_fixer`, `lvs_checker`.
-- `tools.*` (3 legacy): `evaluate_miller_ota`, `gmid_lookup`,
-  `simulate_miller_ota`. Kept as legacy tool specs; new topologies
-  should expose `topology.tool_spec()` instead.
+- `digital.*` (8): `project_manager`, `verification`, `synthesis`,
+  `physical`, `signoff`, `cocotb_testbench`, `critique_sim_failure`,
+  `critique_synth_lint`.
+- `flow.*` (7): `runner`, `drc_checker`, `drc_fixer`, `lvs_checker`,
+  `rtl2gds_gf180_docker`, `analog_signoff_gf180_docker`,
+  `macro_integration_gf180_docker`.
+
+Tool specs are not skills: each topology exposes its own through
+`topology.tool_spec()`.
+
+### `mcp/` — Model Context Protocol server
+
+`src/eda_agents/mcp/server.py` is a FastMCP server installed as the
+`eda-mcp` console script (extra `mcp`). It registers nine tools:
+`list_skills`, `render_skill`, `describe_topology`,
+`evaluate_topology`, `run_autoresearch`, `recommend_topology`,
+`explore_custom_topology`, `generate_analog_layout` and
+`generate_rtl_draft`. It speaks stdio by default and has no
+authentication. `docs/mcp_public_install.md` covers client setup.
 
 ### `bench/` — benchmark suite (new in S9)
 
@@ -171,9 +186,10 @@ adapters are registered in `HARNESS_DISPATCH`:
   execution from YAMLs). Seed tasks use this to point at
   `analytical_miller_design`, `run_pre_sim_gate_on_inline_netlist`,
   and `run_gl_sim_post_synth`.
-- `digital_autoresearch` — **stub** (S10). Returns
-  `BenchStatus.SKIPPED` with an explicit `NOT_IMPLEMENTED` note.
-  The real adapter ships in S9-gap-closure.
+- `digital_autoresearch` — runs `DigitalAutoresearchRunner` on a
+  `GenericDesign`. With a mock-metrics fixture it runs fully offline;
+  the live variant needs LibreLane, a PDK and an LLM key and is
+  skipped otherwise.
 
 `runner.py` implements audit-downgrade logic explicitly: an adapter
 PASS with any failing scoring criterion is downgraded to
@@ -268,7 +284,6 @@ or to unblock a session if a newly added skill regresses Pass@1.
 
 ## Pointers for deeper reading
 
-- **Plan master**: `~/.claude/plans/concurrent-beaming-bear.md`.
 - **License matrix**: `docs/license_status.md` — what can be
   reused verbatim and what must be reimplemented.
 - **Upstream blockers**:

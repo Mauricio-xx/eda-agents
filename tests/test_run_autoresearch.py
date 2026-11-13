@@ -12,8 +12,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from eda_agents.agents.phase_results import AutoresearchResult
-from eda_agents.mcp.server import _sanitize_for_json, run_autoresearch
+pytest.importorskip("fastmcp")
+
+from eda_agents.agents.phase_results import AutoresearchResult  # noqa: E402
+from eda_agents.mcp.server import _sanitize_for_json, run_autoresearch  # noqa: E402
 
 
 class TestSanitizeForJson:
@@ -36,6 +38,7 @@ class TestSanitizeForJson:
         assert out == {"top": [{"gain": 42.0}, {"power": 0.1}]}
 
 
+@pytest.mark.usefixtures("pdk_root_env")
 class TestRunAutoresearchValidation:
     @pytest.mark.asyncio
     async def test_unknown_topology_returns_error(self):
@@ -109,6 +112,7 @@ class TestRunAutoresearchValidation:
         assert "FAKE_KEY" in result["error"]
 
 
+@pytest.mark.usefixtures("pdk_root_env")
 class TestRunAutoresearchExecution:
     @pytest.mark.asyncio
     async def test_serialises_result_shape(self, tmp_path):

@@ -24,6 +24,7 @@ from eda_agents.agents.claude_code_harness import HarnessResult
 from eda_agents.core.spice_runner import SpiceResult
 from eda_agents.core.topology import CircuitTopology
 from eda_agents.topologies.ota_gf180 import GF180OTATopology
+from tests.conftest import requires_litellm
 
 
 # ---------------------------------------------------------------------------
@@ -335,6 +336,7 @@ class TestCostAccumulation:
         assert result.total_evals == 3
         assert result.cost_usd == pytest.approx(0.45, rel=1e-9)
 
+    @requires_litellm
     @pytest.mark.anyio
     async def test_cost_usd_is_none_on_litellm_backend(self, tmp_path):
         """LiteLLM-backed runs report tokens, not dollars."""

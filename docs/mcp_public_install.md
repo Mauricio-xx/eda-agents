@@ -123,8 +123,8 @@ out of git.
 
 #### Curated subagents
 
-`eda-init` drops five Claude Code subagents under `.claude/agents/`
-(and five opencode twins under `.opencode/agent/`) that front-load
+`eda-init` drops six Claude Code subagents under `.claude/agents/`
+(and six opencode twins under `.opencode/agent/`) that front-load
 the eda-agents MCP into focused workflows:
 
 | Agent | Purpose |
@@ -134,6 +134,7 @@ the eda-agents MCP into focused workflows:
 | `digital-testbench-author` | Write cocotb testbenches that survive RTL / gate-level / post-PnR-SDF. |
 | `gf180-docker-digital` | Drive an end-to-end GF180MCU RTL-to-GDS flow inside the `hpretl/iic-osic-tools` container via `docker exec`. Needs `Bash`. |
 | `gf180-docker-analog` | Drive GF180 analog signoff (KLayout DRC + Magic/Netgen LVS) inside the same container. Needs `Bash`. |
+| `gf180-idea-to-chip` | Orchestrate the digital idea-to-chip pipeline on GF180MCU (RTL, cocotb verification, LibreLane hardening, signoff) inside the same container. Needs `Bash`. |
 
 The agents inherit the full tool surface (built-ins + every MCP
 server you have configured) so they stay useful in interactive chat

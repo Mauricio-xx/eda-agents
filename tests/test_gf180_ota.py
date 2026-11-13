@@ -146,7 +146,7 @@ class TestGF180OTASpice:
         valid, violations = topo.check_validity(result, sizing)
 
         # Record actual values for diagnostics
-        print(f"Default design SPICE results:")
+        print("Default design SPICE results:")
         print(f"  Adc = {result.Adc_dB:.1f} dB")
         print(f"  GBW = {result.GBW_Hz:.0f} Hz ({result.GBW_Hz/1e3:.1f} kHz)")
         print(f"  PM  = {result.PM_deg:.1f} deg")

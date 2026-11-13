@@ -16,6 +16,7 @@ from eda_agents.agents.autoresearch_runner import AutoresearchRunner
 from eda_agents.agents.phase_results import AutoresearchResult
 from eda_agents.core.spice_runner import SpiceResult
 from eda_agents.topologies.ota_gf180 import GF180OTATopology
+from tests.conftest import requires_litellm
 
 
 # ---------------------------------------------------------------------------
@@ -648,6 +649,7 @@ class TestLLMFallback:
 
 
 class TestTokenAccumulation:
+    @requires_litellm
     @pytest.mark.anyio
     async def test_tokens_accumulated_from_litellm_usage(self, runner, tmp_path):
         """total_tokens should sum response.usage.total_tokens across calls."""
@@ -675,6 +677,7 @@ class TestTokenAccumulation:
 
             assert result.total_tokens == 123 * 3
 
+    @requires_litellm
     @pytest.mark.anyio
     async def test_tokens_zero_when_usage_missing(self, runner, tmp_path):
         """Backends that omit .usage should leave total_tokens at 0."""
@@ -701,6 +704,7 @@ class TestTokenAccumulation:
 
             assert result.total_tokens == 0
 
+    @requires_litellm
     @pytest.mark.anyio
     async def test_tokens_reset_between_runs(self, runner, tmp_path):
         """A second run() invocation must not carry tokens from the first."""

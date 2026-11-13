@@ -876,7 +876,7 @@ def _parse_llm_json(text: str) -> dict[str, float]:
     return data
 
 
-from eda_agents.agents.openrouter_client import call_openrouter as _call_openrouter
+from eda_agents.agents.openrouter_client import call_openrouter as _call_openrouter  # noqa: E402
 
 
 def llm_spec_to_sizing_adapter(

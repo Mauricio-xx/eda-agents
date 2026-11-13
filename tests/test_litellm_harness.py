@@ -10,6 +10,7 @@ import pytest
 from eda_agents.agents.claude_code_harness import HarnessResult
 from eda_agents.agents.litellm_harness import LiteLLMAgentHarness, _safe_resolve
 from eda_agents.agents.opencode_harness import OpenCodeHarness
+from tests.conftest import requires_litellm
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +140,7 @@ def _make_tool_call(name: str, args: dict, call_id: str = "call_001"):
 
 
 class TestAgentLoop:
+    @requires_litellm
     @pytest.mark.asyncio
     async def test_no_tool_calls_returns_success(self, tmp_path):
         final_resp = _make_completion_response("All done.")
@@ -156,6 +158,7 @@ class TestAgentLoop:
         assert result.result_text == "All done."
         assert result.num_turns == 1
 
+    @requires_litellm
     @pytest.mark.asyncio
     async def test_tool_call_read_file(self, tmp_path):
         (tmp_path / "design.v").write_text("module top(); endmodule")
@@ -180,6 +183,7 @@ class TestAgentLoop:
         assert result.success is True
         assert result.num_turns == 2
 
+    @requires_litellm
     @pytest.mark.asyncio
     async def test_budget_exceeded(self, tmp_path):
         resp = _make_completion_response(None, tool_calls=[_make_tool_call("list_dir", {})])
@@ -199,6 +203,7 @@ class TestAgentLoop:
         assert result.success is False
         assert "Budget exceeded" in (result.error or "")
 
+    @requires_litellm
     @pytest.mark.asyncio
     async def test_litellm_exception_returns_failure(self, tmp_path):
         with patch(
@@ -311,6 +316,7 @@ class TestOpenCodeHarness:
 class TestHarnessResultCompat:
     """Both harnesses must return the same HarnessResult type."""
 
+    @requires_litellm
     @pytest.mark.asyncio
     async def test_litellm_harness_result_is_harness_result(self, tmp_path):
         with (

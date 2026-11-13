@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import requires_adk
+
 EXAMPLE_09 = Path(__file__).resolve().parents[1] / "examples" / "09_rtl2gds_digital.py"
 EXAMPLE_10 = Path(__file__).resolve().parents[1] / "examples" / "10_digital_autoresearch.py"
 PYTHON = sys.executable
@@ -33,7 +35,7 @@ class TestExample09DryRun:
     def test_dry_run_cc_cli(self):
         """CC CLI dry-run completes in under 5s."""
         result = subprocess.run(
-            [PYTHON, str(EXAMPLE_09), "--dry-run", "--backend", "cc_cli"],
+            [PYTHON, str(EXAMPLE_09), "--dry-run", "--backend", "cc_cli", "--force"],
             capture_output=True, text=True, timeout=10,
         )
         assert result.returncode == 0, f"stderr: {result.stderr}"
@@ -53,6 +55,7 @@ class TestExample09DryRun:
         assert "PASS" in result.stdout
         assert f"PDK:       {pdk}" in result.stdout
 
+    @requires_adk
     def test_dry_run_adk(self):
         """ADK dry-run completes in under 10s."""
         result = subprocess.run(
@@ -78,7 +81,7 @@ class TestExample09DryRun:
     def test_dry_run_output_format(self):
         """Dry-run prints design info and model."""
         result = subprocess.run(
-            [PYTHON, str(EXAMPLE_09), "--dry-run", "--backend", "cc_cli"],
+            [PYTHON, str(EXAMPLE_09), "--dry-run", "--backend", "cc_cli", "--force"],
             capture_output=True, text=True, timeout=10,
         )
         assert "Design:" in result.stdout
@@ -88,6 +91,7 @@ class TestExample09DryRun:
 class TestProjectManagerDryRun:
     """Test ProjectManager directly (no subprocess)."""
 
+    @requires_adk
     def test_adk_dry_run_returns_agents(self):
         from eda_agents.agents.digital_adk_agents import ProjectManager
         from eda_agents.core.designs.fazyrv_hachure import FazyRvHachureDesign
@@ -256,6 +260,16 @@ class TestIntegrationFazyrv:
     These require nix-shell + LibreLane installed. Run with:
         pytest -m librelane tests/test_digital_e2e.py
     """
+
+    @pytest.fixture(autouse=True)
+    def _require_clone(self):
+        from eda_agents.core.designs.fazyrv_hachure import FazyRvHachureDesign
+
+        if not FazyRvHachureDesign().project_dir().is_dir():
+            pytest.skip(
+                "fazyrv-hachure clone not found "
+                "(scripts/fetch_digital_designs.sh)"
+            )
 
     def test_fazyrv_validate_clone(self):
         from eda_agents.core.designs.fazyrv_hachure import FazyRvHachureDesign

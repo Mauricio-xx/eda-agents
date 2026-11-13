@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from eda_agents.agents.llm_client import call_llm, validate_model_env
+from tests.conftest import requires_litellm
 
 
 def _mock_completion_response(content: str, total_tokens: int = 42) -> MagicMock:
@@ -24,6 +25,7 @@ def _mock_completion_response(content: str, total_tokens: int = 42) -> MagicMock
 
 
 class TestValidateModelEnv:
+    @requires_litellm
     def test_returns_normalised_shape(self):
         with patch(
             "litellm.validate_environment",
@@ -32,6 +34,7 @@ class TestValidateModelEnv:
             info = validate_model_env("openrouter/google/gemini-3-flash-preview")
         assert info == {"env_ok": True, "missing_keys": []}
 
+    @requires_litellm
     def test_missing_keys_sets_env_ok_false(self):
         with patch(
             "litellm.validate_environment",
@@ -40,6 +43,7 @@ class TestValidateModelEnv:
             info = validate_model_env("zai/glm-4.6")
         assert info == {"env_ok": False, "missing_keys": ["ZAI_API_KEY"]}
 
+    @requires_litellm
     def test_missing_keys_defeats_env_ok_even_if_flag_true(self):
         # LiteLLM sometimes reports keys_in_environment=True alongside a
         # non-empty missing_keys list (e.g. optional base-url). Treat any
@@ -54,6 +58,7 @@ class TestValidateModelEnv:
 
 
 class TestCallLLM:
+    @requires_litellm
     def test_success_returns_content_and_tokens(self):
         resp = _mock_completion_response("hello", total_tokens=123)
         with (
@@ -78,6 +83,7 @@ class TestCallLLM:
         assert kwargs["temperature"] == 0.0
         assert kwargs["max_tokens"] == 1024
 
+    @requires_litellm
     def test_missing_env_raises(self):
         with patch(
             "litellm.validate_environment",
@@ -88,6 +94,7 @@ class TestCallLLM:
                     model="zai/glm-4.6", system_prompt="s", user_prompt="u"
                 )
 
+    @requires_litellm
     def test_completion_exception_funnels_to_runtimeerror(self):
         with (
             patch(
@@ -106,6 +113,7 @@ class TestCallLLM:
                     user_prompt="u",
                 )
 
+    @requires_litellm
     def test_empty_content_raises(self):
         resp = _mock_completion_response("")
         with (
@@ -118,6 +126,7 @@ class TestCallLLM:
             with pytest.raises(RuntimeError, match="empty content"):
                 call_llm(model="openrouter/x/y", system_prompt="s", user_prompt="u")
 
+    @requires_litellm
     def test_missing_usage_returns_zero_tokens(self):
         resp = _mock_completion_response("ok", total_tokens=0)
         resp.usage = None
@@ -134,6 +143,7 @@ class TestCallLLM:
         assert content == "ok"
         assert tokens == 0
 
+    @requires_litellm
     def test_custom_temperature_and_max_tokens_propagate(self):
         resp = _mock_completion_response("ok")
         with (

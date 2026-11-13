@@ -132,7 +132,7 @@ def build_cc_spice_system_prompt(
             f'using MCP tool context_add_knowledge with key "design-point-{agent_id}-<index>". '
             f'The content MUST be the raw JSON string returned by the script.\n\n'
         )
-        aux_note = f'- gmid_lookup is FREE (no budget cost). Use it to pre-screen before SPICE.\n'
+        aux_note = '- gmid_lookup is FREE (no budget cost). Use it to pre-screen before SPICE.\n'
     else:
         workflow = (
             f'WORKFLOW:\n'
@@ -570,7 +570,7 @@ import os
 import sys
 import tempfile
 
-sys.path.insert(0, {{src_dir!r}})
+sys.path.insert(0, {src_dir!r})
 
 from eda_agents.topologies.ota_miller import MillerOTATopology
 from eda_agents.core.spice_runner import SpiceRunner
@@ -678,7 +678,7 @@ import os
 import sys
 import tempfile
 
-sys.path.insert(0, {{src_dir!r}})
+sys.path.insert(0, {src_dir!r})
 
 from eda_agents.topologies.ota_analogacademy import AnalogAcademyOTATopology
 from eda_agents.core.spice_runner import SpiceRunner
@@ -791,7 +791,7 @@ Returns JSON with gm_gds (intrinsic gain), gm_gds_dB, id_w_A_m, fT_Hz, etc.
 import json
 import sys
 
-sys.path.insert(0, {{src_dir!r}})
+sys.path.insert(0, {src_dir!r})
 
 from eda_agents.core.gmid_lookup import GmIdLookup
 

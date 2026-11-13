@@ -1,120 +1,85 @@
 # eda-agents
 
-Experimental, open-source framework for LLM-assisted analog and
-digital design against open PDKs (IHP SG13G2 and GF180MCU), with
-SPICE-in-the-loop validation, a skill registry, a benchmark suite,
-and a Virtuoso-bridge-shaped orchestrator for the open-source EDA
-tool chain. Apache-2.0.
+[![CI](https://github.com/Mauricio-xx/eda-agents/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Mauricio-xx/eda-agents/actions/workflows/ci.yml)
+[![bench](https://github.com/Mauricio-xx/eda-agents/actions/workflows/bench.yml/badge.svg?branch=main)](https://github.com/Mauricio-xx/eda-agents/actions/workflows/bench.yml)
 
-Status: **experimental, with a visible roadmap**. The bench reports
-**16/16 PASS (Pass@1 = 100%)** after Session S9-gap-closure
-(`feat/s9-gap-closure`). Upstream blockers and deferred follow-ons
-are listed under
-[Known limitations / roadmap](#known-limitations--roadmap); none of
-them are hidden as generic "future work".
+Experimental, open-source framework for LLM-assisted analog and digital design against open PDKs (IHP SG13G2 and GF180MCU). It combines SPICE-in-the-loop evaluation, a skill registry, an MCP server, several LLM backends, a benchmark suite and a bridge to the open-source EDA tool chain. Apache-2.0.
+
+Status: **experimental**. The bench has 36 tasks covering analog sizing, a SAR ADC, digital RTL-to-GDS on both PDKs and natural-language-to-chip runs. Tasks whose tool chain, PDK or credentials are missing are reported as skipped, never counted as passes. What does not work yet is listed under [Known limitations](#known-limitations).
 
 ## Features
 
-- `CircuitTopology` / `SystemTopology` ABCs with a clean evaluation
-  pipeline: `params -> sizing -> netlist -> SpiceRunner -> FoM`.
-- Topologies for Miller OTA (IHP + GF180), AnalogAcademy OTA, GF180
-  OTA, StrongARM comparator, 7-bit SAR (transistor +
-  `SAR7BitTopology`, behavioural + `SAR7BitBehavioralTopology`; old
-  "8-bit" names live as deprecation shims), and an 11-bit SAR
-  flagged as a `DESIGN_REFERENCE`.
-- ngspice integration with async support, measurement parsing, and
-  optional OSDI / XSPICE code-model preload.
-- gm/ID LUT reader with analytical sizing helpers (`size`,
-  `size_from_ft`, `size_from_gmro`, `operating_range`).
-- A skill registry (23 skills across analog / digital / flow /
-  tools) that callers use through `get_skill(...)` and
-  `list_skills(prefix=...)`. Topologies / digital designs declare
-  relevant skills through the `relevant_skills()` extension point;
-  autoresearch and Claude Code CLI runners inject the rendered text
-  into the system prompt (see `docs/architecture.md` → "Skill
-  injection contract").
-- The Session 6 analog 4-role DAG
-  (Librarian / Architect / Designer / Verifier) with pre-simulation
-  gates (floating nodes, bulk connections, mirror ratio, bias
-  source) and a Pydantic v2 iteration log.
-- A benchmark suite (`bench/` + `scripts/run_bench.py`) with
-  Pydantic + JSON-schema models, adapter dispatch, and PASS ->
-  FAIL_AUDIT downgrade discipline.
-- An Apache-2.0 bridge (`bridge/` + `eda-bridge` CLI) with a UUID
-  job registry, OpenSSH wrapper, and `xschem` / KLayout operation
-  helpers.
-- Digital RTL-to-GDS support via LibreLane v3 with ADK and
-  Claude Code CLI backends, plus greedy config exploration.
+- `CircuitTopology` / `SystemTopology` ABCs with a single evaluation pipeline: `params -> sizing -> netlist -> SpiceRunner -> FoM`.
+- Analog topologies: Miller OTA (IHP and GF180), AnalogAcademy OTA, GF180 OTA, StrongARM comparator, a 7-bit SAR ADC (transistor-level `SAR7BitTopology` and behavioural `SAR7BitBehavioralTopology`), an 11-bit SAR flagged as a `DESIGN_REFERENCE`, and inverter-based amplifiers on IHP and GF180 sized with the Ron/gm method.
+- ngspice integration with async support, measurement parsing, and optional OSDI (Verilog-A) and XSPICE code-model preload.
+- gm/ID LUT reader with analytical sizing helpers (`size`, `size_from_ft`, `size_from_gmro`, `operating_range`). GF180 LUTs download on first use.
+- Greedy autoresearch loops for analog sizing and for digital flows. The digital loop can tune the flow config, the RTL, or both, and proposals can come from LiteLLM, the Claude Code CLI or OpenCode.
+- Hierarchical design-space exploration (primitives, macromodels and a symbolic MNA solver) that returns a Pareto front on IHP or GF180.
+- Idea-to-chip: a natural-language spec becomes RTL plus a testbench (iverilog or cocotb), a critique loop feeds lint and simulation failures back to the model, and LibreLane v3 hardens the result to GDS.
+- Digital RTL-to-GDS via LibreLane v3 on GF180 and IHP SG13G2, driven by a Google ADK multi-agent hierarchy or the Claude Code CLI, with cocotb gate-level simulation after the flow. `GenericDesign` derives a design wrapper from a LibreLane config file.
+- Analog layout and verification: gLayout generation of primitives and composites on GF180 and SG13G2. On GF180 there are also KLayout DRC/LVS and Magic PEX runners and post-layout validation with pre/post deltas.
+- A skill registry with 31 skills across `analog.*`, `digital.*` and `flow.*`, used through `get_skill(...)` and `list_skills(prefix=...)`. Topologies and digital designs declare the skills they need through `relevant_skills()`, and the runners inject the rendered text into the system prompt.
+- An MCP server (`eda-mcp`) with 9 tools, plus `eda-init` to set up a project for Claude Code or OpenCode with the MCP config and a set of ready-made subagents.
+- An analog 4-role DAG (Librarian / Architect / Designer / Verifier), and a set of pre-simulation netlist checks (floating nodes, bulk connections, mirror ratio, bias source, testbench pins, Vds polarity).
+- A benchmark suite (`bench/` + `scripts/run_bench.py`) with Pydantic and JSON-schema task models, adapter dispatch, and a rule that an adapter PASS is downgraded to `FAIL_AUDIT` when a scoring criterion fails.
+- A bridge (`bridge/` + `eda-bridge` CLI) with a UUID job registry, an OpenSSH wrapper, and `xschem` / KLayout operation helpers.
 
 ## Install
 
 ```bash
-pip install -e ".[dev,adc]"           # main venv with bench + ADC metrics
-pip install -e ".[agents]"            # + openai (OpenAI-based harnesses)
-pip install -e ".[adk]"               # + google-adk + litellm
-pip install -e ".[coordination]"      # + context-teleport (optional MCP)
+git clone --recurse-submodules https://github.com/Mauricio-xx/eda-agents.git
+cd eda-agents
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev,adc]"       # core + pytest/ruff + adctoolbox for ADC metrics
 ```
 
-The repo vendors upstream LibreLane project templates under
-`external/` as git submodules (parity-check fodder, not runtime
-inputs):
+Optional extras, combine as needed (for example `pip install -e ".[dev,adc,mcp]"`):
 
 ```bash
-git clone --recurse-submodules <this-repo>
-# or, after an existing clone:
-git submodule update --init --recursive
+pip install -e ".[mcp]"           # fastmcp + litellm + httpx: MCP server, LiteLLM-backed loops, GF180 LUT download
+pip install -e ".[adk]"           # google-adk + litellm + google-generativeai: Google ADK harnesses
+pip install -e ".[agents]"        # openai: OpenRouter chat client
+pip install -e ".[coordination]"  # context-teleport: optional multi-agent coordination
+pip install -e ".[plots]"         # matplotlib: autoresearch plots
 ```
+
+Anything that calls an LLM through LiteLLM (autoresearch, the LiteLLM harness) needs `litellm`, which comes with either `mcp` or `adk`. Tests that depend on an extra you did not install are skipped.
+
+The install puts three commands on your PATH: `eda-mcp` (the MCP server), `eda-init` (writes MCP and agent config files into a project directory) and `eda-bridge` (job registry and tool bridge CLI).
+
+If you cloned without `--recurse-submodules`, run `git submodule update --init --recursive`. The submodules under `external/` are upstream LibreLane project templates used only by the template parity check, not at runtime.
 
 ### Requirements
 
-- Python >= 3.11, Pydantic v2 (already pinned).
-- `ngspice >= 38`, `openvaf 23.5.0+`, `yosys >= 0.62`, `magic`,
-  `klayout`, `netgen`, `openroad` on PATH for the stages that use
-  them. A second `.venv-glayout` is expected for the gLayout
-  sub-pipeline (see `CLAUDE.md` for layout).
-- `PDK_ROOT` pointing at an IHP SG13G2 install (or a GF180MCU
-  install, with `EDA_AGENTS_PDK=gf180mcu`). `resolve_pdk_root()`
-  validates that the path contains the right model files.
+- Python >= 3.11.
+- On PATH for the stages that use them: `ngspice >= 38`, `yosys >= 0.62`, `magic`, `klayout`, `netgen`. `openvaf` is needed for the Verilog-A pipeline, and `openroad` is normally reached through LibreLane. gLayout runs from a separate `.venv-glayout`.
+- `PDK_ROOT` pointing at an IHP SG13G2 install, or at a GF180MCU install with `EDA_AGENTS_PDK=gf180mcu`.
 
-Run `scripts/check_tools.sh` to verify everything the framework
-expects is on PATH.
+Run `scripts/check_tools.sh` to see which tools and PDKs are available on your machine.
 
 ## Quick start
 
-### 1. Bench smoke (no LLM, tool dependencies skipped gracefully)
+### 1. Bench smoke
 
 ```bash
-PYTHONPATH=src python scripts/run_bench.py --run-id quick_smoke
-# 16/16 PASS, Pass@1 = 100% when OPENROUTER_API_KEY is sourced.
-# Without the key: 15 PASS + 1 SKIPPED (spec_llm_miller_ota_ihp).
+python scripts/run_bench.py --no-real-tools --run-id quick_smoke   # no EDA tools needed, same as CI
+python scripts/run_bench.py --list-tasks                           # see every task
+python scripts/run_bench.py --run-id full                          # everything available on this host
 ```
 
-Local runs write under `bench/results/<run_id>/` plus a
-`bench/results/latest.md` pointer. Only
-`bench/results/s9_initial_smoke/` (frozen S9 baseline),
-`bench/results/gap_closure_llm_proof/` (LLM live-run evidence), and
-`bench/results/gap_closure_parallel/` (workers>1 proof) are tracked
-in git — see [`bench/results/README.md`](bench/results/README.md).
+Results go to `bench/results/<run_id>/` with a `bench/results/latest.md` pointer. In a full run each task is skipped when its requirements are missing: the live idea-to-chip tasks (`idea_to_digital_*_live.yaml`) need the Claude Code CLI, `EDA_AGENTS_ALLOW_DANGEROUS=1`, LibreLane and the PDK, and the other LLM tasks need `OPENROUTER_API_KEY`. Use `--task <id>` or `--family <name>` to run a subset.
 
-### 2. Bridge end-to-end demo (IHP SG13G2)
+### 2. Bridge end-to-end demo
 
 ```bash
-PYTHONPATH=src python examples/14_bridge_e2e.py --pdk ihp_sg13g2
-# Audit verdict: PASS. Adc = 32.5 dB, GBW = 1.39 MHz.
+python examples/14_bridge_e2e.py --pdk ihp_sg13g2   # or --pdk gf180mcu
 ```
-
-The same demo on GF180MCU works end-to-end since S9-gap-closure
-(gap #1) fixed the `miller_ota_gf180_process_params` blocker.
 
 ### 3. Analog 4-role DAG dry-run (no tools, no model)
 
 ```bash
-PYTHONPATH=src python examples/12_analog_roles_demo.py
+python examples/12_analog_roles_demo.py
 ```
-
-Exercises the full Session 6 DAG with the `DryRunExecutor`. Used as
-the "proof the harness is wired right" task in the bench
-(`spec_analog_roles_dryrun_dag`).
 
 ### Programmatic entry points
 
@@ -130,33 +95,55 @@ result = designer.analytical_design(
 print(result.summary())
 ```
 
-See `examples/` for the full suite (autoresearch, digital
-RTL-to-GDS, post-layout validation, bench-driven sweeps).
+See `examples/` for the rest: autoresearch, digital RTL-to-GDS, post-layout validation, idea-to-chip, hierarchical exploration and the MCP smoke test.
+
+## MCP server
+
+eda-agents ships a Model Context Protocol server, so an MCP client (Claude Code, OpenCode, Cursor, Zed) can use its skills, topology evaluation and design flows without writing Python.
+
+```bash
+pip install "git+https://github.com/Mauricio-xx/eda-agents.git#egg=eda-agents[mcp]"
+eda-init        # run inside your project directory
+```
+
+`eda-init` writes `.mcp.json` (Claude Code), `opencode.json` (OpenCode) and subagent definitions under `.claude/agents/` and `.opencode/agent/`. Existing files are kept unless you pass `--force`. Both clients then start `eda-mcp` on their own over stdio. To register it by hand in Claude Code: `claude mcp add eda-agents -- eda-mcp`.
+
+| Tool | What it does |
+|------|--------------|
+| `list_skills` | List registered skill names, optionally filtered by prefix. |
+| `render_skill` | Render a skill's prompt, optionally bound to a topology. |
+| `describe_topology` | Return a topology's design space, defaults, target specs and FoM formula. |
+| `evaluate_topology` | Run one SPICE evaluation of a topology at the given parameters. |
+| `run_autoresearch` | Run the greedy sizing loop on a topology and return the best designs. |
+| `recommend_topology` | Map a natural-language analog idea to a registered topology. |
+| `explore_custom_topology` | Propose, size, simulate and critique an analog block that has no registered topology. |
+| `generate_analog_layout` | Generate a GDS for a gLayout primitive or composite on GF180 or SG13G2. |
+| `generate_rtl_draft` | Run the natural-language to RTL to GDS digital flow. Dry run by default. |
+
+The tools that run SPICE or a physical flow need `PDK_ROOT` and the matching EDA tools. The LLM-backed ones need a provider key such as `OPENROUTER_API_KEY`, and a real `generate_rtl_draft` run needs the `claude` CLI. The server has no authentication, so keep it local. See [`docs/mcp_public_install.md`](docs/mcp_public_install.md) for the full setup guide, including a one-command installer for a fresh Ubuntu machine.
 
 ## Architecture
 
-`eda_agents` has six top-level packages: `core/`, `topologies/`,
-`agents/`, `skills/`, `bench/`, and `bridge/`. Read
-[`docs/architecture.md`](docs/architecture.md) for the walkthrough,
-the ASCII layering diagram, and pointers to the relevant abstractions
-(`CircuitTopology`, `PdkConfig`, `Skill`, `HARNESS_DISPATCH`,
-`JobRegistry`).
+The code lives under `src/eda_agents/`:
+
+- `core/`: the PDK-agnostic foundation. `CircuitTopology` and `SystemTopology` ABCs, the `PdkConfig` registry, `SpiceRunner`, gm/ID lookup, the KLayout / Magic / gLayout / LibreLane runners, and the digital flow stages and design wrappers.
+- `topologies/`: the concrete circuits and a name-based resolver.
+- `agents/`: LLM-facing orchestration. Autoresearch loops, the Google ADK, Claude Code CLI, LiteLLM and OpenCode harnesses, the analog role DAG, the idea-to-RTL and analog composition loops, and post-layout validation.
+- `skills/`: the `Skill` abstraction and its registry.
+- `mcp/`: the server behind the `eda-mcp` command.
+- `bench/`: benchmark task and result models, the adapters registered in `HARNESS_DISPATCH`, and the runner.
+- `bridge/`: `JobRegistry`, SSH execution and the `eda-bridge` CLI.
+- `specs/`, `checks/`, `parsers/`, `tools/`, `veriloga/`, `utils/`: YAML block specs, pre-simulation gates, DRC / LVS / Liberty / LibreLane parsers, agent-callable tool wrappers, Verilog-A and XSPICE behavioural primitives, and shared helpers.
+
+[`docs/architecture.md`](docs/architecture.md) has a longer walkthrough and the layering diagram.
 
 ## Skills
 
-The `eda_agents.skills` registry ships 23 skills, grouped by prefix:
+The `eda_agents.skills` registry ships 31 skills, grouped by prefix:
 
-- `analog.*`: `explorer`, `corner_validator`, `orchestrator`,
-  `adc_metrics`, `behavioral_primitives`, `gmid_sizing`,
-  `sar_adc_design`, plus the four DAG roles
-  (`analog.roles.librarian`, `analog.roles.architect`,
-  `analog.roles.designer`, `analog.roles.verifier`).
-- `digital.*`: `project_manager`, `verification`, `synthesis`,
-  `physical`, `signoff`.
-- `flow.*`: `runner`, `drc_checker`, `drc_fixer`, `lvs_checker`.
-- `tools.*`: legacy tool specs kept for backward compatibility
-  (`evaluate_miller_ota`, `simulate_miller_ota`, `gmid_lookup`).
-  New topologies should expose `topology.tool_spec()` instead.
+- `analog.*` (16): `adc_metrics`, `behavioral_primitives`, `corner_validator`, `custom_composition`, `explorer`, `gmid_sizing`, `hierarchical_dse`, `idea_to_topology`, `miller_ota_design`, `orchestrator`, `ron_gm_sizing`, `sar_adc_design`, plus the four DAG roles (`analog.roles.librarian`, `analog.roles.architect`, `analog.roles.designer`, `analog.roles.verifier`).
+- `digital.*` (8): `project_manager`, `verification`, `synthesis`, `physical`, `signoff`, `cocotb_testbench`, `critique_sim_failure`, `critique_synth_lint`.
+- `flow.*` (7): `runner`, `drc_checker`, `drc_fixer`, `lvs_checker`, `rtl2gds_gf180_docker`, `analog_signoff_gf180_docker`, `macro_integration_gf180_docker`.
 
 ```python
 from eda_agents.skills import list_skills, get_skill
@@ -165,34 +152,25 @@ for s in list_skills(prefix="analog."):
     print(s.name, "-", s.description.splitlines()[0])
 
 skill = get_skill("analog.gmid_sizing")
-prompt = skill.prompt_template()
+prompt = skill.render()
 ```
+
+Some skills take arguments, such as a topology or a design. Tool specs are not skills: each topology exposes its own through `topology.tool_spec()`.
 
 ## Bench
 
-The benchmark is built around Pydantic v2 frozen models mirrored
-against `bench/schemas/{task,result}.json`. Key design decisions:
+The benchmark is built around Pydantic v2 models mirrored against `bench/schemas/{task,result}.json`. Key design decisions:
 
-- **Audit discipline**: `execute_task` downgrades adapter PASS to
-  `FAIL_AUDIT` whenever any scoring criterion fails. The bench never
-  paints over a failing threshold.
-- **Restricted callables**: `inputs.callable` dotted paths resolve
-  only inside `eda_agents.bench.adapters`, so task YAMLs cannot
-  execute arbitrary code.
-- **Skip, don't fake**: the GL sim adapter returns
-  `BenchStatus.FAIL_INFRA` (mapped to `SKIPPED`) when no hardened
-  LibreLane run is available, rather than inventing a PASS.
-- **Session 9 smoke**: 9/11 PASS, Pass@1 = 90% *excluding the one
-  deliberate FAIL_SIM* documented in
-  [`docs/upstream_issues/miller_ota_gf180_process_params.md`](docs/upstream_issues/miller_ota_gf180_process_params.md).
-  The report is frozen at
-  [`bench/results/s9_initial_smoke/report.md`](bench/results/s9_initial_smoke/report.md).
+- **Audit discipline**: an adapter PASS is downgraded to `FAIL_AUDIT` whenever a requested scoring criterion fails.
+- **Restricted callables**: `inputs.callable` dotted paths resolve only inside `eda_agents.bench.adapters`, so task YAMLs cannot execute arbitrary code.
+- **Skip, don't fake**: an adapter that cannot run (missing tools, PDK or credentials, or invalid task inputs) returns `BenchStatus.FAIL_INFRA`, which the summary counts as skipped rather than as a pass.
 
-Seed tasks live in `bench/tasks/{spec-to-topology,bugfix,tb-generation,end-to-end}/`.
-Write new ones as YAML:
+A curated set of evidence runs is committed under `bench/results/`. The last committed run of the whole suite, [`bench/results/s9_residual_final_evidence/report.md`](bench/results/s9_residual_final_evidence/report.md), passed the 17 tasks that existed at that point. Of the tasks added since then, the live idea-to-chip ones have per-task evidence in other subdirectories of `bench/results/`, and the dry-run ones are exercised by CI. There is no committed single run covering all 36 tasks.
+
+Tasks live in `bench/tasks/{spec-to-topology,bugfix,tb-generation,end-to-end}/`. Write new ones as YAML:
 
 ```yaml
-id: my_new_task
+id: spec_my_new_task       # the id prefix (spec_, bugfix_, tb_, e2e_) sets the report group
 family: spec-to-topology
 category: pipeline
 domain: voltage
@@ -219,102 +197,36 @@ expected_metrics:
 ```python
 from eda_agents.bridge import JobRegistry, KLayoutOps
 
-registry = JobRegistry()          # ~/.cache/eda_agents/jobs/
-job = registry.submit(fn, args, kwargs)
-registry.wait(job.id, timeout_s=60)
+registry = JobRegistry()                         # jobs persist under ~/.cache/eda_agents/jobs/
+job_id = registry.submit(fn, *args, **kwargs)    # returns the job id
+record = registry.wait(job_id, timeout=60)       # JobRecord; may still be running after a timeout
 
-ops = KLayoutOps()                # delegates to core/klayout_*.py
-drc = ops.run_drc(gds_path, pdk="gf180mcu")
+ops = KLayoutOps(pdk_root=pdk_root)              # KLayout DRC/LVS for GF180MCU
+drc = ops.run_drc(gds_path, run_dir="drc_run")
 ```
 
-The CLI surface is `eda-bridge init / status / jobs / cancel /
-stop / start xschem-netlist`. See `src/eda_agents/bridge/cli.py`
-for the argparse definitions and `examples/14_bridge_e2e.py` for
-an end-to-end scenario.
+The CLI surface is `eda-bridge init / status / jobs / cancel / stop / start xschem-netlist`. See `src/eda_agents/bridge/cli.py` for the argparse definitions and `examples/14_bridge_e2e.py` for an end-to-end scenario.
 
-## Known limitations / roadmap
+## Known limitations
 
-All 11 S9 in-tree gaps were closed in session S9-gap-closure on
-branch `feat/s9-gap-closure` (merged as commit `40026ac`; 11 commits
-preserved in history). The two residual "caveats honestos" from that
-session — SAR cold-cache flakiness and the never-exercised live path
-of `digital_autoresearch_adapter` — were closed end-to-end in session
-S9-residual-closure (branch `feat/s9-residual-closure`, 3 commits).
-See `CHANGELOG.md` for per-gap commit mapping. Bench surface now
-counts **17 tasks**; Pass@1 = 100% with `OPENROUTER_API_KEY` + the
-full LibreLane/GF180 tool chain sourced, and tasks SKIP honestly on
-tool-less hosts without degrading the headline number. Remaining
-open items below are upstream blockers (not our bugs) and deferred
-follow-ons, not bench regressions.
+Upstream issues on IHP SG13G2:
 
-### Upstream blockers (not our bugs, but they gate us)
+- **Magic does not work with the current IHP tech files**: it hangs on stream-out and LEF writing and fails on SPICE extraction. The IHP LibreLane template bypasses the whole Magic chain and uses KLayout for stream-out, DRC and LVS, so Magic-based parasitic extraction is not available on IHP. Details in [`docs/upstream_issues/ihp_magic_hang.md`](docs/upstream_issues/ihp_magic_hang.md).
+- **The IHP pad CDL is not readable by KLayout LVS.** The template sets `PAD_CDLS: []`, which is fine for core-only designs. Designs that instantiate IHP pads need to supply a KLayout-readable pad CDL, or an upstream fix.
 
-- **IHP Magic hangs** on `StreamOut / WriteLEF / SpiceExtraction /
-  DRC`. See
-  [`docs/upstream_issues/ihp_magic_hang.md`](docs/upstream_issues/ihp_magic_hang.md).
-  Effect: post-layout validation on IHP runs KLayout-only signoff;
-  Magic PEX is unavailable. The bench routes digital RTL-to-GDS at
-  GF180MCU-D precisely to avoid this blocker.
-- **IHP KLayout LVS deck** is incomplete; `RUN_LVS: false` is set
-  on the IHP flow until upstream lands a working deck. See
-  [`docs/upstream_issues/ihp_klayout_lvs_deck.md`](docs/upstream_issues/ihp_klayout_lvs_deck.md).
+Open work in this repo:
 
-### Deferred follow-ons (post-gap-closure, each its own session)
+- **SAR ADC calibration.** Spec thresholds are anchored to measured results, but a measured regeneration time constant, a real LDO, a real bootstrap switch and a corner sweep are still missing. See [`TODO_calibration.md`](src/eda_agents/skills/_bundles/sar_adc/TODO_calibration.md).
+- **Inverter-based amplifiers are not in the name registry yet**, so they can be used from Python but not through `get_topology_by_name` or the MCP tools.
+- **Long MCP tools block.** `run_autoresearch`, `explore_custom_topology` and a real `generate_rtl_draft` run hold the call open until they finish and do not stream progress.
+- **Deprecated SAR module names.** `sar_adc_8bit` and `sar_adc_8bit_behavioral` are shims that re-export the 7-bit topologies. Their legacy class names emit a `DeprecationWarning` when instantiated.
 
-- **SAR calibration items 2-5** — `tau_regen` measurement, LDO wiring,
-  real bootstrap switch, corner sweep. Tracked in
-  [`docs/skills/sar_adc/TODO_calibration.md`](docs/skills/sar_adc/TODO_calibration.md).
-  Item 1 (spec anchors) was RESOLVED across two passes: S9-gap-closure
-  lowered thresholds to measured defaults; S9-residual-closure raised
-  them to 4.5 bit / 28 dB after a 12-point Latin-square sweep measured
-  the architectural ceiling at 5.64 bit, and shifted defaults to that
-  ceiling point so the bench baseline keeps margin.
-- **Deprecation shim removal** — the `sar_adc_8bit` /
-  `sar_adc_8bit_behavioral` modules are thin re-exports of the
-  canonical 7-bit names. They stay until external callers migrate.
-
-### Beyond gap-closure: exploratory capabilities
-
-These are **not** gaps (the framework works without them) and they are
-**not** in scope for `feat/s9-gap-closure`. They are explicitly
-deferred until after the bench is hardened, to avoid dispersing effort.
-
-- **MCP server for eda-agents** — a semantic Model Context Protocol
-  server exposing the skill registry, bench runner, bridge
-  `JobRegistry`, topology evaluation, and gm/ID sizing to any MCP
-  client (Claude Code, Cursor, Gemini CLI, Zed, etc.) without
-  requiring the user to write Python. Reference pattern:
-  [`luarss/openroad-mcp`](https://github.com/luarss/openroad-mcp)
-  (BSD-3, same org that ships ORFS). **Not a shell wrapper** — our
-  MCP would expose `evaluate_topology`, `run_bench`,
-  `submit_bridge_job`, `render_skill`, etc. as first-class tools,
-  keeping the `CircuitTopology` / `PdkConfig` abstractions the repo
-  is built around. Scheduled after `feat/s9-gap-closure` closes. A
-  short design spike (map each tool candidate to its MCP signature
-  + prototype one tool) precedes any implementation session.
-
-### Pre-existing failures (pre-S0, left untouched)
-
-Two tests under `tests/test_handler.py`
-(`test_prefilter_bad_design`, `test_export_results`) fail against
-upstream `main` and are knowingly ignored. Do not try to "fix" them
-on this branch.
+`CHANGELOG.md` and parts of `docs/` still describe earlier stages of the project and lag behind this README.
 
 ## Coordination (optional)
 
-When installed alongside
-[Context Teleport](https://github.com/Mauricio-xx/context-teleport)
-(`pip install eda-agents[coordination]`), agents can use multi-agent
-coordination strategies via MCP. Without it, the strategies degrade
-gracefully to independent exploration.
+With the `coordination` extra, the ADK experiment harness can use [Context Teleport](https://github.com/Mauricio-xx/context-teleport) for multi-agent coordination over MCP. Without it, agents explore independently.
 
 ## License
 
-Apache-2.0 (see `LICENSE`). This repo's design is the result of the
-multi-session Arcadia-1 integration plan
-(`~/.claude/plans/concurrent-beaming-bear.md`). Six of the eight
-upstream Arcadia-1 repositories reviewed during the deep-dive have no
-LICENSE file; following `docs/license_status.md`, everything taken
-from them is reimplemented here rather than copied verbatim. The one
-repository with a compatible permissive license that we depend on at
-runtime (`adctoolbox`, MIT) is pulled as a PyPI dependency.
+Apache-2.0 (see `LICENSE`). Parts of the design were informed by repositories from the Arcadia-1 project. Most of them carry no license file, so nothing is copied from them and the relevant functionality is reimplemented here (see `docs/license_status.md`). The one permissively licensed dependency used at runtime, `adctoolbox` (MIT), is installed from PyPI.

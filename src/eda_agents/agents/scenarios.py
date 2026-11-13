@@ -17,7 +17,8 @@ from pydantic import BaseModel, Field
 
 from eda_agents.core.topology import CircuitTopology
 
-_uuid = lambda: str(uuid4())
+def _uuid() -> str:
+    return str(uuid4())
 
 
 # ---------------------------------------------------------------------------

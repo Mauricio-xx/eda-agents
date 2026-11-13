@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -39,7 +38,7 @@ from eda_agents.agents.idea_to_rtl import (
 )
 from eda_agents.bench.adapter_inputs import IdeaToDigitalChipInputs
 from eda_agents.bench.adapters import run_idea_to_digital_chip
-from eda_agents.bench.models import BenchStatus, load_task
+from eda_agents.bench.models import BenchStatus, BenchTask, load_task
 
 _TASK_DIR = Path(__file__).resolve().parents[1] / "bench" / "tasks" / "end-to-end"
 
@@ -741,6 +740,7 @@ class TestBenchAdapterDry:
         assert any("EDA_AGENTS_ALLOW_DANGEROUS" in e for e in result.errors)
 
 
+@pytest.mark.usefixtures("pdk_root_env")
 class TestBenchAdapterCocotbSkipPath:
     """Fase 1.5: the adapter must treat a cocotb-skipped gl_sim as a
     clean PASS when the agent's own flow completed, not as a FAIL_AUDIT.
@@ -825,7 +825,6 @@ class TestBenchAdapterCocotbSkipPath:
     def test_failed_gl_sim_still_fails_audit(self, tmp_path, monkeypatch):
         # Sanity: when gl_sim actually failed (not skipped), the
         # adapter must still report FAIL.
-        from eda_agents.bench import adapters as adapters_mod
 
         fake = self._fake_idea_result(
             tmp_path,

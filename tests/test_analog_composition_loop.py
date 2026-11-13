@@ -513,6 +513,7 @@ def test_sweep_schema_ngspice_roundtrip(tmp_path):
     assert result.measurements.get("iop_c1") == pytest.approx(0.6, abs=1e-3)
 
 
+@pytest.mark.usefixtures("pdk_root_env")
 def test_sweep_schema_produces_runnable_deck(tmp_path):
     """End-to-end: a minimal composition + sweep testbench renders into a
     SPICE deck that ngspice can at least parse (exit code = 0)."""
