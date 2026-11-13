@@ -10,6 +10,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from tests.conftest import requires_adk
+
 from eda_agents.agents.digital_adk_prompts import (
     physical_designer_prompt,
     project_manager_prompt,
@@ -154,6 +156,7 @@ class TestPromptBuilders:
 # ---------------------------------------------------------------------------
 
 
+@requires_adk
 class TestToolFactories:
     """Verify tool factories produce callable FunctionTool objects."""
 
@@ -194,6 +197,7 @@ class TestToolFactories:
 # ---------------------------------------------------------------------------
 
 
+@requires_adk
 class TestSubAgentFactories:
     """Verify sub-agent factories build LlmAgent instances."""
 
@@ -275,6 +279,7 @@ class TestProjectManager:
         assert pm.precheck_dir == Path("/custom/precheck")
         assert pm.env is not None
 
+    @requires_adk
     def test_dry_run_returns_agent_graph(self):
         from eda_agents.agents.digital_adk_agents import ProjectManager
 
@@ -292,6 +297,7 @@ class TestProjectManager:
             "signoff_checker",
         ]
 
+    @requires_adk
     def test_dry_run_tool_counts(self):
         from eda_agents.agents.digital_adk_agents import ProjectManager
 
@@ -307,6 +313,7 @@ class TestProjectManager:
         assert tool_counts["physical_designer"] == 5
         assert tool_counts["signoff_checker"] == 7
 
+    @requires_adk
     def test_dry_run_via_run_method(self):
         """run(dry_run=True) delegates to dry_run()."""
         import asyncio

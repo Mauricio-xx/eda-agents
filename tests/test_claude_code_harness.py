@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -395,6 +396,7 @@ class TestRun:
 
 
 @pytest.mark.cc_cli
+@pytest.mark.skipif(shutil.which("claude") is None, reason="Claude Code CLI not on PATH")
 class TestIntegration:
     """Real Claude CLI invocation.  Run with ``pytest -m cc_cli``."""
 

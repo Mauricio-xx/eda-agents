@@ -740,6 +740,7 @@ class TestBenchAdapterDry:
         assert any("EDA_AGENTS_ALLOW_DANGEROUS" in e for e in result.errors)
 
 
+@pytest.mark.usefixtures("pdk_root_env")
 class TestBenchAdapterCocotbSkipPath:
     """Fase 1.5: the adapter must treat a cocotb-skipped gl_sim as a
     clean PASS when the agent's own flow completed, not as a FAIL_AUDIT.

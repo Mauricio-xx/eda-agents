@@ -19,6 +19,7 @@ from eda_agents.agents.digital_autoresearch import (
 )
 from eda_agents.core.digital_design import DEFAULT_PPA_COLUMNS
 from eda_agents.core.flow_stage import FlowStage
+from tests.conftest import requires_litellm
 
 
 # ---------------------------------------------------------------------------
@@ -974,6 +975,7 @@ class TestProposalDispatch:
         assert kw["model"] == "openai/gpt-5.3-codex"
         assert kw["cli_path"] == "/usr/local/bin/opencode"
 
+    @requires_litellm
     @pytest.mark.anyio
     async def test_litellm_backend_uses_acompletion(
         self, design, monkeypatch
@@ -1017,6 +1019,7 @@ class TestProposalDispatch:
         assert calls[0]["model"] == "openrouter/google/gemini-2.5-flash"
         assert params == {"PL_TARGET_DENSITY_PCT": 55, "CLOCK_PERIOD": 35}
 
+    @requires_litellm
     @pytest.mark.anyio
     async def test_cc_cli_does_not_call_litellm(
         self, design, monkeypatch
@@ -1056,6 +1059,7 @@ class TestProposalDispatch:
             "## Goal\nTest\n", history=[], best=None, eval_num=1
         )
 
+    @requires_litellm
     @pytest.mark.anyio
     async def test_opencode_does_not_call_litellm(
         self, design, monkeypatch

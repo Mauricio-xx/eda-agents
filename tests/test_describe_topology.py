@@ -7,8 +7,12 @@ gate without any per-test marker.
 
 from __future__ import annotations
 
-from eda_agents.mcp.server import describe_topology
-from eda_agents.topologies import list_topology_names
+import pytest
+
+pytest.importorskip("fastmcp")
+
+from eda_agents.mcp.server import describe_topology  # noqa: E402
+from eda_agents.topologies import list_topology_names  # noqa: E402
 
 
 class TestDescribeTopology:

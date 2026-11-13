@@ -31,6 +31,7 @@ from eda_agents.bench.runner import (
     render_markdown_report,
     run_batch,
 )
+from tests.conftest import requires_litellm
 
 
 # ---------------------------------------------------------------------------
@@ -498,6 +499,7 @@ def test_sar11b_adapter_skips_cleanly_when_tools_missing(tmp_path, monkeypatch):
     assert any("missing tools" in e for e in res.errors)
 
 
+@requires_litellm
 def test_llm_adapter_skips_when_no_api_key(tmp_path, monkeypatch):
     """Gap #8: absent OPENROUTER_API_KEY -> FAIL_INFRA (SKIPPED in summary)."""
     from eda_agents.bench.adapters import llm_spec_to_sizing_adapter

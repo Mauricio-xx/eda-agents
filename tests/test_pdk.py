@@ -177,6 +177,7 @@ class TestResolvePdkRoot:
             resolve_pdk_root(IHP_SG13G2)
 
 
+@pytest.mark.usefixtures("pdk_root_env")
 class TestSpiceRunnerPdk:
     """Test SpiceRunner PDK integration."""
 

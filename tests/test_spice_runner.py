@@ -32,6 +32,7 @@ class TestParseMeasValue:
 
 
 class TestSpiceRunnerInit:
+    @pytest.mark.usefixtures("pdk_root_env")
     def test_default_construction(self):
         runner = SpiceRunner()
         assert runner.pdk_root.name in ("IHP-Open-PDK", runner.pdk_root.name)
@@ -48,6 +49,7 @@ class TestSpiceRunnerInit:
         assert len(missing) > 0
 
 
+@pytest.mark.usefixtures("pdk_root_env")
 class TestParseOutput:
     def test_parse_ac_measurements(self):
         runner = SpiceRunner()

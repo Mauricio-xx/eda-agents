@@ -383,7 +383,7 @@ class TestRunPostPnr:
         assert result.metrics_delta["gl_sim_sdf_warnings"] >= 3
 
     def test_missing_sdf_fails(self, tmp_path, pdk_config):
-        """Netlist without an SDF is a gate failure (no silent skip)."""
+        """With SDF annotation enabled, a missing SDF is a gate failure."""
         project = tmp_path / "project"
         (project / "tb").mkdir(parents=True)
         (project / "tb" / "tb_dut_top.v").write_text("module tb; endmodule\n")
@@ -402,6 +402,7 @@ class TestRunPostPnr:
         runner = GlSimRunner(
             design=design, env=env, run_dir=run_dir,
             pdk_config=pdk_config, pdk_root=tmp_path,
+            enable_sdf_annotation=True,
         )
         result = runner.run_post_pnr()
 
