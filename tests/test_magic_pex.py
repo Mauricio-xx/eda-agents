@@ -18,7 +18,6 @@ from eda_agents.core.magic_pex import (
     ExtFileParser,
     MagicPexResult,
     MagicPexRunner,
-    ParasiticCap,
     _detect_degenerate_netlist,
 )
 

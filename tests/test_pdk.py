@@ -1,6 +1,5 @@
 """Tests for PDK abstraction layer."""
 
-import os
 
 import pytest
 

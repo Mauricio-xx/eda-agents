@@ -311,7 +311,7 @@ class TestOverlayPreprocessing:
         netlist_path = tmp_path / "opamp.spice"
         netlist_path.write_text(SAMPLE_GLAYOUT_NETLIST)
 
-        cir_path = topo.generate_postlayout_testbench_overlay(
+        topo.generate_postlayout_testbench_overlay(
             glayout_netlist_path=netlist_path,
             parasitic_caps=[],
             sizing=default_sizing,

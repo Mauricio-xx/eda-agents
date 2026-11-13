@@ -326,11 +326,6 @@ class StrongARMComparatorTopology(CircuitTopology):
         nmos = self.pdk.nmos_symbol
         px = self.pdk.instance_prefix
 
-        m1 = sizing["M1"]
-        m3 = sizing["M3"]
-        m4 = sizing["M4"]
-        m6 = sizing["M6"]
-
         lines = [
             f"StrongARM Dynamic Comparator - {self.pdk.display_name} Transient Analysis",
             "",
@@ -354,7 +349,7 @@ class StrongARMComparatorTopology(CircuitTopology):
             f"  meas tran avg_idd AVG i(VVDD) FROM=0 TO={T_period:.4e}",
             "",
             "  * Backup: also measure at second cycle for stability",
-            f"  meas tran td_decision2 TRIG v(clk) VAL=0.6 FALL=2 TARG v(outn) VAL=0.6 FALL=2",
+            "  meas tran td_decision2 TRIG v(clk) VAL=0.6 FALL=2 TARG v(outn) VAL=0.6 FALL=2",
             "",
             ".endc",
             "",
